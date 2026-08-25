@@ -1,0 +1,55 @@
+###############################################################
+# SConscript for fluxus-audio
+#
+# This is the main RACKET module for the fluxus audio functions
+
+Import("env", "BinaryModulesLocation", "MZDYN", "static_modules", "racket_framework")
+
+if env['PLATFORM'] == 'darwin':
+	Target = "fluxus-audio_ss.dylib"
+else:
+	Target = "fluxus-audio_ss.so"
+
+if static_modules: Target = "fluxus-audio_ss"
+
+Install = BinaryModulesLocation
+Libs =  Split("jack fftw3 sndfile")
+
+Frameworks = Split("CoreAudio")
+if env['PLATFORM'] == 'darwin':
+	if racket_framework:
+		Frameworks += ['Racket']
+	else:
+		Libs += ['racket3m']
+
+
+
+# link libraries statically when making an os x app
+if env['PLATFORM'] == 'darwin' and GetOption('app'):
+	for l in ['fftw3', 'sndfile', 'ogg', 'flac', 'vorbis', 'vorbisenc']:
+		if l in Libs:
+			Libs.remove(l)
+		Libs.append(File('/opt/local/lib/lib%s.a' % l))
+	Libs.remove('jack')
+
+	Frameworks += ["Jackmp"]
+
+Source = Split("src/FluxusAudio.cpp \
+		src/AudioCollector.cpp \
+		src/JackClient.cpp") + \
+		[MZDYN]
+		
+if static_modules:
+	env.StaticLibrary(source = Source, 
+				  target = Target,
+				  LIBS = Libs,
+				  FRAMEWORKS = Frameworks)
+else:
+	env.SharedLibrary(source = Source, 
+				  target = Target,
+				  LIBS = Libs,
+				  SHLIBPREFIX = "",
+				  FRAMEWORKS = Frameworks)
+						  
+if not static_modules: env.Install(Install, Target)
+

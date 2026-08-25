@@ -1,0 +1,43 @@
+###############################################################
+# SConscript for fluxus-osc
+#
+# This is the main RACKET module for the fluxus osc functions
+
+Import("env", "BinaryModulesLocation", "MZDYN", "static_modules", "racket_framework")
+
+if env['PLATFORM'] == 'darwin':
+	Target = "fluxus-osc_ss.dylib"
+else:
+	Target = "fluxus-osc_ss.so"
+
+if static_modules: Target = "fluxus-osc_ss"
+
+Install = BinaryModulesLocation
+Libs = ['lo']
+Frameworks = []
+
+Source = Split("src/FluxusOSC.cpp \
+		src/OSCServer.cpp \
+		src/OSCCore.cpp") + \
+		[MZDYN]
+
+if env['PLATFORM'] == 'darwin':
+	if racket_framework:
+		Frameworks += ['Racket']
+	else:
+		Libs += ['racket3m']
+
+if static_modules:
+	env.StaticLibrary(source = Source, 
+				  target = Target,
+				  LIBS = Libs,
+				  FRAMEWORKS = Frameworks)
+else:
+	env.SharedLibrary(source = Source, 
+				  target = Target,
+				  LIBS = Libs,
+				  SHLIBPREFIX = "",
+				  FRAMEWORKS = Frameworks)
+						 
+if not static_modules: env.Install(Install, Target)
+

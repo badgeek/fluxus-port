@@ -1,0 +1,30 @@
+# -*- mode: python -*-
+###############################################################
+# Top level SConscript for the fluxus Racket modules
+#
+# Sets up common stuff, and calls each module SConscript 
+
+import os 
+Import("env", "CollectsInstall", "DataInstall", "MZDYN",
+		"BinaryModulesLocation", "static_modules", "static_ode", "racket_framework", "Prefix")
+
+if env['PLATFORM'] == 'win32':
+	SConscript(dirs = ["fluxus-engine", 
+				"fluxus-openal",
+				"scheme",
+				"material"], 
+				exports = ["env", "CollectsInstall", "DataInstall", "BinaryModulesLocation",
+					"MZDYN", "static_modules", "static_ode", "Prefix"])
+else:
+	SConscript(dirs = ["fluxus-engine", 
+				"fluxus-audio", 
+				"fluxus-osc", 
+				"fluxus-midi", 
+				"fluxus-openal", 
+				"scheme",
+				"material"], 
+				exports = ["env", "CollectsInstall", "DataInstall", "BinaryModulesLocation",
+					"MZDYN", "static_modules", "static_ode", "racket_framework", "Prefix"])
+
+env.Install(CollectsInstall, "../docs/helpmap.scm")
+

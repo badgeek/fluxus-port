@@ -1,0 +1,54 @@
+# -*- mode: python; -*-
+###############################################################
+# SConscript for fluxa
+#
+# Fluxus's synth and sampler server
+
+Import("env", "BinInstall", "Prefix")
+
+Target       = "fluxa"
+Install      = BinInstall
+Libs = Split("m sndfile jack lo pthread dl")
+Frameworks = []
+
+Source = Split("src/Sample.cpp \
+				src/SearchPaths.cpp \
+				src/AsyncSampleLoader.cpp \
+				src/Allocator.cpp \
+				src/CommandRingBuffer.cpp \
+				src/Event.cpp \
+				src/EventQueue.cpp \
+				src/JackClient.cpp \
+				src/OSCServer.cpp \
+				src/RingBuffer.cpp \
+				src/Time.cpp \
+				src/Modules.cpp \
+				src/Fluxa.cpp \
+				src/Sampler.cpp	\
+				src/SampleStore.cpp \
+				src/GraphNode.cpp \
+				src/ModuleNodes.cpp \
+				src/Graph.cpp \
+				src/main.cpp")					
+
+if env['PLATFORM'] == 'darwin':
+	Frameworks = Split("GLUT OpenGL CoreAudio")
+
+# link libraries statically when making an os x app
+if env['PLATFORM'] == 'darwin' and GetOption('app'):
+	import sys, os.path
+	sys.path.append(os.path.abspath('../packages/macos'))
+	from osxbundle import *
+	TOOL_BUNDLE(env)
+	Frameworks += ["Jackmp"]
+
+	for l in ['sndfile', 'ogg', 'vorbis', 'vorbisenc', 'FLAC']:
+		if l in Libs:
+			Libs.remove(l)
+		Libs.append(File('%s/lib/lib%s.a' % (Prefix, l)))
+	Libs.remove('jack')
+
+env.Program(source = Source, target = Target, LIBS = Libs, FRAMEWORKS = Frameworks)
+env.Install(Install, Target)
+env.Alias('install', Install)
+

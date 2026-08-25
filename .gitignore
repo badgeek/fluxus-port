@@ -1,0 +1,14 @@
+# build output
+build/
+spikes/build/
+spikes/**/build/
+cmake-build*/
+_deps/
+
+# spike binaries
+spikes/racket/racket_spike
+spikes/racket/racket_bind
+
+# macOS / bundles
+.DS_Store
+*.app/

@@ -1,0 +1,151 @@
+# fluxus → JUCE — Roadmap
+
+Current state: engine renders in JUCE; `IRenderBackend`/`GLBackend` seam;
+s7 fluxus command API; two editor variants (JUCE overlay + fluxus `GLEditor`);
+fluxus eval model (Ctrl+E / Shift+Enter, animation on committed script).
+
+Below: what's left, prioritized. Each item notes value, effort (S/M/L), and the
+files it touches. Recommended order at the bottom.
+
+---
+
+## A. Command-API breadth (toward fluxus parity)
+
+The single highest-leverage area — every command added makes the tool more
+capable with little architectural risk. All land in `app/S7ScriptHost.cpp`
+(bindings) + a scheme prelude.
+
+- **A1. More primitives** (S). `build-cylinder`, `build-plane xseg yseg`,
+  `build-torus` variants, `build-icosphere`, `build-line`/`build-ribbon`. Builders
+  already exist in `GraphicsUtils` / `RibbonPrimitive`. ~1 binding each.
+- **A2. More state** (S). `wire-colour`, `line-width`, `point-width`, `hint-*`
+  (wireframe/points/unlit/none), `opacity`, `specular`, `shininess`, `blend-mode`.
+  All are `State` fields already routed through `IRenderBackend`.
+- **A3. Turtle / grab** (M). fluxus `(grab id) … (ungrab)` to mutate an existing
+  primitive's state/pdata after creation; `(with-primitive id …)`. Needs a
+  "current grabbed prim" in the build context.
+- **A4. Maths helpers** (S). `vmul`, `vadd`, `vsub`, `vcross`, `vnormalise`,
+  `vdist`, `vlerp`, `crndvec`, `srndvec` (fluxus random vectors). Pure scheme
+  prelude + a few C bindings for RNG.
+- **A5. Persistent scene mode** (M). fluxus also supports non-immediate scenes
+  where prims persist across frames and you animate via `(grab)`. Add an
+  `(every-frame proc)` registration so a scene builds once and a proc runs each
+  frame — the true fluxus model alongside the current whole-buffer re-eval.
+
+## B. pdata — vertex-level access (fluxus signature)
+
+- **B1. pdata read/write** (M). `(pdata-ref "p" n)`, `(pdata-set! "p" n v)`,
+  `(pdata-size)`, `(pdata-add "mydata")`. This is what makes fluxus fluxus —
+  deform geometry per-vertex from script. `PDataContainer` is already GL-free;
+  bind its typed arrays. Reference: fluxus `PDataFunctions.cpp`.
+- **B2. pdata-map / foldl** (M). Scheme-side iterate helpers over pdata.
+
+## C. Live-coding UX (fluxus scratchpad features)
+
+- **C1. REPL/console for FluxusGLApp** (M). Port fluxus `Repl` (subclass of
+  GLEditor) as a second overlay for interactive one-liners + output. FluxusApp
+  already has a console; GLApp has none.
+- **C2. Editor show/hide + multiple workspaces** (M). fluxus: Ctrl+H hide,
+  digits 0-8 switch 9 buffers, 9 = repl. Store N buffers, a current index.
+- **C3. Save / load scripts** (S). JUCE `FileChooser` → read/write the buffer.
+- **C4. Scheme syntax colouring** (M). fluxus greys comments, highlights parens.
+  GLEditor has paren-match already; add token colouring.
+- **C5. Auto-focus toggle** (S). `m_DoAutoFocus` on/off (the zoom-to-cursor).
+
+## D. Audio-reactive (no JACK)
+
+- **D1. IAudioHost seam + JuceAudioHost** (M). `AudioDeviceManager` input →
+  ring buffer → FFT. Mirrors the existing IScriptHost/IRenderBackend seam style.
+- **D2. Audio bindings** (S). fluxus `(gh n)` harmonic, `(ga)` amplitude,
+  `(gain)`; feed FFT bands to the script each frame. Enables sound-driven visuals.
+
+## H. External control — MIDI / OSC (no new libraries)
+
+fluxus has `fluxus-midi` + `fluxus-osc` modules. JUCE covers both, so this is
+pure binding work behind seams (same pattern as `IAudioHost`).
+
+- **H1. MIDI in** (M). `IMidiHost` + `JuceMidiHost` (`juce::MidiInput`, CoreMIDI).
+  Bind fluxus getters: `(midi-cc channel ctrl)`, `(midi-ccn …)` normalised,
+  `(midi-note)`, `(midi-program)`. Ref: `modules/fluxus-midi`. Lib: **none** —
+  `juce_audio_devices` (already available).
+- **H2. OSC in/out** (M). `IOscHost` + `JuceOscHost` using the **`juce_osc`**
+  module (built into JUCE — just link it). Bind `(osc-source "port")`,
+  `(osc "/addr")` to read args, `(osc-destination)` + `(osc-send)` to send.
+  Ref: `modules/fluxus-osc`. Lib: **none** (fluxus used liblo; JUCE replaces it).
+
+## E. Interaction
+
+- **E1. Mouse-orbit / zoom camera** (M). JUCE mouse events → `Camera` transform
+  (orbit, pan, dolly). Currently the camera is fixed at (0,0,-10).
+- **E2. Picking** (L). fluxus `(mouse-over)` returns the prim under the cursor.
+  `GL_SELECT` is gone in modern GL → colour-pick or CPU ray test (`Geometry.cpp`
+  has ray/triangle already). Defer.
+
+## F. Rendering fidelity
+
+- **F1. Textures** (M). `(texture "file.png")`. Needs re-enabling PNGLoader
+  (drop `FLUXUS_MINIMAL_NO_PNG`, link libpng) + `TexturePainter` already compiled.
+- **F2. Lights API** (S). `(make-light)`, `(light-position)`, ambient/diffuse —
+  `Light` API exists; just bind it.
+- **F3. More prim types compiled in** (M). Re-add TypePrimitive (text, FreeType
+  already fetched for the editor!), ParticlePrimitive, Blobby as builders.
+
+## G. Infrastructure / polish
+
+- **G1. Bundle the font** (S). Copy DejaVuSansMono.ttf into the .app Resources
+  instead of an absolute compile-time path (portable builds).
+- **G2. Error surfacing in FluxusGLApp** (S). Draw the s7 error string as a GL
+  overlay line (GLApp has no console yet).
+- **G3. A Makefile / run targets** (S). Like the root project's, for both apps.
+- **G4. Smoke tests** (M). Headless: eval a script → assert scene prim count /
+  no error. Guards the command API as it grows.
+
+---
+
+## Recommended order
+
+1. **A1 + A2** (S) — cheap primitives + state; biggest capability-per-effort.
+2. **B1** (M) — pdata access; the defining fluxus feature.
+3. **A5** (M) — `every-frame` / persistent scene; unlocks real fluxus animation
+   patterns beyond whole-buffer re-eval.
+4. **G1 + G2 + G3** (S) — portability + GLApp error overlay + run targets.
+5. **D1 + D2** (M) — audio-reactive; high wow-factor, seam pattern already known.
+6. **E1** (M) — mouse-orbit camera; makes exploring scenes natural.
+7. **C1–C4** (M) — scratchpad UX (repl, workspaces, save/load, syntax).
+8. **F1 / F3** (M) — textures + more prim types.
+9. **E2 / G4** (L) — picking + tests; last.
+
+**Fastest path to "feels like fluxus":** A1 → A2 → B1 → A5 → D1/D2.
+
+---
+
+## External libraries — what each feature needs
+
+Current deps: **OpenGL framework** (both apps), **s7** (vendored source),
+**JUCE** (fetched), **FreeType** (fetched, FluxusGLApp only).
+
+| Feature | Library | Status |
+|---|---|---|
+| A (commands), B (pdata), A5 (every-frame) | **none** | engine already compiled — pure binding work |
+| Audio (D) | **none new** | JUCE gives CoreAudio input + FFT (`juce_dsp`, `juce_audio_devices`) |
+| Text primitive / `build-text` (F3) | **FreeType** | already fetched for the editor — just re-add `TypePrimitive.cpp` |
+| Particle / Blobby prims (F3) | **none** | pure engine; excluded only to trim — re-add the .cpp files |
+| NURBS | **GLU** | already in the OpenGL framework |
+| Textures / `(texture "x.png")` (F1) | **libpng** *or none* | avoid it: decode via JUCE `ImageFileFormat`, push pixels to `TexturePainter`. Skips the dep. DDS already works (no dep). |
+| **MIDI in** (`midi-cc`, `midi-note`) | **none new** | `juce_audio_devices` — `MidiInput`/CoreMIDI (fluxus used ALSA) |
+| **OSC in/out** (`osc-source`, `osc-send`) | **none new** | **`juce_osc`** module, built into JUCE (fluxus used liblo) |
+| **Physics** (`active-box`, gravity, collisions) | **ODE** (Open Dynamics Engine) | NOT yet included — the one real new lib |
+| Picking (E2) | **none** | colour-pick or CPU ray (`Geometry.cpp` has ray/triangle) |
+
+### Physics = the one that needs a library (ODE)
+
+fluxus physics is built on **ODE**. To add it:
+1. Fetch ODE (has CMake: `github.com/thomasmarsh/ODE` mirror, or odedevs/ode).
+2. Re-add `Physics.cpp` (+ `PixelPrimitive` is separate) to `libfluxus_min`, link `ode`.
+3. Tick it each frame in `FluxusScene::renderFrame` (`Physics::Tick()`).
+4. Bind fluxus physics commands in `S7ScriptHost.cpp`: `(active-box)`,
+   `(active-sphere)`, `(passive-box)`, `(set-gravity (vector …))`, `(kick id …)`,
+   `(collisions #t)`, etc. Reference: `modules/fluxus-engine/PhysicsFunctions.cpp`.
+
+Effort: **M–L** (ODE build + integration). No other roadmap item needs a new
+external dependency — everything else is binding work against already-compiled code.

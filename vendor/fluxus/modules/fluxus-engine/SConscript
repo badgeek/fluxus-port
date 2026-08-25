@@ -1,0 +1,78 @@
+###############################################################
+# SConscript for fluxus-engine
+#
+# This is the main RACKET module for fluxus, containing all core
+# graphics functions
+
+Import("env", "BinaryModulesLocation", "MZDYN", "static_modules",
+	"static_ode", "Prefix", "racket_framework")
+
+if env['PLATFORM'] == 'darwin':
+	Target = "fluxus-engine_ss.dylib"
+elif env['PLATFORM'] == 'win32':
+	Target = "fluxus-engine_ss.dll"
+else:
+	Target = "fluxus-engine_ss.so"
+
+if static_modules: Target = "fluxus-engine_ss"
+
+Frameworks = []
+Libs = Split("GLEW fluxus png ode tiff jpeg freetype z bz2")
+Install = BinaryModulesLocation
+
+if env['PLATFORM'] != 'darwin':
+	Libs += Split("GL GLU glut")
+else:
+	Frameworks += ["GLUT",  "OpenGL"]
+	if racket_framework:
+		Frameworks += ['Racket']
+	else:
+		Libs += ['racket3m']
+
+if env['PLATFORM'] == 'win32':
+	    Libs = Split("libmzsch3m_6ncc9s fluxus glu32 glew32 glut32 opengl32 png ode tiff jpeg freetype")
+
+# link libraries statically when making an os x app
+if env['PLATFORM'] == 'darwin' and GetOption('app'):
+	for l in ['png', 'tiff', 'GLEW', 'freetype', 'ode', 'z', 'bz2', 'jpeg']:
+		if l in Libs:
+			Libs.remove(l)
+		Libs.append(File('/opt/local/lib/lib%s.a' % l))
+
+# link ode statically
+if static_ode and not GetOption('clean'):
+	if 'ode' in Libs:
+		Libs.remove('ode')
+		Libs.append(File('%s/lib/libode.a' % Prefix))
+
+Source = Split("src/Engine.cpp \
+		src/FluxusEngine.cpp \
+		src/SchemeHelper.cpp \
+        src/GlobalStateFunctions.cpp \
+		src/LocalStateFunctions.cpp \
+		src/MathsFunctions.cpp \
+		src/PrimitiveFunctions.cpp \
+		src/PDataFunctions.cpp \
+		src/UtilFunctions.cpp \
+		src/TurtleFunctions.cpp \
+		src/LightFunctions.cpp \
+		src/PhysicsFunctions.cpp \
+		src/TurtleBuilder.cpp \
+		src/PFuncContainer.cpp \
+		src/FFGLFunctions.cpp") + \
+		[MZDYN]
+		
+if static_modules:
+	env.StaticLibrary(source = Source, 
+				  target = Target,
+				  LIBS = Libs,
+				  FRAMEWORKS = Frameworks)
+else:
+	env.SharedLibrary(source = Source, 
+				  target = Target, 
+				  LIBS = Libs,
+				  SHLIBPREFIX = "",
+				  FRAMEWORKS = Frameworks)
+						  
+if not static_modules: env.Install(Install, Target)
+

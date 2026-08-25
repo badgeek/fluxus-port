@@ -1,0 +1,67 @@
+###############################################################
+# SConscript for libfluxus
+#
+# Builds a static library of the core rendering code, no need
+# to install, as this is linked to fluxus-engine statically
+
+Import("env")
+
+Target = "libfluxus.a"
+
+Source = Split("src/Allocator.cpp \
+        src/PData.cpp \
+        src/PDataOperator.cpp \
+		src/PDataContainer.cpp \
+		src/PDataArithmetic.cpp \
+		src/GraphicsUtils.cpp \
+		src/PNGLoader.cpp \
+		src/PolyPrimitive.cpp \
+		src/TextPrimitive.cpp \
+		src/RibbonPrimitive.cpp \
+		src/ParticlePrimitive.cpp \
+		src/PixelPrimitive.cpp \
+		src/BlobbyPrimitive.cpp \
+		src/NURBSPrimitive.cpp \
+		src/LocatorPrimitive.cpp \
+		src/TypePrimitive.cpp \
+		src/Primitive.cpp \
+		src/Camera.cpp \
+		src/ImmediateMode.cpp \
+		src/Light.cpp \
+		src/Renderer.cpp \
+		src/SceneGraph.cpp \
+		src/State.cpp \
+		src/TexturePainter.cpp \
+		src/Tree.cpp \
+		src/dada.cpp \
+		src/SearchPaths.cpp \
+		src/GLSLShader.cpp \
+		src/ShaderCache.cpp \
+		src/ShadowVolumeGen.cpp \
+		src/Physics.cpp \
+		src/DepthSorter.cpp \
+		src/PrimitiveFunction.cpp \
+		src/ArithmeticPrimFunc.cpp \
+		src/GenSkinWeightsPrimFunc.cpp \
+		src/SkinWeightsToVertColsPrimFunc.cpp \
+		src/SkinningPrimFunc.cpp \
+		src/Utils.cpp \
+		src/Trace.cpp \
+		src/PrimitiveIO.cpp \
+		src/PixelPrimitiveIO.cpp \
+		src/OBJPrimitiveIO.cpp \
+		src/Evaluator.cpp \
+		src/Geometry.cpp \
+		src/PolyEvaluator.cpp \
+		src/Noise.cpp \
+		src/SimplexNoise.cpp \
+		src/TiledRender.cpp \
+		src/ImagePrimitive.cpp \
+		src/FFGLManager.cpp \
+		src/VoxelPrimitive.cpp \
+		src/DDSLoader.cpp \
+		src/DebugGL.cpp"
+		)
+				
+env.StaticLibrary(source = Source, target = Target)
+

@@ -1,0 +1,144 @@
+#include "S7ScriptHost.h"
+#include "FluxusCommands.h"     // shared engine command layer (same as the Racket host)
+
+extern "C" {
+#include "s7.h"
+}
+
+#include <string>
+
+// s7 bindings are thin: parse args, call the shared flux_* commands. Both s7 and
+// Racket drive the SAME FluxusCommands layer, so a primitive added there is
+// available to every app once bound in each host.
+
+namespace {
+// read a vec3 from args: a single s7 vector #(x y z) or three reals
+bool vec3(s7_scheme* sc, s7_pointer a, double& x, double& y, double& z) {
+  if (!s7_is_pair(a)) return false;
+  s7_pointer first = s7_car(a);
+  if (s7_is_vector(first) && s7_vector_length(first) >= 3) {
+    x = s7_number_to_real(sc, s7_vector_ref(sc, first, 0));
+    y = s7_number_to_real(sc, s7_vector_ref(sc, first, 1));
+    z = s7_number_to_real(sc, s7_vector_ref(sc, first, 2));
+    return true;
+  }
+  x = s7_number_to_real(sc, s7_car(a));
+  y = s7_number_to_real(sc, s7_cadr(a));
+  z = s7_number_to_real(sc, s7_caddr(a));
+  return true;
+}
+
+s7_pointer f_colour(s7_scheme* sc, s7_pointer a)     { double x,y,z; if (vec3(sc,a,x,y,z)) flux_colour(x,y,z);     return s7_nil(sc); }
+s7_pointer f_background(s7_scheme* sc, s7_pointer a)  { double x,y,z; if (vec3(sc,a,x,y,z)) flux_background(x,y,z); return s7_nil(sc); }
+s7_pointer f_translate(s7_scheme* sc, s7_pointer a)   { double x,y,z; if (vec3(sc,a,x,y,z)) flux_translate(x,y,z);  return s7_nil(sc); }
+s7_pointer f_rotate(s7_scheme* sc, s7_pointer a)      { double x,y,z; if (vec3(sc,a,x,y,z)) flux_rotate(x,y,z);     return s7_nil(sc); }
+s7_pointer f_scale(s7_scheme* sc, s7_pointer a)       { double x,y,z; if (vec3(sc,a,x,y,z)) flux_scale(x,y,z);      return s7_nil(sc); }
+s7_pointer f_identity(s7_scheme* sc, s7_pointer)      { flux_identity(); return s7_nil(sc); }
+s7_pointer f_push(s7_scheme* sc, s7_pointer)          { flux_push();     return s7_nil(sc); }
+s7_pointer f_pop(s7_scheme* sc, s7_pointer)           { flux_pop();      return s7_nil(sc); }
+
+s7_pointer f_hint_wire(s7_scheme* sc, s7_pointer a)   { int on = s7_is_pair(a) ? (s7_boolean(sc, s7_car(a)) ? 1 : 0) : 1; flux_hint_wire(on);  return s7_nil(sc); }
+s7_pointer f_hint_solid(s7_scheme* sc, s7_pointer a)  { int on = s7_is_pair(a) ? (s7_boolean(sc, s7_car(a)) ? 1 : 0) : 1; flux_hint_solid(on); return s7_nil(sc); }
+s7_pointer f_line_width(s7_scheme* sc, s7_pointer a)  { if (s7_is_pair(a)) flux_line_width(s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+
+s7_pointer f_build_cube(s7_scheme* sc, s7_pointer)    { return s7_make_integer(sc, flux_build_cube()); }
+s7_pointer f_build_plane(s7_scheme* sc, s7_pointer)   { return s7_make_integer(sc, flux_build_plane()); }
+s7_pointer f_build_ribbon(s7_scheme* sc, s7_pointer a){ int n = s7_is_pair(a) ? (int) s7_number_to_real(sc, s7_car(a)) : 1; return s7_make_integer(sc, flux_build_ribbon(n)); }
+s7_pointer f_build_particles(s7_scheme* sc, s7_pointer a){ int n = s7_is_pair(a) ? (int) s7_number_to_real(sc, s7_car(a)) : 1; return s7_make_integer(sc, flux_build_particles(n)); }
+s7_pointer f_build_sphere(s7_scheme* sc, s7_pointer a){
+  int sl = 10, st = 10;
+  if (s7_is_pair(a)) { sl = (int) s7_number_to_real(sc, s7_car(a)); if (s7_is_pair(s7_cdr(a))) st = (int) s7_number_to_real(sc, s7_cadr(a)); }
+  return s7_make_integer(sc, flux_build_sphere(sl, st));
+}
+s7_pointer f_build_torus(s7_scheme* sc, s7_pointer a){
+  double in = 0.5, out = 1.0; int sl = 12, st = 12;
+  s7_pointer p = a;
+  if (s7_is_pair(p)) { in  = s7_number_to_real(sc, s7_car(p)); p = s7_cdr(p); }
+  if (s7_is_pair(p)) { out = s7_number_to_real(sc, s7_car(p)); p = s7_cdr(p); }
+  if (s7_is_pair(p)) { sl  = (int) s7_number_to_real(sc, s7_car(p)); p = s7_cdr(p); }
+  if (s7_is_pair(p)) { st  = (int) s7_number_to_real(sc, s7_car(p)); }
+  return s7_make_integer(sc, flux_build_torus(in, out, sl, st));
+}
+s7_pointer f_time (s7_scheme* sc, s7_pointer) { return s7_make_real(sc, flux_time()); }
+s7_pointer f_frame(s7_scheme* sc, s7_pointer) { return s7_make_integer(sc, flux_frame()); }
+
+s7_pointer f_grab(s7_scheme* sc, s7_pointer a)  { if (s7_is_pair(a)) flux_grab((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+s7_pointer f_ungrab(s7_scheme* sc, s7_pointer)  { flux_ungrab(); return s7_nil(sc); }
+s7_pointer f_pdata_size(s7_scheme* sc, s7_pointer) { return s7_make_integer(sc, flux_pdata_size()); }
+s7_pointer f_pdata_ref(s7_scheme* sc, s7_pointer a) {   // (pdata-ref name i)
+  const char* name = s7_string(s7_car(a));
+  int i = (int) s7_number_to_real(sc, s7_cadr(a));
+  s7_pointer v = s7_make_vector(sc, 3);
+  for (int c = 0; c < 3; ++c) s7_vector_set(sc, v, c, s7_make_real(sc, flux_pdata_get(name, i, c)));
+  return v;
+}
+s7_pointer f_pdata_set(s7_scheme* sc, s7_pointer a) {   // (pdata-set! name i vec)
+  const char* name = s7_string(s7_car(a));
+  int i = (int) s7_number_to_real(sc, s7_cadr(a));
+  s7_pointer vec = s7_caddr(a);
+  for (int c = 0; c < 3; ++c) flux_pdata_set(name, i, c, s7_number_to_real(sc, s7_vector_ref(sc, vec, c)));
+  return s7_nil(sc);
+}
+} // namespace
+
+S7ScriptHost::S7ScriptHost()  = default;
+S7ScriptHost::~S7ScriptHost() = default;
+
+void S7ScriptHost::init() {
+  sc = s7_init();
+  auto def = [&](const char* name, s7_function fn, int req, int opt, bool rest) {
+    s7_define_function(sc, name, fn, req, opt, rest, name);
+  };
+  def("colour",       f_colour,       0, 0, true);
+  def("color",        f_colour,       0, 0, true);
+  def("background",   f_background,   0, 0, true);
+  def("translate",    f_translate,    0, 0, true);
+  def("rotate",       f_rotate,       0, 0, true);
+  def("scale",        f_scale,        0, 0, true);
+  def("identity",     f_identity,     0, 0, false);
+  def("push",         f_push,         0, 0, false);
+  def("pop",          f_pop,          0, 0, false);
+  def("hint-wire",    f_hint_wire,    0, 0, true);
+  def("hint-solid",   f_hint_solid,   0, 0, true);
+  def("line-width",   f_line_width,   0, 0, true);
+  def("build-cube",      f_build_cube,      0, 0, false);
+  def("build-plane",     f_build_plane,     0, 0, false);
+  def("build-ribbon",    f_build_ribbon,    1, 0, false);
+  def("build-particles", f_build_particles, 1, 0, false);
+  def("build-sphere", f_build_sphere, 0, 0, true);
+  def("build-torus",  f_build_torus,  0, 0, true);
+  def("time",         f_time,         0, 0, false);
+  def("frame",        f_frame,        0, 0, false);
+  def("grab",         f_grab,         0, 0, true);
+  def("ungrab",       f_ungrab,       0, 0, false);
+  def("pdata-size",   f_pdata_size,   0, 0, false);
+  def("pdata-ref",    f_pdata_ref,    2, 0, false);
+  def("pdata-set!",   f_pdata_set,    3, 0, false);
+
+  s7_eval_c_string(sc,
+    "(define-macro (with-state . body)"
+    "  `(begin (push) (let ((__r (begin ,@body))) (pop) __r)))");
+  s7_eval_c_string(sc,
+    "(define-macro (with-primitive id . body)"
+    "  `(begin (grab ,id) (let ((__r (begin ,@body))) (ungrab) __r)))");
+}
+
+void S7ScriptHost::setRenderer(Fluxus::Renderer* r) { flux_set_renderer((void*) r); }
+
+void S7ScriptHost::setFrameInfo(double t, int frame) { flux_frame_begin(t, frame); }
+
+bool S7ScriptHost::eval(const std::string& code, std::string& errorOut) {
+  if (!sc) { errorOut = "s7 not initialised"; return false; }
+  s7_pointer out = s7_open_output_string(sc);
+  s7_pointer old = s7_set_current_output_port(sc, out);
+  std::string wrapped =
+    "(catch #t (lambda () " + code + " ) "
+    "(lambda (type info) (format #t \"; error: ~A: ~A\" type info) 'error))";
+  s7_eval_c_string(sc, wrapped.c_str());
+  std::string cap = s7_get_output_string(sc, out);
+  s7_set_current_output_port(sc, old);
+  s7_close_output_port(sc, out);
+  bool err = cap.find("; error:") != std::string::npos;
+  errorOut = err ? cap : "";
+  return !err;
+}

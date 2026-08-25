@@ -1,0 +1,38 @@
+###############################################################
+# SConscript for the Scheme RACKET modules
+#
+# Should be ok for cross platform
+
+import os	 
+Import("env", "CollectsInstall")
+
+Scripts    = ["boot.scm", 
+			  "fluxus.ss", 
+			  "fluxus-modules.ss", 
+			  "scratchpad.ss", 
+			  "help.ss",
+			  "input.ss",
+			  "camera.ss",
+			  "collada-import.ss",
+			  "building-blocks.ss",
+			  "drflux.ss",
+			  "randomness.ss",
+			  "frisbee.ss",
+			  "fluxa.ss",
+			  "tasks.ss",
+			  "time.ss",
+			  "gui.ss",
+			  "joylisten.ss",
+			  "tricks.ss",
+			  "poly-tools.ss",
+			  "pixels-tools.ss",
+              "voxels-tools.ss",
+			  "maths.ss",
+			  "testing.ss",
+			  "planetarium.ss",
+			  "shapes.ss",
+              "ffgl.ss" ]
+
+Install        = CollectsInstall
+
+env.Install(Install, Scripts)
