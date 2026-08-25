@@ -24,7 +24,7 @@ public:
 private:
   static constexpr int fftOrder = 10;          // 1024-point
   static constexpr int fftSize  = 1 << fftOrder;
-  static constexpr int nBands   = 16;
+  static constexpr int nBands   = fftSize / 2;  // 512 per-bin harmonics (fluxus (gh n))
 
   juce::AudioDeviceManager adm;
   juce::dsp::FFT fft { fftOrder };
@@ -64,13 +64,11 @@ private:
     window.multiplyWithWindowingTable(fftData.data(), (size_t) fftSize);
     fft.performFrequencyOnlyForwardTransform(fftData.data());   // magnitudes [0..fftSize/2]
 
+    // per-bin harmonics: (gh n) reads magnitude of FFT bin n, normalised
     float bands[nBands];
-    const int binsPer = (fftSize / 2) / nBands;
-    for (int b = 0; b < nBands; ++b) {
-      float sum = 0.0f;
-      for (int k = 0; k < binsPer; ++k) sum += fftData[(size_t) (b * binsPer + k)];
-      bands[b] = juce::jmin(1.0f, (sum / (float) binsPer) * 2.0f);
-    }
+    const float norm = 4.0f / (float) fftSize;
+    for (int b = 0; b < nBands; ++b)
+      bands[b] = fftData[(size_t) b] * norm;   // ~0..1 for typical audio
     flux_set_audio(bands, nBands, lastGain * 4.0);
   }
 };
