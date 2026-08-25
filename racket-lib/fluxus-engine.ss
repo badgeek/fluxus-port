@@ -74,6 +74,12 @@
 (define (frame) (_frame))
 (define (delta) 0.0)
 
+;; audio-reactive (FFI): (gh n) harmonic band, (gain) overall level
+(define _gh   (cfun "flux_audio_harmonic" (_fun _int -> _double) (lambda (n) 0.0)))
+(define _gain (cfun "flux_audio_gain"     (_fun -> _double)      (lambda () 0.0)))
+(define (gh n) (_gh n))
+(define (gain) (_gain))
+
 ;; fluxus (with-state ...) — save/run/restore transform+colour
 (define-syntax-rule (with-state body ...) (begin (push) (let ((r (begin body ...))) (pop) r)))
 

@@ -1,25 +1,27 @@
 #include "FluxusComponent.h"
 #include "FluxusScene.h"
 #include "IScriptHost.h"
+#include "AudioHost.h"
 
 namespace {
 juce::Font monoFont(float h) {
   return juce::Font(juce::Font::getDefaultMonospacedFontName(), h, juce::Font::plain);
 }
 const char* kStarter =
-  "; fluxus-style live coding (s7) - edit, then Ctrl+E (or Shift+Enter) to run\n"
-  "(background (vector 0.08 0.09 0.12))\n"
-  "\n"
-  "(colour (vector 0.9 0.5 0.2))\n"
-  "(rotate (vector (* 25 (time)) (* 40 (time)) 0))\n"
+  "; fluxus-style live coding (s7) - audio-reactive (make some noise!)\n"
+  "; edit, then Ctrl+E (or Shift+Enter) to run\n"
+  "(background (vector 0.05 0.05 0.09))\n"
+  "(colour (vector (+ 0.3 (gh 2)) (+ 0.2 (gh 6)) (+ 0.4 (gh 11))))\n"
+  "(rotate (vector (* 15 (time)) (* 25 (time)) 0))\n"
+  "(let ((g (+ 1.0 (* 4 (gain)))))\n"
+  "  (scale (vector g g g)))\n"
   "(build-cube)\n"
   "\n"
   "(with-state\n"
-  "  (translate (vector 2.5 0 0))\n"
-  "  (colour (vector 0.3 0.7 1.0))\n"
-  "  (scale (vector 0.6 0.6 0.6))\n"
-  "  (rotate (vector 0 (* -60 (time)) 0))\n"
-  "  (build-sphere 16 16))\n";
+  "  (translate (vector 3 0 0))\n"
+  "  (colour (vector 1.0 0.6 0.2))\n"
+  "  (scale (vector (+ 0.3 (gh 1)) (+ 0.3 (gh 8)) 0.4))\n"
+  "  (build-sphere 14 14))\n";
 }
 
 FluxusComponent::FluxusComponent(ScriptHostFactory mh, juce::String starter)
@@ -57,9 +59,13 @@ FluxusComponent::FluxusComponent(ScriptHostFactory mh, juce::String starter)
 
   pushScript();
   startTimerHz(10);
+
+  audio = makeJuceAudioHost();   // CoreAudio mic -> FFT bands for (gh n)/(gain)
+  audio->start();
 }
 
 FluxusComponent::~FluxusComponent() {
+  if (audio) audio->stop();
   stopTimer();
   ctx.detach();
 }

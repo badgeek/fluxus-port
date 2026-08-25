@@ -31,6 +31,10 @@ BuildCtx g_ctx;
 std::mutex  g_errMutex;
 std::string g_err;
 
+std::mutex         g_audioMutex;
+std::vector<float> g_bands;
+double             g_gain = 0.0;
+
 int addPrim(Primitive* p) {
   if (!g_ctx.r) { delete p; return -1; }
   // AddPrimitive copies the renderer's current State into the prim, so set the
@@ -149,6 +153,21 @@ void flux_pdata_set(const char* name, int i, int comp, double val) {
 
 double flux_time(void)  { return g_ctx.time; }
 int    flux_frame(void) { return g_ctx.frame; }
+
+void flux_set_audio(const float* bands, int n, double gain) {
+  std::lock_guard<std::mutex> lk(g_audioMutex);
+  g_bands.assign(bands, bands + (n > 0 ? n : 0));
+  g_gain = gain;
+}
+double flux_audio_harmonic(int n) {
+  std::lock_guard<std::mutex> lk(g_audioMutex);
+  if (n < 0 || n >= (int) g_bands.size()) return 0.0;
+  return g_bands[(size_t) n];
+}
+double flux_audio_gain(void) {
+  std::lock_guard<std::mutex> lk(g_audioMutex);
+  return g_gain;
+}
 
 void flux_report_error(const char* msg) {
   std::lock_guard<std::mutex> lk(g_errMutex);

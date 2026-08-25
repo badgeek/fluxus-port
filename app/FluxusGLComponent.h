@@ -8,6 +8,7 @@
 class FluxusScene;
 class EditorOverlay;
 class IScriptHost;
+struct IAudioHost;
 using ScriptHostFactory = std::function<std::unique_ptr<IScriptHost>()>;
 
 // Variant host that uses fluxus's OWN GL text editor (GLEditor) as the code
@@ -32,6 +33,7 @@ private:
   juce::OpenGLContext ctx;
   std::unique_ptr<FluxusScene>   scene;
   std::unique_ptr<EditorOverlay> overlay;
+  std::unique_ptr<IAudioHost>    audio;
   ScriptHostFactory makeHost;
   SharedScript shared;
   bool fontReady = false;

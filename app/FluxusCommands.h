@@ -43,6 +43,11 @@ extern "C" {
   double flux_time(void);
   int    flux_frame(void);
 
+  // audio-reactive: the audio host writes FFT bands + gain; scripts read them.
+  void   flux_set_audio(const float* bands, int n, double gain);
+  double flux_audio_harmonic(int n);   // (gh n) — band n magnitude, 0..~1
+  double flux_audio_gain(void);        // (gain) — overall level
+
   // scripts report an error string back to the host (or "" to clear)
   void flux_report_error(const char* msg);
 }

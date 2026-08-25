@@ -2,6 +2,7 @@
 #include "FluxusScene.h"
 #include "EditorOverlay.h"
 #include "IScriptHost.h"
+#include "AudioHost.h"
 
 #ifndef FLUXUS_FONT_PATH
 #define FLUXUS_FONT_PATH ""
@@ -32,9 +33,13 @@ FluxusGLComponent::FluxusGLComponent(ScriptHostFactory mh) : makeHost(std::move(
   ctx.setComponentPaintingEnabled(true);
   ctx.setContinuousRepainting(true);
   ctx.attachTo(*this);
+
+  audio = makeJuceAudioHost();
+  audio->start();
 }
 
 FluxusGLComponent::~FluxusGLComponent() {
+  if (audio) audio->stop();
   ctx.detach();
 }
 

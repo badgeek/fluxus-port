@@ -34,13 +34,16 @@ target_compile_definitions(s7 PRIVATE WITH_C_LOADER=0 WITH_SYSTEM_EXTRAS=0)
 target_compile_options(s7 PRIVATE -w)
 
 # --- the JUCE app ----------------------------------------------------------
-juce_add_gui_app(FluxusApp PRODUCT_NAME "FluxusApp")
+juce_add_gui_app(FluxusApp PRODUCT_NAME "FluxusApp"
+    MICROPHONE_PERMISSION_ENABLED TRUE
+    MICROPHONE_PERMISSION_TEXT "Fluxus uses the microphone for audio-reactive visuals.")
 
 target_sources(FluxusApp PRIVATE
     app/Main.cpp
     app/FluxusComponent.cpp
     app/FluxusScene.cpp
     app/FluxusCommands.cpp
+      app/AudioHost.cpp
     app/S7ScriptHost.cpp)
 
 target_compile_definitions(FluxusApp PRIVATE
@@ -55,6 +58,8 @@ target_link_libraries(FluxusApp PRIVATE
     s7
     juce::juce_opengl
     juce::juce_gui_extra
+    juce::juce_audio_utils
+    juce::juce_dsp
     PUBLIC
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
@@ -90,7 +95,9 @@ set_target_properties(fluxus_editor PROPERTIES CXX_STANDARD 14)  # fluxus 'byte'
 # --- the variant app -------------------------------------------------------
 set(FLUXUS_FONT "${CMAKE_CURRENT_SOURCE_DIR}/vendor/fluxus/modules/material/fonts/DejaVuSansMono.ttf")
 
-juce_add_gui_app(FluxusGLApp PRODUCT_NAME "FluxusGLApp")
+juce_add_gui_app(FluxusGLApp PRODUCT_NAME "FluxusGLApp"
+    MICROPHONE_PERMISSION_ENABLED TRUE
+    MICROPHONE_PERMISSION_TEXT "Fluxus uses the microphone for audio-reactive visuals.")
 
 target_sources(FluxusGLApp PRIVATE
     app/MainGL.cpp
@@ -98,6 +105,7 @@ target_sources(FluxusGLApp PRIVATE
     app/EditorOverlay.cpp
     app/FluxusScene.cpp
     app/FluxusCommands.cpp
+      app/AudioHost.cpp
     app/S7ScriptHost.cpp)
 
 target_compile_definitions(FluxusGLApp PRIVATE
@@ -114,6 +122,8 @@ target_link_libraries(FluxusGLApp PRIVATE
     fluxus_editor
     juce::juce_opengl
     juce::juce_gui_extra
+    juce::juce_audio_utils
+    juce::juce_dsp
     PUBLIC
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
@@ -125,13 +135,16 @@ target_link_libraries(FluxusGLApp PRIVATE
 set(RACKET_DIR "/opt/homebrew/Cellar/minimal-racket/9.3" CACHE PATH "Racket CS install prefix")
 
 if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
-  juce_add_gui_app(FluxusRacketApp PRODUCT_NAME "FluxusRacketApp")
+  juce_add_gui_app(FluxusRacketApp PRODUCT_NAME "FluxusRacketApp"
+    MICROPHONE_PERMISSION_ENABLED TRUE
+    MICROPHONE_PERMISSION_TEXT "Fluxus uses the microphone for audio-reactive visuals.")
 
   target_sources(FluxusRacketApp PRIVATE
       app/MainRacket.cpp
       app/FluxusComponent.cpp
       app/FluxusScene.cpp
       app/FluxusCommands.cpp
+      app/AudioHost.cpp
       app/RacketScriptHost.cpp)
 
   target_include_directories(FluxusRacketApp PRIVATE "${RACKET_DIR}/include/racket")
@@ -149,6 +162,8 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       libfluxus_min
       juce::juce_opengl
       juce::juce_gui_extra
+    juce::juce_audio_utils
+    juce::juce_dsp
       "${RACKET_DIR}/lib/libracketcs.a"
       "-liconv" "-lncurses"
       "-framework CoreFoundation"
@@ -157,13 +172,16 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       juce::juce_recommended_config_flags
       juce::juce_recommended_warning_flags)
   # --- FluxusGLRacketApp: fluxus's own GLEditor + REAL Racket ---------------
-  juce_add_gui_app(FluxusGLRacketApp PRODUCT_NAME "FluxusGLRacketApp")
+  juce_add_gui_app(FluxusGLRacketApp PRODUCT_NAME "FluxusGLRacketApp"
+    MICROPHONE_PERMISSION_ENABLED TRUE
+    MICROPHONE_PERMISSION_TEXT "Fluxus uses the microphone for audio-reactive visuals.")
   target_sources(FluxusGLRacketApp PRIVATE
       app/MainGLRacket.cpp
       app/FluxusGLComponent.cpp
       app/EditorOverlay.cpp
       app/FluxusScene.cpp
       app/FluxusCommands.cpp
+      app/AudioHost.cpp
       app/RacketScriptHost.cpp)
   target_include_directories(FluxusGLRacketApp PRIVATE "${RACKET_DIR}/include/racket")
   target_compile_definitions(FluxusGLRacketApp PRIVATE
@@ -180,6 +198,8 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       fluxus_editor
       juce::juce_opengl
       juce::juce_gui_extra
+    juce::juce_audio_utils
+    juce::juce_dsp
       "${RACKET_DIR}/lib/libracketcs.a"
       "-liconv" "-lncurses"
       "-framework CoreFoundation"
@@ -193,3 +213,10 @@ endif()
 
 # Vendored-header warnings are silenced by marking their include dirs SYSTEM
 # (see libfluxus_min.cmake and the fluxus_editor target above).
+
+# --- FFT band-analysis test (console) --------------------------------------
+juce_add_console_app(fft_test)
+target_sources(fft_test PRIVATE spikes/fft/main.cpp)
+target_link_libraries(fft_test PRIVATE
+    juce::juce_dsp
+    PUBLIC juce::juce_recommended_config_flags)

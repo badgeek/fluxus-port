@@ -8,6 +8,7 @@
 
 class FluxusScene;
 class IScriptHost;
+struct IAudioHost;
 using ScriptHostFactory = std::function<std::unique_ptr<IScriptHost>()>;
 
 // fluxus-style host: the code floats as a TRANSPARENT overlay directly on top of
@@ -36,6 +37,7 @@ private:
 
   juce::OpenGLContext ctx;
   std::unique_ptr<FluxusScene> scene;
+  std::unique_ptr<IAudioHost>  audio;
   ScriptHostFactory makeHost;
   SharedScript shared;
 

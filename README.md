@@ -99,7 +99,9 @@ ROADMAP.md                what's next + per-feature library/dependency notes
 
 Working: 4 apps · s7 + real-Racket hosts · transparent code overlay + fluxus GLEditor ·
 IRenderBackend/GLBackend · full command surface incl. **pdata** · particles/ribbon ·
-real fluxus `maths.ss` / `shapes.ss` / `building-blocks.ss` running on the engine.
+real fluxus `maths.ss` / `shapes.ss` / `building-blocks.ss` running on the engine ·
+**audio-reactive** (`IAudioHost`/`JuceAudioHost`: CoreAudio mic → FFT bands, no JACK;
+`(gh n)` / `(gain)` in scripts; FFT banding unit-tested via `fft_test`).
 
-Not done: audio/MIDI/OSC (JUCE-provided, no new deps), physics (needs ODE),
+Not done: MIDI/OSC (JUCE-provided, no new deps), physics (needs ODE),
 textures, mouse-orbit camera, more `.ss` library files. See `ROADMAP.md`.
