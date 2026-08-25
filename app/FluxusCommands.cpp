@@ -223,8 +223,9 @@ void flux_set_audio(const float* bands, int n, double gain) {
 }
 double flux_audio_harmonic(int n) {
   std::lock_guard<std::mutex> lk(g_audioMutex);
-  if (n < 0 || n >= (int) g_bands.size()) return 0.0;
-  return g_bands[(size_t) n];
+  if (g_bands.empty()) return 0.0;
+  if (n < 0) n = -n;
+  return g_bands[(size_t) (n % (int) g_bands.size())];   // fluxus: gh(h) = bars[h % numBars]
 }
 double flux_audio_gain(void) {
   std::lock_guard<std::mutex> lk(g_audioMutex);

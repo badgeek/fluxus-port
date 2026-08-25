@@ -24,7 +24,7 @@ public:
 private:
   static constexpr int fftOrder = 10;          // 1024-point
   static constexpr int fftSize  = 1 << fftOrder;
-  static constexpr int nBands   = fftSize / 2;  // 512 per-bin harmonics (fluxus (gh n))
+  static constexpr int nBands   = 16;           // fluxus m_NumBars; (gh n) wraps n % 16
 
   juce::AudioDeviceManager adm;
   juce::dsp::FFT fft { fftOrder };
@@ -32,6 +32,7 @@ private:
                                                juce::dsp::WindowingFunction<float>::hann };
   std::array<float, fftSize>     fifo {};
   std::array<float, fftSize * 2> fftData {};
+  std::array<float, nBands>      smoothBars {};   // fluxus smoothing (bias 0.8)
   int    fifoIndex = 0;
   double lastGain  = 0.0;
 
@@ -64,12 +65,20 @@ private:
     window.multiplyWithWindowingTable(fftData.data(), (size_t) fftSize);
     fft.performFrequencyOnlyForwardTransform(fftData.data());   // magnitudes [0..fftSize/2]
 
-    // per-bin harmonics: (gh n) reads magnitude of FFT bin n, normalised
-    float bands[nBands];
-    const float norm = 4.0f / (float) fftSize;
-    for (int b = 0; b < nBands; ++b)
-      bands[b] = fftData[(size_t) b] * norm;   // ~0..1 for typical audio
-    flux_set_audio(bands, nBands, lastGain * 4.0);
+    // fluxus AudioCollector::GetFFT — 16 bars, quadratic freq mapping, smoothing.
+    const float usefulArea = fftSize / 2.0f;   // lower half (nyquist)
+    const float bias = 0.8f, gain = 0.015f;
+    for (int n = 0; n < nBands; ++n) {
+      float f = (float) n / nBands, t = (float) (n + 1) / nBands;
+      f *= f; t *= t;                            // quadratic: dense in the lows
+      const int from = (int) (f * usefulArea), to = (int) (t * usefulArea);
+      float v = 0.0f;
+      for (int i = from; i <= to && i < fftSize; ++i) v += fftData[(size_t) i];
+      if (v < 0) v = -v;
+      v *= gain;
+      smoothBars[(size_t) n] = smoothBars[(size_t) n] * bias + v * (1.0f - bias);
+    }
+    flux_set_audio(smoothBars.data(), nBands, lastGain * 4.0);
   }
 };
 
