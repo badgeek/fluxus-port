@@ -48,8 +48,10 @@ std::string requireLibForm() {
   std::string lib = RACKET_LIB_DIR;
   // load fluxus-modules (engine commands via FFI) + real fluxus library files
   return "(require (file \"" + lib + "/fluxus-modules.ss\")"
-         "         (file \"" + lib + "/building-blocks.ss\")"   // vadd/vsub/vmul/...
-         "         (file \"" + lib + "/maths.ss\")"
+         "         (file \"" + lib + "/building-blocks.ss\")"   // vadd/vsub/vmul, with-state, pdata-map!
+         "         (file \"" + lib + "/maths.ss\")"             // vmix, lerp, hermite
+         "         (file \"" + lib + "/randomness.ss\")"        // rndf, crndf, crndvec
+         "         (file \"" + lib + "/poly-tools.ss\")"        // poly/pdata helpers
          "         (file \"" + lib + "/shapes.ss\"))";
 }
 } // namespace

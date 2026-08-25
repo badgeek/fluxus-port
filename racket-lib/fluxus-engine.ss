@@ -133,3 +133,9 @@
 (define (madd2 . _) (void))
 (define (msub2 . _) (void))
 (define (mdiv2 . _) (void))
+(define (poly-type-enum . _) (void)) ;; auto-stub
+(define (poly-indexed? . _) (void)) ;; auto-stub
+(define (poly-indices . _) (void)) ;; auto-stub
+(define (pdata-names . _) (void)) ;; auto-stub
+(define (maim . _) (void)) ;; auto-stub
+(define (poly-set-index . _) (void)) ;; auto-stub

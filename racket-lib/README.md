@@ -75,7 +75,16 @@ That's it — no changes to the *logic* of any fluxus file, only which names eac
 module exports. The full building-blocks command surface is now available to
 scripts (RacketScriptHost requires it).
 
+## Loaded `.ss` library files
+
+`maths.ss` · `shapes.ss` · `building-blocks.ss` (real 918-line) · `randomness.ss`
+(rndf/crndf/crndvec) · `poly-tools.ss` — all load and run on the engine.
+`RacketScriptHost` requires them, so scripts get the whole surface.
+
 ## Next
 
-- Load more of the vendored `.ss` library (poly-tools, camera, randomness) the
-  same way — each needs only its `provide` reconciled + any prims it calls bound.
+- Load more vendored `.ss` files (camera, mouse, pixels-tools) the same way —
+  copy, reconcile the `provide` (drop engine re-exports / names the engine also
+  defines), add engine stubs for any prims it calls that aren't wired yet.
+- Wire the currently-stubbed prims (poly-index ops, etc.) to real libfluxus for
+  full poly-tools functionality.
