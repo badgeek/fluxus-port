@@ -52,7 +52,15 @@ std::string requireLibForm() {
          "         (file \"" + lib + "/maths.ss\")"             // vmix, lerp, hermite
          "         (file \"" + lib + "/randomness.ss\")"        // rndf, crndf, crndvec
          "         (file \"" + lib + "/poly-tools.ss\")"        // poly/pdata helpers
-         "         (file \"" + lib + "/shapes.ss\"))";
+         "         (file \"" + lib + "/shapes.ss\")"
+         "         (file \"" + lib + "/input.ss\")"            // keys/mouse-over/register-down
+         "         (file \"" + lib + "/camera.ss\")"           // input-camera, reset-camera
+         "         (file \"" + lib + "/mouse.ss\")"            // mouse-pos, world-pos, 2dvec->angle
+         "         (file \"" + lib + "/help.ss\")"             // help/set-help-locale!
+         "         (file \"" + lib + "/pixels-tools.ss\")"     // pixels-circle/dodge/burn
+         "         (file \"" + lib + "/voxels-tools.ss\")"     // voxels-index/pos/sphere
+         "         (file \"" + lib + "/planetarium.ss\")"      // dome-* projection helpers
+         "         (file \"" + lib + "/collada-import.ss\"))"; // collada-import
 }
 } // namespace
 

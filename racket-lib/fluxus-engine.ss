@@ -169,3 +169,49 @@
 (define (pdata-names . _) (void)) ;; auto-stub
 (define (maim . _) (void)) ;; auto-stub
 (define (poly-set-index . _) (void)) ;; auto-stub
+
+;; ---- stubs for engine prims used by the loaded .ss libs (not wired to libfluxus)
+(define (select . _) 0)                 ;; input.ss mouse-over
+;; camera.ss quaternion helpers (engine prims)
+(define (qmul . _) (vector 0 0 0 1))
+(define (qnormalise q) q)
+(define (qconjugate q) q)
+(define (qtomatrix . _) (mident))
+;; camera.ss engine prims
+(define (get-screen-size) (vector 720 576))
+(define (set-camera-position . _) (void))
+(define (set-camera-transform . _) (void))
+(define (set-fov . _) (void))
+(define (set-ortho-zoom . _) (void))
+(define (clip . _) (void))
+(define (frustum . _) (void))
+(define (set-camera . _) (void))
+(define (get-camera . _) (mident))
+;; mouse.ss: C fmod (engine prim) — real impl
+(define (fmod a b) (if (zero? b) 0.0 (- a (* b (truncate (/ a b))))))
+;; pixels-tools.ss engine prims (pixels-index/pixels-texcoord are library defs)
+(define (pixels-width) 0)
+(define (pixels-height) 0)
+(define (pixels-upload . _) (void))
+;; planetarium.ss engine prims
+(define (current-camera . _) 0)
+(define (pixels->texture . _) 0)
+(define (build-camera . _) 0)
+(define (set-screen-size . _) (void))
+(define (set-camera-update . _) (void))
+;; collada-import.ss engine prims
+(define (hide . _) (void))
+(define (hint-origin . _) (void))
+(define (fullpath p) p)
+(define (viewport . _) (void))
+(define (ortho . _) (void))
+(define (lock-camera . _) (void))
+(define (camera-lag . _) (void))
+;; building-blocks.ss with-pixels-renderer macro (engine prims)
+(define (renderer-grab . _) (void))
+(define (renderer-ungrab . _) (void))
+(define (vdist-sq a b) (let ((d (vsub a b))) (vdot d d)))
+;; voxels-tools.ss engine prims
+(define (voxels-width) 0)
+(define (voxels-height) 0)
+(define (voxels-depth) 0)
