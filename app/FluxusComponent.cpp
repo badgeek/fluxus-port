@@ -2,6 +2,7 @@
 #include "FluxusScene.h"
 #include "IScriptHost.h"
 #include "AudioHost.h"
+#include "FluxusCommands.h"   // mouse/camera
 
 namespace {
 juce::Font monoFont(float h) {
@@ -112,6 +113,20 @@ void FluxusComponent::timerCallback() {
     lastShown = err;
     console.setText(err.isEmpty() ? juce::String("; ok") : err.trimStart(), juce::dontSendNotification);
   }
+}
+
+void FluxusComponent::mouseDown(const juce::MouseEvent& e) {
+  lastMouse = e.position;
+  flux_set_mouse(e.position.x, e.position.y, 1);
+}
+void FluxusComponent::mouseDrag(const juce::MouseEvent& e) {
+  auto d = e.position - lastMouse;
+  lastMouse = e.position;
+  flux_camera_drag(d.x, -d.y);           // drag to orbit
+  flux_set_mouse(e.position.x, e.position.y, 1);
+}
+void FluxusComponent::mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& w) {
+  flux_camera_zoom(-w.deltaY * 8.0);     // wheel to dolly
 }
 
 void FluxusComponent::resized() {

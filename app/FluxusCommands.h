@@ -48,6 +48,14 @@ extern "C" {
   double flux_audio_harmonic(int n);   // (gh n) — band n magnitude, 0..~1
   double flux_audio_gain(void);        // (gain) — overall level
 
+  // mouse + orbit camera (host feeds events; camera applied each frame)
+  void   flux_set_mouse(double x, double y, int button);
+  double flux_mouse_x(void);
+  double flux_mouse_y(void);
+  int    flux_mouse_button(void);
+  void   flux_camera_drag(double dx, double dy);   // orbit
+  void   flux_camera_zoom(double d);               // dolly
+
   // scripts report an error string back to the host (or "" to clear)
   void flux_report_error(const char* msg);
 }

@@ -6,6 +6,7 @@
 #include "RibbonPrimitive.h"
 #include "ParticlePrimitive.h"
 #include "GraphicsUtils.h"
+#include "Camera.h"
 #include "State.h"
 #include "dada.h"
 
@@ -35,6 +36,22 @@ std::mutex         g_audioMutex;
 std::vector<float> g_bands;
 double             g_gain = 0.0;
 
+// mouse + orbit camera state (persists across frames)
+struct CamState { double yaw = 0.3, pitch = 0.3, dist = 10.0; };
+CamState g_cam;
+double   g_mouseX = 0, g_mouseY = 0;
+int      g_mouseButton = 0;
+
+void applyCamera() {
+  if (!g_ctx.r) return;
+  auto& cams = g_ctx.r->GetCameraVec();
+  if (cams.empty()) return;
+  dMatrix rot;  rot.rotxyz((float) g_cam.pitch, (float) g_cam.yaw, 0);
+  dMatrix back; back.translate(0, 0, (float) -g_cam.dist);
+  dMatrix view = back * rot;          // rotate world, then push back from eye
+  cams[0].SetMatrix(view);
+}
+
 int addPrim(Primitive* p) {
   if (!g_ctx.r) { delete p; return -1; }
   // AddPrimitive copies the renderer's current State into the prim, so set the
@@ -62,6 +79,7 @@ void flux_frame_begin(double t, int frame) {
   g_ctx.hints = 0;
   g_ctx.lineWidth = 2.0f;
   g_ctx.grabbed = nullptr;
+  applyCamera();   // orbit camera survives the per-frame scene Clear()
 }
 
 void flux_background(double r, double g, double b) {
@@ -167,6 +185,22 @@ double flux_audio_harmonic(int n) {
 double flux_audio_gain(void) {
   std::lock_guard<std::mutex> lk(g_audioMutex);
   return g_gain;
+}
+
+void flux_set_mouse(double x, double y, int button) { g_mouseX = x; g_mouseY = y; g_mouseButton = button; }
+double flux_mouse_x(void)     { return g_mouseX; }
+double flux_mouse_y(void)     { return g_mouseY; }
+int    flux_mouse_button(void){ return g_mouseButton; }
+void flux_camera_drag(double dx, double dy) {
+  g_cam.yaw   += dx * 0.5;
+  g_cam.pitch += dy * 0.5;
+  if (g_cam.pitch >  89.0) g_cam.pitch =  89.0;
+  if (g_cam.pitch < -89.0) g_cam.pitch = -89.0;
+}
+void flux_camera_zoom(double d) {
+  g_cam.dist += d;
+  if (g_cam.dist < 2.0)  g_cam.dist = 2.0;
+  if (g_cam.dist > 80.0) g_cam.dist = 80.0;
 }
 
 void flux_report_error(const char* msg) {

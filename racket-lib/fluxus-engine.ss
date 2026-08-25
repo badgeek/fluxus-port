@@ -80,6 +80,14 @@
 (define (gh n) (_gh n))
 (define (gain) (_gain))
 
+;; mouse (FFI) — camera orbit is host-side; scripts can still read the mouse
+(define _mx (cfun "flux_mouse_x"      (_fun -> _double) (lambda () 0.0)))
+(define _my (cfun "flux_mouse_y"      (_fun -> _double) (lambda () 0.0)))
+(define _mb (cfun "flux_mouse_button" (_fun -> _int)    (lambda () 0)))
+(define (mouse-x) (_mx))
+(define (mouse-y) (_my))
+(define (mouse-button) (_mb))
+
 ;; fluxus (with-state ...) — save/run/restore transform+colour
 (define-syntax-rule (with-state body ...) (begin (push) (let ((r (begin body ...))) (pop) r)))
 

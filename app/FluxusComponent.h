@@ -28,6 +28,9 @@ public:
   void openGLContextClosing() override;
 
   void resized() override;
+  void mouseDown(const juce::MouseEvent&) override;
+  void mouseDrag(const juce::MouseEvent&) override;
+  void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
 private:
   void timerCallback() override;
@@ -41,6 +44,7 @@ private:
   ScriptHostFactory makeHost;
   SharedScript shared;
 
+  juce::Point<float> lastMouse;
   juce::TextEditor code;      // transparent overlay editor
   juce::TextEditor console;   // transparent status line
   juce::String lastShown { juce::String::charToString(0xffff) };

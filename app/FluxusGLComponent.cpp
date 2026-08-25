@@ -3,6 +3,7 @@
 #include "EditorOverlay.h"
 #include "IScriptHost.h"
 #include "AudioHost.h"
+#include "FluxusCommands.h"   // mouse/camera
 
 #ifndef FLUXUS_FONT_PATH
 #define FLUXUS_FONT_PATH ""
@@ -75,6 +76,20 @@ void FluxusGLComponent::renderOpenGL() {
 
 void FluxusGLComponent::parentHierarchyChanged() {
   if (isShowing()) grabKeyboardFocus();
+}
+
+void FluxusGLComponent::mouseDown(const juce::MouseEvent& e) {
+  lastMouse = e.position;
+  flux_set_mouse(e.position.x, e.position.y, 1);
+}
+void FluxusGLComponent::mouseDrag(const juce::MouseEvent& e) {
+  auto d = e.position - lastMouse;
+  lastMouse = e.position;
+  flux_camera_drag(d.x, -d.y);
+  flux_set_mouse(e.position.x, e.position.y, 1);
+}
+void FluxusGLComponent::mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& w) {
+  flux_camera_zoom(-w.deltaY * 8.0);
 }
 
 bool FluxusGLComponent::keyPressed(const juce::KeyPress& k) {

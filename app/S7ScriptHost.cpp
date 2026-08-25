@@ -63,6 +63,9 @@ s7_pointer f_time (s7_scheme* sc, s7_pointer) { return s7_make_real(sc, flux_tim
 s7_pointer f_frame(s7_scheme* sc, s7_pointer) { return s7_make_integer(sc, flux_frame()); }
 s7_pointer f_gh(s7_scheme* sc, s7_pointer a)  { int n = s7_is_pair(a) ? (int) s7_number_to_real(sc, s7_car(a)) : 0; return s7_make_real(sc, flux_audio_harmonic(n)); }
 s7_pointer f_gain(s7_scheme* sc, s7_pointer)  { return s7_make_real(sc, flux_audio_gain()); }
+s7_pointer f_mouse_x(s7_scheme* sc, s7_pointer) { return s7_make_real(sc, flux_mouse_x()); }
+s7_pointer f_mouse_y(s7_scheme* sc, s7_pointer) { return s7_make_real(sc, flux_mouse_y()); }
+s7_pointer f_mouse_button(s7_scheme* sc, s7_pointer) { return s7_make_integer(sc, flux_mouse_button()); }
 
 s7_pointer f_grab(s7_scheme* sc, s7_pointer a)  { if (s7_is_pair(a)) flux_grab((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
 s7_pointer f_ungrab(s7_scheme* sc, s7_pointer)  { flux_ungrab(); return s7_nil(sc); }
@@ -113,6 +116,9 @@ void S7ScriptHost::init() {
   def("frame",        f_frame,        0, 0, false);
   def("gh",           f_gh,           1, 0, false);
   def("gain",         f_gain,         0, 0, false);
+  def("mouse-x",      f_mouse_x,      0, 0, false);
+  def("mouse-y",      f_mouse_y,      0, 0, false);
+  def("mouse-button", f_mouse_button, 0, 0, false);
   def("grab",         f_grab,         0, 0, true);
   def("ungrab",       f_ungrab,       0, 0, false);
   def("pdata-size",   f_pdata_size,   0, 0, false);

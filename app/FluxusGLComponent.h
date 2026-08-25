@@ -26,6 +26,9 @@ public:
 
   bool keyPressed(const juce::KeyPress& k) override;
   void parentHierarchyChanged() override;
+  void mouseDown(const juce::MouseEvent&) override;
+  void mouseDrag(const juce::MouseEvent&) override;
+  void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
   void paint(juce::Graphics&) override {}
   void resized() override {}
 
@@ -36,6 +39,7 @@ private:
   std::unique_ptr<IAudioHost>    audio;
   ScriptHostFactory makeHost;
   SharedScript shared;
+  juce::Point<float> lastMouse;
   bool fontReady = false;
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FluxusGLComponent)
