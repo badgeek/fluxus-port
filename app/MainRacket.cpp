@@ -25,16 +25,31 @@ public:
       // starter uses build-circle-points — a REAL fluxus shapes.ss function,
       // loaded from the fluxus .ss library and driving the engine via FFI.
       const char* starter =
-        "; Racket + real fluxus .ss library (randomness.ss: rndf, crndf)\n"
-        "(random-seed 7)                 ; stable scatter each frame\n"
-        "(background (vector 0.05 0.05 0.09))\n"
-        "(rotate (vector 0 (* 12 (time)) 0))\n"
-        "(for ((i (in-range 70)))\n"
-        "  (with-state\n"
-        "    (translate (vector (* 4 (crndf)) (* 4 (crndf)) (* 4 (crndf))))\n"
-        "    (colour (vector (rndf) (rndf) (rndf)))\n"
-        "    (scale (vector 0.22 0.22 0.22))\n"
-        "    (build-cube)))\n";
+        "; audio-reactive normal-displaced sphere (make noise!)\n"
+        "(clear)\n"
+        "(start-audio \"system:capture_1\" 512 44100)\n"
+        "(define x (build-nurbs-sphere 10 30))\n"
+        "(with-primitive x\n"
+        "  (scale (vector 2 2 2))\n"
+        "  (pdata-add \"ori\" \"v\")\n"
+        "  (pdata-copy \"p\" \"ori\"))\n"
+        "(define (vertex_1 y)\n"
+        "  (with-primitive x\n"
+        "    (line-width 2)\n"
+        "    (hint-wire)\n"
+        "    (backfacecull 1)\n"
+        "    (opacity (* (gh 5) 1000))\n"
+        "    (wire-opacity (* (gh 3) 100))\n"
+        "    (wire-colour (vector 1 0.5 0))\n"
+        "    (colour (vector 1 0 0))\n"
+        "    (rotate (vector 0 (* (delta) y) 0))\n"
+        "    (pdata-index-map!\n"
+        "      (lambda (index val)\n"
+        "        (vadd (pdata-ref \"ori\" index)\n"
+        "              (vmul (pdata-ref \"n\" index) (* (gh index) 10))))\n"
+        "      \"p\")))\n"
+        "(define (renderchain) (vertex_1 50))\n"
+        "(every-frame (renderchain))\n";
       setContentOwned(new FluxusComponent([] { return std::make_unique<RacketScriptHost>(); }, starter), false);
       centreWithSize(1180, 720);
       setResizable(true, false);

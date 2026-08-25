@@ -24,6 +24,10 @@ extern "C" {
   void flux_hint_wire(int on);    // wireframe overlay on built prims
   void flux_hint_solid(int on);
   void flux_line_width(double w);
+  void flux_opacity(double o);          // grabbed-prim opacity
+  void flux_wire_opacity(double o);
+  void flux_wire_colour(double r, double g, double b);
+  void flux_backfacecull(int on);
 
   int  flux_build_cube(void);
   int  flux_build_sphere(int slices, int stacks);
@@ -31,6 +35,7 @@ extern "C" {
   int  flux_build_plane(void);
   int  flux_build_ribbon(int n);        // camera-facing ribbon of n points
   int  flux_build_particles(int n);     // n billboard particles
+  int  flux_build_nurbs_sphere(int hseg, int rseg);  // (poly approximation)
 
   // pdata — vertex-level access on a grabbed primitive (fluxus signature feature)
   void   flux_grab(int id);
@@ -38,10 +43,13 @@ extern "C" {
   int    flux_pdata_size(void);
   double flux_pdata_get(const char* name, int i, int comp);       // one component
   void   flux_pdata_set(const char* name, int i, int comp, double val);
+  void   flux_pdata_add(const char* name, const char* type);      // "v"/"c"/"f"
+  void   flux_pdata_copy(const char* src, const char* dst);
   void   flux_recalc_normals(void);
 
   double flux_time(void);
   int    flux_frame(void);
+  double flux_delta(void);
 
   // audio-reactive: the audio host writes FFT bands + gain; scripts read them.
   void   flux_set_audio(const float* bands, int n, double gain);

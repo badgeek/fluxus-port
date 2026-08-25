@@ -85,12 +85,24 @@ void flux_frame_begin(double t, int frame) {
 void flux_background(double r, double g, double b) {
   if (g_ctx.r) g_ctx.r->SetBGColour(dColour((float) r, (float) g, (float) b, 1));
 }
-void flux_colour(double r, double g, double b) { g_ctx.col = dColour((float) r, (float) g, (float) b, 1); }
+// Inside (with-primitive id ...) the grabbed prim exists, and fluxus state
+// commands modify ITS state. Otherwise they set the build context for the
+// next-built primitive.
+static State* grabbedState() { return g_ctx.grabbed ? g_ctx.grabbed->GetState() : nullptr; }
+static void applyOp(const dMatrix& op) {
+  if (State* s = grabbedState()) s->Transform = s->Transform * op;
+  else                           g_ctx.tx = g_ctx.tx * op;
+}
 
-void flux_translate(double x, double y, double z) { dMatrix m; m.translate((float) x, (float) y, (float) z); g_ctx.tx = g_ctx.tx * m; }
-void flux_rotate(double x, double y, double z)    { dMatrix m; m.rotxyz((float) x, (float) y, (float) z);    g_ctx.tx = g_ctx.tx * m; }
-void flux_scale(double x, double y, double z)     { dMatrix m; m.scale((float) x, (float) y, (float) z);     g_ctx.tx = g_ctx.tx * m; }
-void flux_identity(void) { g_ctx.tx = dMatrix(); }
+void flux_colour(double r, double g, double b) {
+  const dColour c((float) r, (float) g, (float) b, 1);
+  if (State* s = grabbedState()) s->Colour = c; else g_ctx.col = c;
+}
+
+void flux_translate(double x, double y, double z) { dMatrix m; m.translate((float) x, (float) y, (float) z); applyOp(m); }
+void flux_rotate(double x, double y, double z)    { dMatrix m; m.rotxyz((float) x, (float) y, (float) z);    applyOp(m); }
+void flux_scale(double x, double y, double z)     { dMatrix m; m.scale((float) x, (float) y, (float) z);     applyOp(m); }
+void flux_identity(void) { if (State* s = grabbedState()) s->Transform = dMatrix(); else g_ctx.tx = dMatrix(); }
 
 void flux_push(void) { g_ctx.stack.push_back({g_ctx.tx, g_ctx.col}); }
 void flux_pop(void) {
@@ -117,6 +129,12 @@ int flux_build_plane(void) {
   MakePlane(p);
   return addPrim(p);
 }
+int flux_build_nurbs_sphere(int hseg, int rseg) {
+  // poly approximation (real NURBS CVs don't carry per-vertex normals for deform)
+  PolyPrimitive* p = new PolyPrimitive(PolyPrimitive::TRILIST);
+  MakeSphere(p, 1.0f, hseg > 0 ? hseg : 10, rseg > 0 ? rseg : 10);
+  return addPrim(p);
+}
 int flux_build_ribbon(int n) {
   RibbonPrimitive* p = new RibbonPrimitive();
   p->Resize((unsigned) (n > 0 ? n : 1));
@@ -129,9 +147,19 @@ int flux_build_particles(int n) {
   return addPrim(p);
 }
 
-void flux_hint_wire(int on)  { if (on) g_ctx.hints |= HINT_WIRE;  else g_ctx.hints &= ~HINT_WIRE; }
-void flux_hint_solid(int on) { if (on) g_ctx.hints |= HINT_SOLID; else g_ctx.hints &= ~HINT_SOLID; }
-void flux_line_width(double w) { g_ctx.lineWidth = (float) w; }
+static void setHint(int bit, int on) {
+  if (State* s = grabbedState()) { if (on) s->Hints |= bit; else s->Hints &= ~bit; }
+  else                           { if (on) g_ctx.hints |= bit; else g_ctx.hints &= ~bit; }
+}
+void flux_hint_wire(int on)  { setHint(HINT_WIRE,  on); }
+void flux_hint_solid(int on) { setHint(HINT_SOLID, on); }
+void flux_line_width(double w) {
+  if (State* s = grabbedState()) s->LineWidth = (float) w; else g_ctx.lineWidth = (float) w;
+}
+void flux_opacity(double o)      { if (State* s = grabbedState()) s->Opacity = (float) o; }
+void flux_wire_opacity(double o) { if (State* s = grabbedState()) s->WireOpacity = (float) o; }
+void flux_wire_colour(double r, double g, double b) { if (State* s = grabbedState()) s->WireColour = dColour((float) r, (float) g, (float) b, 1); }
+void flux_backfacecull(int on)   { if (State* s = grabbedState()) s->Cull = on != 0; }
 
 // ---- pdata (grabbed primitive) --------------------------------------------
 void flux_grab(int id)   { g_ctx.grabbed = g_ctx.r ? g_ctx.r->GetPrimitive(id) : nullptr; }
@@ -140,6 +168,21 @@ void flux_ungrab(void)   { g_ctx.grabbed = nullptr; }
 int flux_pdata_size(void) { return g_ctx.grabbed ? (int) g_ctx.grabbed->Size() : 0; }
 
 void flux_recalc_normals(void) { if (g_ctx.grabbed) g_ctx.grabbed->RecalculateNormals(false); }
+
+void flux_pdata_add(const char* name, const char* type) {
+  Primitive* p = g_ctx.grabbed;
+  if (!p || !name) return;
+  const unsigned sz = p->Size();
+  const char t = (type && type[0]) ? type[0] : 'v';
+  PData* pd;
+  if      (t == 'c') pd = new TypedPData<dColour>(sz);
+  else if (t == 'f') pd = new TypedPData<float>(sz);
+  else               pd = new TypedPData<dVector>(sz);
+  p->AddData(name, pd);
+}
+void flux_pdata_copy(const char* src, const char* dst) {
+  if (g_ctx.grabbed && src && dst) g_ctx.grabbed->CopyData(src, dst);
+}
 
 double flux_pdata_get(const char* name, int i, int comp) {
   Primitive* p = g_ctx.grabbed;
@@ -171,6 +214,7 @@ void flux_pdata_set(const char* name, int i, int comp, double val) {
 
 double flux_time(void)  { return g_ctx.time; }
 int    flux_frame(void) { return g_ctx.frame; }
+double flux_delta(void) { return g_ctx.r ? g_ctx.r->GetDelta() : 0.0; }
 
 void flux_set_audio(const float* bands, int n, double gain) {
   std::lock_guard<std::mutex> lk(g_audioMutex);

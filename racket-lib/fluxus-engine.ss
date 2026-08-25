@@ -70,9 +70,10 @@
 
 (define _time  (cfun "flux_time"  (_fun -> _double) (lambda () 0.0)))
 (define _frame (cfun "flux_frame" (_fun -> _int)    (lambda () 0)))
+(define _delta (cfun "flux_delta" (_fun -> _double) (lambda () 0.0)))
 (define (time)  (_time))
 (define (frame) (_frame))
-(define (delta) 0.0)
+(define (delta) (_delta))
 
 ;; audio-reactive (FFI): (gh n) harmonic band, (gain) overall level
 (define _gh   (cfun "flux_audio_harmonic" (_fun _int -> _double) (lambda (n) 0.0)))
@@ -97,17 +98,34 @@
 
 (define _rib (cfun "flux_build_ribbon"    (_fun _int -> _int) (lambda (n) 0)))
 (define _par (cfun "flux_build_particles" (_fun _int -> _int) (lambda (n) 0)))
+(define _nsp (cfun "flux_build_nurbs_sphere" (_fun _int _int -> _int) (lambda (a b) 0)))
 (define (build-ribbon n)    (_rib n))
 (define (build-particles n) (_par n))
-(stub-id build-cylinder build-polygons build-nurbs build-nurbs-sphere build-nurbs-plane
+(define (build-nurbs-sphere (h 10) (r 10)) (_nsp h r))
+(stub-id build-cylinder build-polygons build-nurbs build-nurbs-plane
          build-line build-locator build-copy
          build-extrusion build-type build-text build-pixels)
+
+;; grabbed-prim state (FFI)
+(define _op  (cfun "flux_opacity"      (_fun _double -> _void) (lambda (x) (void))))
+(define _wo  (cfun "flux_wire_opacity" (_fun _double -> _void) (lambda (x) (void))))
+(define _wc  (cfun "flux_wire_colour"  (_fun _double _double _double -> _void) (lambda (a b c) (void))))
+(define _bfc (cfun "flux_backfacecull" (_fun _int -> _void) (lambda (x) (void))))
+(define (opacity o) (_op (->fl o)))
+(define (wire-opacity o) (_wo (->fl o)))
+(define (wire-colour v) (_wc (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
+(define (backfacecull on) (_bfc (if (and on (not (zero? on))) 1 0)))
+
 (stub-void concat shader-set! shader texture multitexture
            hint-none hint-normal hint-points hint-anti-alias
            hint-unlit hint-vertcols hint-depth-sort hint-cull-ccw hint-wire-stippled
            point-width blend-mode specular ambient emissive shinyness
-           opacity wire-colour wire-opacity normal-colour parent
-           apply-transform clear clear-colour texture-params)
+           normal-colour parent apply-transform clear clear-colour texture-params)
+
+;; every-frame: our model re-evals the whole buffer each frame, so the arg is
+;; already run each frame — just accept it. start-audio: JUCE audio auto-starts.
+(define (every-frame . _) (void))
+(define (start-audio . _) (void))
 
 ;; ---- pdata (FFI, grabbed primitive) ----------------------------------------
 (define grab   (cfun "flux_grab"   (_fun _int -> _void) (lambda (x) (void))))
@@ -116,13 +134,17 @@
 (define _pget  (cfun "flux_pdata_get"  (_fun _string _int _int -> _double) (lambda (a b c) 0.0)))
 (define _pset  (cfun "flux_pdata_set"  (_fun _string _int _int _double -> _void) (lambda (a b c d) (void))))
 (define _rn    (cfun "flux_recalc_normals" (_fun -> _void) (lambda () (void))))
+(define _padd (cfun "flux_pdata_add"  (_fun _string _string -> _void) (lambda (a b) (void))))
+(define _pcpy (cfun "flux_pdata_copy" (_fun _string _string -> _void) (lambda (a b) (void))))
 (define (pdata-size) (_psize))
 (define (pdata-ref name i) (vector (_pget name i 0) (_pget name i 1) (_pget name i 2)))
 (define (pdata-set! name i v) (_pset name i 0 (->fl (vx v))) (_pset name i 1 (->fl (vy v))) (_pset name i 2 (->fl (vz v))))
+(define (pdata-add name type) (_padd name type))
+(define (pdata-copy src dst) (_pcpy src dst))
 (define (recalc-normals) (_rn))
 (define-syntax-rule (with-primitive id body ...)
   (begin (grab id) (let ((r (begin body ...))) (ungrab) r)))
-(stub-void pdata-add pdata-copy pdata-op)   ;; pdata-map!/index-map! defined by building-blocks
+(stub-void pdata-op)
 
 (define (mident) (vector 1 0 0 0  0 1 0 0  0 0 1 0  0 0 0 1))
 (define (get-global-transform . _) (mident))
