@@ -22,6 +22,7 @@ FluxusScene::~FluxusScene() = default;
 void FluxusScene::init() {
   renderer = std::make_unique<Renderer>();
   host->init();          // host was injected (s7 or racket)
+  glThread = std::this_thread::get_id();   // script engine is bound to this thread
   startMs = nowMs();
 }
 
@@ -31,6 +32,11 @@ void FluxusScene::setResolution(int w, int h) {
 
 void FluxusScene::renderFrame() {
   if (!renderer || !host) return;
+
+  // JUCE renders synchronously on the MESSAGE thread during move/resize/fullscreen.
+  // The script engine (Racket CS / s7) is bound to the GL thread and is NOT
+  // thread-safe — calling it from another thread crashes. Skip those frames.
+  if (std::this_thread::get_id() != glThread) return;
 
   // fluxus immediate model: wipe the scene each frame (Clear keeps lights,
   // re-adds the default camera), then let the script rebuild it.

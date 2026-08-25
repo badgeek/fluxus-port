@@ -1,6 +1,7 @@
 #pragma once
 #include <memory>
 #include <string>
+#include <thread>
 
 struct SharedScript;
 namespace Fluxus { class Renderer; }
@@ -25,4 +26,5 @@ private:
   std::string   currentScript;
   int           frameCount = 0;
   long long     startMs = 0;
+  std::thread::id glThread;   // the thread Racket/s7 was init'd on
 };
