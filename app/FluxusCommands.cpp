@@ -12,6 +12,7 @@
 
 #include <vector>
 #include <mutex>
+#include <cmath>
 
 using namespace Fluxus;
 
@@ -42,14 +43,34 @@ CamState g_cam;
 double   g_mouseX = 0, g_mouseY = 0;
 int      g_mouseButton = 0;
 
-void applyCamera() {
-  if (!g_ctx.r) return;
+// script-driven camera: an optional transform override (scripts set it via
+// set-camera-transform) that suppresses the mouse orbit, plus the last matrix
+// actually applied (returned by get-camera-transform) and the pixel resolution
+// the host feeds each frame (get-screen-size).
+bool    g_camOverride = false;
+dMatrix g_camOverrideMat;
+dMatrix g_camAppliedMat;
+int     g_screenW = 720, g_screenH = 576;
+
+Camera* cam0() {
+  if (!g_ctx.r) return nullptr;
   auto& cams = g_ctx.r->GetCameraVec();
-  if (cams.empty()) return;
-  dMatrix rot;  rot.rotxyz((float) g_cam.pitch, (float) g_cam.yaw, 0);
-  dMatrix back; back.translate(0, 0, (float) -g_cam.dist);
-  dMatrix view = back * rot;          // rotate world, then push back from eye
-  cams[0].SetMatrix(view);
+  return cams.empty() ? nullptr : &cams[0];
+}
+
+void applyCamera() {
+  Camera* c = cam0();
+  if (!c) return;
+  dMatrix view;
+  if (g_camOverride) {
+    view = g_camOverrideMat;
+  } else {
+    dMatrix rot;  rot.rotxyz((float) g_cam.pitch, (float) g_cam.yaw, 0);
+    dMatrix back; back.translate(0, 0, (float) -g_cam.dist);
+    view = back * rot;                // rotate world, then push back from eye
+  }
+  c->SetMatrix(view);
+  g_camAppliedMat = view;
 }
 
 int addPrim(Primitive* p) {
@@ -247,6 +268,52 @@ void flux_camera_zoom(double d) {
   if (g_cam.dist < 2.0)  g_cam.dist = 2.0;
   if (g_cam.dist > 80.0) g_cam.dist = 80.0;
 }
+
+// ---- script-driven camera --------------------------------------------------
+void flux_set_camera_transform(const double* m) {
+  if (!m) return;
+  float* a = g_camOverrideMat.arr();
+  for (int i = 0; i < 16; ++i) a[i] = (float) m[i];
+  g_camOverride = true;
+  g_camAppliedMat = g_camOverrideMat;
+  if (Camera* c = cam0()) c->SetMatrix(g_camOverrideMat);   // apply this frame too
+}
+void flux_get_camera_transform(double* out) {
+  if (!out) return;
+  const float* a = g_camAppliedMat.arr();
+  for (int i = 0; i < 16; ++i) out[i] = a[i];
+}
+void flux_set_camera_position(double x, double y, double z) {
+  // set the eye position: translate part of the camera (view) matrix
+  dMatrix m; m.translate((float) -x, (float) -y, (float) -z);
+  float* a = g_camOverrideMat.arr();
+  for (int i = 0; i < 16; ++i) a[i] = m.arr()[i];
+  g_camOverride = true;
+  g_camAppliedMat = g_camOverrideMat;
+  if (Camera* c = cam0()) c->SetMatrix(g_camOverrideMat);
+}
+void flux_camera_reset(void) { g_camOverride = false; }
+
+void flux_set_fov(double vfovDeg) {
+  Camera* c = cam0();
+  if (!c) return;
+  const double front  = 1.0;                                  // near clip
+  const double t      = front * std::tan(vfovDeg * 0.5 * 3.14159265358979323846 / 180.0);
+  const double aspect = (g_screenH > 0) ? (double) g_screenW / g_screenH : 4.0 / 3.0;
+  const double r      = t * aspect;
+  c->SetFrustum((float) -r, (float) r, (float) -t, (float) t);
+}
+void flux_set_frustum(double l, double r, double b, double t) {
+  if (Camera* c = cam0()) c->SetFrustum((float) l, (float) r, (float) b, (float) t);
+}
+void flux_set_ortho(int on)         { if (Camera* c = cam0()) c->SetOrtho(on != 0); }
+void flux_set_ortho_zoom(double z)  { if (Camera* c = cam0()) c->SetOrthoZoom((float) z); }
+void flux_set_clip(double f, double b) { if (Camera* c = cam0()) c->SetClip((float) f, (float) b); }
+void flux_set_viewport(double x, double y, double w, double h) {
+  if (Camera* c = cam0()) c->SetViewport((float) x, (float) y, (float) w, (float) h);
+}
+void flux_set_resolution(int w, int h) { g_screenW = w; g_screenH = h; }
+void flux_get_screen_size(double* out) { if (out) { out[0] = g_screenW; out[1] = g_screenH; } }
 
 void flux_report_error(const char* msg) {
   std::lock_guard<std::mutex> lk(g_errMutex);

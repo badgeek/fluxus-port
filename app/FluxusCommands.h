@@ -64,6 +64,22 @@ extern "C" {
   void   flux_camera_drag(double dx, double dy);   // orbit
   void   flux_camera_zoom(double d);               // dolly
 
+  // script-driven camera (scripts run on the GL thread, so these may touch the
+  // renderer's camera directly). set-camera-transform overrides the mouse orbit
+  // until flux_camera_reset. Matrices are 16 doubles, column-major (fluxus order).
+  void   flux_set_camera_transform(const double* m16);
+  void   flux_get_camera_transform(double* out16);
+  void   flux_set_camera_position(double x, double y, double z);
+  void   flux_camera_reset(void);                    // back to mouse orbit
+  void   flux_set_fov(double vfovDeg);               // vertical fov -> frustum
+  void   flux_set_frustum(double l, double r, double b, double t);
+  void   flux_set_ortho(int on);
+  void   flux_set_ortho_zoom(double z);
+  void   flux_set_clip(double front, double back);
+  void   flux_set_viewport(double x, double y, double w, double h);
+  void   flux_set_resolution(int w, int h);          // host feeds pixel size
+  void   flux_get_screen_size(double* out2);         // -> #(w h)
+
   // scripts report an error string back to the host (or "" to clear)
   void flux_report_error(const char* msg);
 }

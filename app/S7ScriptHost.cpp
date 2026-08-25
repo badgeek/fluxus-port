@@ -67,6 +67,31 @@ s7_pointer f_mouse_x(s7_scheme* sc, s7_pointer) { return s7_make_real(sc, flux_m
 s7_pointer f_mouse_y(s7_scheme* sc, s7_pointer) { return s7_make_real(sc, flux_mouse_y()); }
 s7_pointer f_mouse_button(s7_scheme* sc, s7_pointer) { return s7_make_integer(sc, flux_mouse_button()); }
 
+// ---- camera (matrices are 16-element s7 vectors, column-major) -------------
+s7_pointer f_set_camera_transform(s7_scheme* sc, s7_pointer a) {
+  if (s7_is_pair(a)) {
+    s7_pointer v = s7_car(a);
+    if (s7_is_vector(v) && s7_vector_length(v) >= 16) {
+      double m[16];
+      for (int i = 0; i < 16; ++i) m[i] = s7_number_to_real(sc, s7_vector_ref(sc, v, i));
+      flux_set_camera_transform(m);
+    }
+  }
+  return s7_nil(sc);
+}
+s7_pointer f_get_camera_transform(s7_scheme* sc, s7_pointer) {
+  double m[16]; flux_get_camera_transform(m);
+  s7_pointer v = s7_make_vector(sc, 16);
+  for (int i = 0; i < 16; ++i) s7_vector_set(sc, v, i, s7_make_real(sc, m[i]));
+  return v;
+}
+s7_pointer f_set_camera_position(s7_scheme* sc, s7_pointer a) { double x,y,z; if (vec3(sc,a,x,y,z)) flux_set_camera_position(x,y,z); return s7_nil(sc); }
+s7_pointer f_camera_reset(s7_scheme* sc, s7_pointer)      { flux_camera_reset(); return s7_nil(sc); }
+s7_pointer f_set_fov(s7_scheme* sc, s7_pointer a)         { if (s7_is_pair(a)) flux_set_fov(s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+s7_pointer f_set_ortho(s7_scheme* sc, s7_pointer a)       { int on = s7_is_pair(a) ? (s7_boolean(sc, s7_car(a)) ? 1 : 0) : 1; flux_set_ortho(on); return s7_nil(sc); }
+s7_pointer f_set_ortho_zoom(s7_scheme* sc, s7_pointer a)  { if (s7_is_pair(a)) flux_set_ortho_zoom(s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+s7_pointer f_get_screen_size(s7_scheme* sc, s7_pointer)   { double s[2]; flux_get_screen_size(s); s7_pointer v = s7_make_vector(sc, 3); s7_vector_set(sc, v, 0, s7_make_real(sc, s[0])); s7_vector_set(sc, v, 1, s7_make_real(sc, s[1])); s7_vector_set(sc, v, 2, s7_make_real(sc, 0)); return v; }
+
 s7_pointer f_grab(s7_scheme* sc, s7_pointer a)  { if (s7_is_pair(a)) flux_grab((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
 s7_pointer f_ungrab(s7_scheme* sc, s7_pointer)  { flux_ungrab(); return s7_nil(sc); }
 s7_pointer f_pdata_size(s7_scheme* sc, s7_pointer) { return s7_make_integer(sc, flux_pdata_size()); }
@@ -119,6 +144,16 @@ void S7ScriptHost::init() {
   def("mouse-x",      f_mouse_x,      0, 0, false);
   def("mouse-y",      f_mouse_y,      0, 0, false);
   def("mouse-button", f_mouse_button, 0, 0, false);
+  def("set-camera-transform", f_set_camera_transform, 1, 0, false);
+  def("get-camera-transform", f_get_camera_transform, 0, 0, false);
+  def("set-camera",           f_set_camera_transform, 1, 0, false);  // alias
+  def("get-camera",           f_get_camera_transform, 0, 0, false);  // alias
+  def("set-camera-position",  f_set_camera_position,  0, 0, true);
+  def("camera-reset",         f_camera_reset,         0, 0, false);
+  def("set-fov",              f_set_fov,              1, 0, false);
+  def("set-ortho",            f_set_ortho,            0, 0, true);
+  def("set-ortho-zoom",       f_set_ortho_zoom,       1, 0, false);
+  def("get-screen-size",      f_get_screen_size,      0, 0, false);
   def("grab",         f_grab,         0, 0, true);
   def("ungrab",       f_ungrab,       0, 0, false);
   def("pdata-size",   f_pdata_size,   0, 0, false);

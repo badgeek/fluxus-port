@@ -1,6 +1,7 @@
 #include "FluxusScene.h"
 #include "SharedScript.h"
 #include "IScriptHost.h"
+#include "FluxusCommands.h"   // feed pixel resolution for (get-screen-size)
 
 // engine + system GL only
 #include "Renderer.h"
@@ -28,6 +29,7 @@ void FluxusScene::init() {
 
 void FluxusScene::setResolution(int w, int h) {
   if (renderer) renderer->SetResolution(w, h);
+  flux_set_resolution(w, h);
 }
 
 void FluxusScene::renderFrame() {
