@@ -118,8 +118,10 @@
 (define (build-ribbon n)    (_rib n))
 (define (build-particles n) (_par n))
 (define (build-nurbs-sphere (h 10) (r 10)) (_nsp h r))
-(stub-id build-nurbs build-nurbs-plane
+(stub-id build-nurbs
          build-line build-extrusion build-type)
+(define _nplane (cfun "flux_build_nurbs_plane" (_fun _int _int -> _int) (lambda (a b) 0)))
+(define (build-nurbs-plane (u 5) (v 5)) (_nplane u v))
 
 ;; grabbed-prim state (FFI)
 (define _op  (cfun "flux_opacity"      (_fun _double -> _void) (lambda (x) (void))))

@@ -37,6 +37,7 @@ extern "C" {
   int  flux_build_ribbon(int n);        // camera-facing ribbon of n points
   int  flux_build_particles(int n);     // n billboard particles
   int  flux_build_nurbs_sphere(int hseg, int rseg);  // (poly approximation)
+  int  flux_build_nurbs_plane(int usegs, int vsegs); // real NURBS surface (GLU)
   int  flux_build_cylinder(double h, double r, int hseg, int rseg);
   int  flux_build_polygons(int type, int nverts);    // empty mesh (0..4 = tristrip/quads/trilist/trifan/polygon)
   int  flux_build_copy(int id);                       // clone an existing primitive

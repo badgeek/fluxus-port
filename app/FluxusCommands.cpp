@@ -7,6 +7,7 @@
 #include "ParticlePrimitive.h"
 #include "LocatorPrimitive.h"
 #include "TextPrimitive.h"
+#include "NURBSPrimitive.h"
 #include <OpenGL/gl.h>
 #include "GraphicsUtils.h"
 #include "Camera.h"
@@ -311,6 +312,11 @@ int flux_build_copy(int id) {
   return addPrim(src->Clone());
 }
 int flux_build_locator(void) { return addPrim(new LocatorPrimitive()); }
+int flux_build_nurbs_plane(int u, int v) {
+  NURBSPrimitive* p = new NURBSPrimitive();
+  MakeNURBSPlane(p, u > 0 ? u : 5, v > 0 ? v : 5);
+  return addPrim(p);
+}
 
 int flux_build_text(const char* str) {
   // build glyph quads directly into a PolyPrimitive (renders via the shader path;
