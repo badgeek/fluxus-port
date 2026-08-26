@@ -119,7 +119,7 @@
 (define (build-particles n) (_par n))
 (define (build-nurbs-sphere (h 10) (r 10)) (_nsp h r))
 (stub-id build-nurbs build-nurbs-plane
-         build-line build-extrusion build-type build-text build-pixels)
+         build-line build-extrusion build-type)
 
 ;; grabbed-prim state (FFI)
 (define _op  (cfun "flux_opacity"      (_fun _double -> _void) (lambda (x) (void))))
@@ -365,9 +365,16 @@
 ;; mouse.ss: C fmod (engine prim) — real impl
 (define (fmod a b) (if (zero? b) 0.0 (- a (* b (truncate (/ a b))))))
 ;; pixels-tools.ss engine prims (pixels-index/pixels-texcoord are library defs)
-(define (pixels-width) 0)
-(define (pixels-height) 0)
-(define (pixels-upload . _) (void))
+(define _pxw (cfun "flux_pixels_width"  (_fun -> _int) (lambda () 0)))
+(define _pxh (cfun "flux_pixels_height" (_fun -> _int) (lambda () 0)))
+(define _pxup (cfun "flux_pixels_upload" (_fun -> _void) (lambda () (void))))
+(define (pixels-width) (_pxw))
+(define (pixels-height) (_pxh))
+(define (pixels-upload) (_pxup))
+(define _mktext (cfun "flux_build_text"   (_fun _string -> _int) (lambda (a) 0)))
+(define _mkpix  (cfun "flux_build_pixels" (_fun _int _int -> _int) (lambda (a b) 0)))
+(define (build-text str) (_mktext str))
+(define (build-pixels w h) (_mkpix w h))
 ;; planetarium.ss engine prims
 (define (current-camera . _) 0)
 (define (pixels->texture . _) 0)

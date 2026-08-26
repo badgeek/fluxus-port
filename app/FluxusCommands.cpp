@@ -6,6 +6,8 @@
 #include "RibbonPrimitive.h"
 #include "ParticlePrimitive.h"
 #include "LocatorPrimitive.h"
+#include "TextPrimitive.h"
+#include <OpenGL/gl.h>
 #include "GraphicsUtils.h"
 #include "Camera.h"
 #include "State.h"
@@ -17,6 +19,7 @@
 #include <vector>
 #include <mutex>
 #include <cmath>
+#include <cstdio>
 #include <map>
 #include <string>
 #include <atomic>
@@ -80,6 +83,33 @@ GLSLShader* builtinTexShader() {
   }
   return sh;
 }
+
+// Text shader: like the texturing shader but alpha-tests the glyph atlas so only
+// the glyph coverage shows (no quad background), coloured by the vertex colour.
+GLSLShader* builtinTextShader() {
+  static GLSLShader* sh = nullptr;
+  if (!sh) {
+    GLSLShader::Init();
+    const char* v =
+      "varying vec2 uv;\n"
+      "void main(){ uv = gl_MultiTexCoord0.xy; gl_FrontColor = gl_Color;\n"
+      "  gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex; }\n";
+    const char* f =
+      "uniform sampler2D tex;\n"
+      "varying vec2 uv;\n"
+      "void main(){ float a = texture2D(tex, uv).a;\n"
+      "  if (a < 0.4) discard;\n"                       // glyph coverage only
+      "  gl_FragColor = vec4(gl_Color.rgb, 1.0); }\n";
+    GLSLShaderPair pair(false, v, f);
+    sh = new GLSLShader(pair);
+    sh->Apply(); sh->SetInt("tex", 0); GLSLShader::Unapply();
+  }
+  return sh;
+}
+
+// pixels primitives: plane id -> {GL texture, dims} for (build-pixels)/(pixels-upload)
+struct PixBuf { unsigned tex = 0; int w = 0, h = 0; };
+std::map<Primitive*, PixBuf> g_pixels;
 
 std::mutex  g_errMutex;
 std::string g_err;
@@ -276,6 +306,82 @@ int flux_build_copy(int id) {
 }
 int flux_build_locator(void) { return addPrim(new LocatorPrimitive()); }
 
+int flux_build_text(const char* str) {
+  // build glyph quads directly into a PolyPrimitive (renders via the shader path;
+  // avoids TextPrimitive's forced GL_CULL_FACE). Each char -> a quad sampling its
+  // cell in the 16x16 atlas (T flipped for GL's bottom-left origin).
+  PolyPrimitive* p = new PolyPrimitive(PolyPrimitive::QUADS);
+  const float cw = 1.0f / 16.0f, ch = 1.0f / 16.0f;   // atlas cell (texcoords)
+  const float W = 0.6f, H = 0.9f;                       // world size per char
+  const dVector N(0, 0, 1);
+  float x = 0, y = 0;
+  for (const char* c = str ? str : ""; *c; ++c) {
+    if (*c == '\n') { x = 0; y -= H; continue; }
+    const int pos = (unsigned char) *c;
+    const float s0 = (pos % 16) * cw, t0 = (pos / 16) * ch;
+    const float s1 = s0 + cw, t1 = t0 + ch;
+    p->AddVertex(dVertex(dVector(x,     y,     0), N, s0, 1 - t1));   // bottom-left
+    p->AddVertex(dVertex(dVector(x + W, y,     0), N, s1, 1 - t1));   // bottom-right
+    p->AddVertex(dVertex(dVector(x + W, y + H, 0), N, s1, 1 - t0));   // top-right
+    p->AddVertex(dVertex(dVector(x,     y + H, 0), N, s0, 1 - t0));   // top-left
+    x += W;
+  }
+  int id = addPrim(p);
+  State* s = p->GetState();
+  s->Textures[0] = flux_font_atlas();
+  setStateShader(s, builtinTextShader());
+  return id;
+}
+
+int flux_build_pixels(int w, int h) {
+  if (w < 1) w = 1; if (h < 1) h = 1;
+  PolyPrimitive* p = new PolyPrimitive(PolyPrimitive::QUADS);
+  MakePlane(p, 1, 1);                                   // unit quad with 0..1 texcoords
+  // MakePlane already made a per-vertex "c" (size 4); repurpose it as the w*h pixel
+  // buffer (it isn't used as vertex colour — the texture provides the colour).
+  if (PData* cd = p->GetDataRaw("c")) cd->Resize((unsigned) (w * h));
+  int id = addPrim(p);
+
+  GLuint tex = 0;
+  glGenTextures(1, &tex);
+  glBindTexture(GL_TEXTURE_2D, tex);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+  glBindTexture(GL_TEXTURE_2D, 0);
+
+  g_pixels[p] = PixBuf{ tex, w, h };
+  State* s = p->GetState();
+  s->Textures[0] = tex;
+  setStateShader(s, builtinTexShader());
+  return id;
+}
+void flux_pixels_upload(void) {
+  Primitive* p = g_ctx.grabbed;
+  if (!p) return;
+  auto it = g_pixels.find(p);
+  if (it == g_pixels.end()) return;
+  const PixBuf& pb = it->second;
+  const unsigned n = (unsigned) (pb.w * pb.h);
+  std::vector<unsigned char> buf((size_t) n * 4);
+  for (unsigned i = 0; i < n; ++i) {
+    const dColour c = p->GetData<dColour>("c", i);
+    unsigned char* px = &buf[(size_t) i * 4];
+    auto b = [](float v){ return (unsigned char) (v < 0 ? 0 : v > 1 ? 255 : (int) (v * 255.0f + 0.5f)); };
+    px[0] = b(c.r); px[1] = b(c.g); px[2] = b(c.b); px[3] = b(c.a);
+  }
+  glBindTexture(GL_TEXTURE_2D, pb.tex);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, pb.w, pb.h, GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
+  glBindTexture(GL_TEXTURE_2D, 0);
+}
+int flux_pixels_width(void)  { auto it = g_pixels.find(g_ctx.grabbed); return it == g_pixels.end() ? 0 : it->second.w; }
+int flux_pixels_height(void) { auto it = g_pixels.find(g_ctx.grabbed); return it == g_pixels.end() ? 0 : it->second.h; }
+
 // ---- material (grabbed primitive) ------------------------------------------
 void flux_specular(double r, double g, double b)      { if (State* s = grabbedState()) s->Specular = dColour((float) r, (float) g, (float) b, 1); }
 void flux_ambient(double r, double g, double b)       { if (State* s = grabbedState()) s->Ambient  = dColour((float) r, (float) g, (float) b, 1); }
@@ -338,7 +444,12 @@ void flux_texture(int id) {
 void flux_grab(int id)   { g_ctx.grabbed = g_ctx.r ? g_ctx.r->GetPrimitive(id) : nullptr; }
 void flux_ungrab(void)   { g_ctx.grabbed = nullptr; }
 
-int flux_pdata_size(void) { return g_ctx.grabbed ? (int) g_ctx.grabbed->Size() : 0; }
+int flux_pdata_size(void) {
+  if (!g_ctx.grabbed) return 0;
+  auto it = g_pixels.find(g_ctx.grabbed);      // pixels prim: pdata "c" is w*h, not vertex count
+  if (it != g_pixels.end()) return it->second.w * it->second.h;
+  return (int) g_ctx.grabbed->Size();
+}
 
 void flux_recalc_normals(void) { if (g_ctx.grabbed) g_ctx.grabbed->RecalculateNormals(false); }
 

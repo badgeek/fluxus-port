@@ -82,7 +82,14 @@ extern "C" {
   // textures: (load-texture path) -> GL id (implemented in TextureLoader.cpp via
   // JUCE image decode); (texture id) applies it to the grabbed prim / next-built.
   unsigned flux_load_texture(const char* path);
+  unsigned flux_font_atlas(void);              // 16x16 ASCII glyph atlas (TextureLoader.cpp)
   void     flux_texture(int id);
+
+  int  flux_build_text(const char* str);       // textured glyph-quads via the font atlas
+  int  flux_build_pixels(int w, int h);        // a plane backed by a writable pixel buffer ("c")
+  void flux_pixels_upload(void);               // push the grabbed pixels' "c" pdata to its texture
+  int  flux_pixels_width(void);
+  int  flux_pixels_height(void);
 
   // pdata — vertex-level access on a grabbed primitive (fluxus signature feature)
   void   flux_grab(int id);
