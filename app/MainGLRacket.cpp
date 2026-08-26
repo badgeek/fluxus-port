@@ -1,5 +1,6 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "FluxusGLComponent.h"
+#include "AppMenu.h"
 #include "RacketScriptHost.h"
 
 // Variant app: fluxus's OWN GL text editor (GLEditor/PolyGlyph) driving the
@@ -22,15 +23,22 @@ public:
     explicit MainWindow(const juce::String& name)
       : DocumentWindow(name, juce::Colours::black, DocumentWindow::allButtons) {
       setUsingNativeTitleBar(true);
-      setContentOwned(new FluxusGLComponent([] { return std::make_unique<RacketScriptHost>(); }), false);
+      auto* comp = new FluxusGLComponent([] { return std::make_unique<RacketScriptHost>(); });
+      setContentOwned(comp, false);
+      menu = std::make_unique<FluxusMenu>(                        // File -> Open / Save
+          [comp](const juce::File& f) { comp->loadFile(f); },
+          [comp] { return comp->getScript(); });
+      menu->attach(this);
       centreWithSize(1100, 720);
       setResizable(true, false);
       setVisible(true);
     }
+    ~MainWindow() override { FluxusMenu::detach(); }
     void closeButtonPressed() override {
       JUCEApplication::getInstance()->systemRequestedQuit();
     }
   private:
+    std::unique_ptr<FluxusMenu> menu;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainWindow)
   };
 

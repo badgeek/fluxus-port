@@ -1,5 +1,6 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "FluxusComponent.h"
+#include "AppMenu.h"
 #include "S7ScriptHost.h"
 #include <cstdlib>
 
@@ -28,15 +29,26 @@ public:
         juce::File f(juce::String::fromUTF8(p));
         if (f.existsAsFile()) starter = f.loadFileAsString();
       }
-      setContentOwned(new FluxusComponent([] { return std::make_unique<S7ScriptHost>(); }, starter), false);
+      auto* comp = new FluxusComponent([] { return std::make_unique<S7ScriptHost>(); }, starter);
+      setContentOwned(comp, false);
+      menu = std::make_unique<FluxusMenu>(                        // File -> Open / Save
+          [comp](const juce::File& f) { comp->loadFile(f); },
+          [comp] { return comp->getScript(); });
+      menu->setViewCallbacks(                                     // View -> editor
+          [comp](bool v) { comp->setEditorVisible(v); },
+          [comp](bool f) { comp->setEditorFullWidth(f); },
+          comp->isEditorVisible(), comp->isEditorFullWidth());
+      menu->attach(this);
       centreWithSize(1180, 720);
       setResizable(true, false);
       setVisible(true);
     }
+    ~MainWindow() override { FluxusMenu::detach(); }
     void closeButtonPressed() override {
       JUCEApplication::getInstance()->systemRequestedQuit();
     }
   private:
+    std::unique_ptr<FluxusMenu> menu;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainWindow)
   };
 

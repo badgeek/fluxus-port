@@ -20,6 +20,11 @@ public:
   explicit FluxusGLComponent(ScriptHostFactory makeHost);
   ~FluxusGLComponent() override;
 
+  // load a script into the GL editor and commit it (File -> Open menu)
+  void loadScript(const juce::String& text);
+  bool loadFile(const juce::File& f);
+  juce::String getScript();                   // current GL editor text (File -> Save)
+
   void newOpenGLContextCreated() override;
   void renderOpenGL() override;
   void openGLContextClosing() override;

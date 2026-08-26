@@ -76,6 +76,23 @@ void FluxusGLComponent::renderOpenGL() {
   overlay->render();             // fluxus GL text over the scene
 }
 
+void FluxusGLComponent::loadScript(const juce::String& text) {
+  const std::string t = text.toStdString();
+  if (overlay) overlay->setText(t);          // show it in the GL editor
+  std::lock_guard<std::mutex> lk(shared.m);  // commit + run (like Ctrl+E)
+  shared.pending = t;
+}
+
+bool FluxusGLComponent::loadFile(const juce::File& f) {
+  if (!f.existsAsFile()) return false;
+  loadScript(f.loadFileAsString());
+  return true;
+}
+
+juce::String FluxusGLComponent::getScript() {
+  return overlay ? juce::String(overlay->getText()) : juce::String();
+}
+
 void FluxusGLComponent::parentHierarchyChanged() {
   if (isShowing()) grabKeyboardFocus();
 }

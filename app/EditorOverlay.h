@@ -19,6 +19,7 @@ public:
   void render();                                  // GL thread: draws text over the scene
   void handleKey(int key, int special, int mod);  // message thread
   std::string getText();
+  void setText(const std::string& text);           // replace editor buffer
 
 private:
   std::unique_ptr<fluxus::GLEditor> ed;

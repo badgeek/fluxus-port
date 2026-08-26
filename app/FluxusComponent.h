@@ -23,6 +23,15 @@ public:
   explicit FluxusComponent(ScriptHostFactory makeHost, juce::String starter = {});
   ~FluxusComponent() override;
 
+  // load a script into the overlay editor and run it (File -> Open menu)
+  void loadScript(const juce::String& text);
+  bool loadFile(const juce::File& f);
+  juce::String getScript() const;             // current editor text (File -> Save)
+  void setEditorVisible(bool v);              // View -> Show Editor
+  void setEditorFullWidth(bool f);            // View -> Editor Full Width
+  bool isEditorVisible()  const { return editorVisible; }
+  bool isEditorFullWidth() const { return editorFullWidth; }
+
   void newOpenGLContextCreated() override;
   void renderOpenGL() override;
   void openGLContextClosing() override;
@@ -45,6 +54,8 @@ private:
   SharedScript shared;
 
   juce::Point<float> lastMouse;
+  bool editorVisible   = true;
+  bool editorFullWidth = false;   // false = left half, true = full width
   juce::TextEditor code;      // transparent overlay editor
   juce::TextEditor console;   // transparent status line
   juce::String lastShown { juce::String::charToString(0xffff) };

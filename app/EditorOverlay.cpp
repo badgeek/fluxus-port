@@ -39,3 +39,8 @@ std::string EditorOverlay::getText() {
   std::lock_guard<std::mutex> lk(m);
   return ed ? wstring_to_string(ed->GetAllText()) : std::string();
 }
+
+void EditorOverlay::setText(const std::string& text) {
+  std::lock_guard<std::mutex> lk(m);
+  if (ed) ed->SetText(string_to_wstring(text));
+}

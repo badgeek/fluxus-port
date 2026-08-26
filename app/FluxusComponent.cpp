@@ -9,20 +9,8 @@ juce::Font monoFont(float h) {
   return juce::Font(juce::Font::getDefaultMonospacedFontName(), h, juce::Font::plain);
 }
 const char* kStarter =
-  "; fluxus-style live coding (s7) - audio-reactive (make some noise!)\n"
-  "; edit, then Ctrl+E (or Shift+Enter) to run\n"
-  "(background (vector 0.05 0.05 0.09))\n"
-  "(colour (vector (+ 0.3 (gh 2)) (+ 0.2 (gh 6)) (+ 0.4 (gh 11))))\n"
-  "(rotate (vector (* 15 (time)) (* 25 (time)) 0))\n"
-  "(let ((g (+ 1.0 (* 4 (gain)))))\n"
-  "  (scale (vector g g g)))\n"
-  "(build-cube)\n"
-  "\n"
-  "(with-state\n"
-  "  (translate (vector 3 0 0))\n"
-  "  (colour (vector 1.0 0.6 0.2))\n"
-  "  (scale (vector (+ 0.3 (gh 1)) (+ 0.3 (gh 8)) 0.4))\n"
-  "  (build-sphere 14 14))\n";
+  "; empty sketch — write code, then Ctrl+E (or Shift+Enter) to run.\n"
+  "; File -> Open… to load an example.\n";
 }
 
 FluxusComponent::FluxusComponent(ScriptHostFactory mh, juce::String starter)
@@ -90,6 +78,19 @@ void FluxusComponent::renderOpenGL() {
   scene->renderFrame();
 }
 
+void FluxusComponent::loadScript(const juce::String& text) {
+  code.setText(text, juce::dontSendNotification);
+  pushScript();   // commit + run immediately (same as Ctrl+E)
+}
+
+bool FluxusComponent::loadFile(const juce::File& f) {
+  if (!f.existsAsFile()) return false;
+  loadScript(f.loadFileAsString());
+  return true;
+}
+
+juce::String FluxusComponent::getScript() const { return code.getText(); }
+
 void FluxusComponent::pushScript() {
   std::lock_guard<std::mutex> lk(shared.m);
   shared.pending = code.getText().toStdString();
@@ -132,9 +133,20 @@ void FluxusComponent::mouseWheelMove(const juce::MouseEvent&, const juce::MouseW
   flux_camera_zoom(-w.deltaY * 8.0);     // wheel to dolly
 }
 
+void FluxusComponent::setEditorVisible(bool v) {
+  editorVisible = v;
+  code.setVisible(v);
+  resized();
+}
+void FluxusComponent::setEditorFullWidth(bool f) {
+  editorFullWidth = f;
+  resized();
+}
+
 void FluxusComponent::resized() {
   auto r = getLocalBounds();
   console.setBounds(r.removeFromBottom(22).reduced(8, 2));
-  // editor overlays the left portion so the 3D stays visible on the right
-  code.setBounds(r.removeFromLeft(juce::roundToInt(getWidth() * 0.5f)).reduced(8, 6));
+  // editor overlays the left half (or full width) so the 3D stays visible
+  const int w = editorFullWidth ? getWidth() : juce::roundToInt(getWidth() * 0.5f);
+  code.setBounds(r.removeFromLeft(w).reduced(8, 6));
 }
