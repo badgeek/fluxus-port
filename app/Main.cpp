@@ -1,6 +1,7 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "FluxusComponent.h"
 #include "S7ScriptHost.h"
+#include <cstdlib>
 
 // Phase-0 host: a JUCE app window whose content is the FluxusComponent (GL
 // surface driving the libfluxus renderer).
@@ -21,7 +22,13 @@ public:
     explicit MainWindow(const juce::String& name)
       : DocumentWindow(name, juce::Colours::black, DocumentWindow::allButtons) {
       setUsingNativeTitleBar(true);
-      setContentOwned(new FluxusComponent([] { return std::make_unique<S7ScriptHost>(); }), false);
+      // optional: FLUXUS_SCRIPT=/path/to.scm loads that file as the starter
+      juce::String starter;
+      if (auto* p = std::getenv("FLUXUS_SCRIPT")) {
+        juce::File f(juce::String::fromUTF8(p));
+        if (f.existsAsFile()) starter = f.loadFileAsString();
+      }
+      setContentOwned(new FluxusComponent([] { return std::make_unique<S7ScriptHost>(); }, starter), false);
       centreWithSize(1180, 720);
       setResizable(true, false);
       setVisible(true);

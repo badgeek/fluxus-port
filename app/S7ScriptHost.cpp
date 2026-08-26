@@ -43,6 +43,11 @@ s7_pointer f_line_width(s7_scheme* sc, s7_pointer a)  { if (s7_is_pair(a)) flux_
 
 s7_pointer f_build_cube(s7_scheme* sc, s7_pointer)    { return s7_make_integer(sc, flux_build_cube()); }
 s7_pointer f_build_plane(s7_scheme* sc, s7_pointer)   { return s7_make_integer(sc, flux_build_plane()); }
+s7_pointer f_build_seg_plane(s7_scheme* sc, s7_pointer a) {
+  int x = 10, y = 10;
+  if (s7_is_pair(a)) { x = (int) s7_number_to_real(sc, s7_car(a)); if (s7_is_pair(s7_cdr(a))) y = (int) s7_number_to_real(sc, s7_cadr(a)); }
+  return s7_make_integer(sc, flux_build_seg_plane(x, y));
+}
 s7_pointer f_build_ribbon(s7_scheme* sc, s7_pointer a){ int n = s7_is_pair(a) ? (int) s7_number_to_real(sc, s7_car(a)) : 1; return s7_make_integer(sc, flux_build_ribbon(n)); }
 s7_pointer f_build_particles(s7_scheme* sc, s7_pointer a){ int n = s7_is_pair(a) ? (int) s7_number_to_real(sc, s7_car(a)) : 1; return s7_make_integer(sc, flux_build_particles(n)); }
 s7_pointer f_build_sphere(s7_scheme* sc, s7_pointer a){
@@ -66,6 +71,9 @@ s7_pointer f_gain(s7_scheme* sc, s7_pointer)  { return s7_make_real(sc, flux_aud
 s7_pointer f_mouse_x(s7_scheme* sc, s7_pointer) { return s7_make_real(sc, flux_mouse_x()); }
 s7_pointer f_mouse_y(s7_scheme* sc, s7_pointer) { return s7_make_real(sc, flux_mouse_y()); }
 s7_pointer f_mouse_button(s7_scheme* sc, s7_pointer) { return s7_make_integer(sc, flux_mouse_button()); }
+s7_pointer f_camera_dist(s7_scheme* sc, s7_pointer)  { return s7_make_real(sc, flux_camera_dist()); }
+s7_pointer f_camera_yaw(s7_scheme* sc, s7_pointer)   { return s7_make_real(sc, flux_camera_yaw()); }
+s7_pointer f_camera_pitch(s7_scheme* sc, s7_pointer) { return s7_make_real(sc, flux_camera_pitch()); }
 
 // ---- camera (matrices are 16-element s7 vectors, column-major) -------------
 s7_pointer f_set_camera_transform(s7_scheme* sc, s7_pointer a) {
@@ -91,6 +99,58 @@ s7_pointer f_set_fov(s7_scheme* sc, s7_pointer a)         { if (s7_is_pair(a)) f
 s7_pointer f_set_ortho(s7_scheme* sc, s7_pointer a)       { int on = s7_is_pair(a) ? (s7_boolean(sc, s7_car(a)) ? 1 : 0) : 1; flux_set_ortho(on); return s7_nil(sc); }
 s7_pointer f_set_ortho_zoom(s7_scheme* sc, s7_pointer a)  { if (s7_is_pair(a)) flux_set_ortho_zoom(s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
 s7_pointer f_get_screen_size(s7_scheme* sc, s7_pointer)   { double s[2]; flux_get_screen_size(s); s7_pointer v = s7_make_vector(sc, 3); s7_vector_set(sc, v, 0, s7_make_real(sc, s[0])); s7_vector_set(sc, v, 1, s7_make_real(sc, s[1])); s7_vector_set(sc, v, 2, s7_make_real(sc, 0)); return v; }
+
+// ---- persistent script state (survives per-frame re-eval) ------------------
+s7_pointer f_persist(s7_scheme* sc, s7_pointer a) {   // (persist key default-vector)
+  const char* key = s7_string(s7_car(a));
+  s7_pointer d = s7_cadr(a);
+  int n = (int) s7_vector_length(d);
+  if (n > 64) n = 64;
+  double buf[64];
+  if (flux_state_get(key, buf, n)) {
+    s7_pointer v = s7_make_vector(sc, n);
+    for (int i = 0; i < n; ++i) s7_vector_set(sc, v, i, s7_make_real(sc, buf[i]));
+    return v;
+  }
+  for (int i = 0; i < n; ++i) buf[i] = s7_number_to_real(sc, s7_vector_ref(sc, d, i));
+  flux_state_set(key, buf, n);
+  return d;
+}
+s7_pointer f_persist_bang(s7_scheme* sc, s7_pointer a) {  // (persist! key vector)
+  const char* key = s7_string(s7_car(a));
+  s7_pointer v = s7_cadr(a);
+  int n = (int) s7_vector_length(v);
+  if (n > 64) n = 64;
+  double buf[64];
+  for (int i = 0; i < n; ++i) buf[i] = s7_number_to_real(sc, s7_vector_ref(sc, v, i));
+  flux_state_set(key, buf, n);
+  return s7_nil(sc);
+}
+s7_pointer f_clear_state(s7_scheme* sc, s7_pointer) { flux_state_clear(); return s7_nil(sc); }
+
+// ---- GLSL shaders ----------------------------------------------------------
+s7_pointer f_shader_source(s7_scheme* sc, s7_pointer a) {   // (shader-source vert frag)
+  if (s7_is_pair(a) && s7_is_pair(s7_cdr(a)))
+    flux_shader_source(s7_string(s7_car(a)), s7_string(s7_cadr(a)));
+  return s7_nil(sc);
+}
+s7_pointer f_shader_off(s7_scheme* sc, s7_pointer)  { flux_shader_clear(); return s7_nil(sc); }
+s7_pointer f_shader_set_float(s7_scheme* sc, s7_pointer a) {  // (shader-set-float! name v)
+  if (s7_is_pair(a) && s7_is_pair(s7_cdr(a)))
+    flux_shader_set_float(s7_string(s7_car(a)), s7_number_to_real(sc, s7_cadr(a)));
+  return s7_nil(sc);
+}
+s7_pointer f_shader_set_vec(s7_scheme* sc, s7_pointer a) {    // (shader-set-vec! name vec)
+  if (s7_is_pair(a) && s7_is_pair(s7_cdr(a))) {
+    const char* name = s7_string(s7_car(a));
+    s7_pointer v = s7_cadr(a);
+    double x = s7_number_to_real(sc, s7_vector_ref(sc, v, 0));
+    double y = s7_number_to_real(sc, s7_vector_ref(sc, v, 1));
+    double z = s7_number_to_real(sc, s7_vector_ref(sc, v, 2));
+    flux_shader_set_vec(name, x, y, z);
+  }
+  return s7_nil(sc);
+}
 
 s7_pointer f_grab(s7_scheme* sc, s7_pointer a)  { if (s7_is_pair(a)) flux_grab((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
 s7_pointer f_ungrab(s7_scheme* sc, s7_pointer)  { flux_ungrab(); return s7_nil(sc); }
@@ -133,10 +193,15 @@ void S7ScriptHost::init() {
   def("line-width",   f_line_width,   0, 0, true);
   def("build-cube",      f_build_cube,      0, 0, false);
   def("build-plane",     f_build_plane,     0, 0, false);
+  def("build-seg-plane", f_build_seg_plane, 0, 0, true);
   def("build-ribbon",    f_build_ribbon,    1, 0, false);
   def("build-particles", f_build_particles, 1, 0, false);
   def("build-sphere", f_build_sphere, 0, 0, true);
   def("build-torus",  f_build_torus,  0, 0, true);
+  def("draw-cube",    f_build_cube,   0, 0, false);   // immediate draw = build here
+  def("draw-plane",   f_build_plane,  0, 0, false);
+  def("draw-sphere",  f_build_sphere, 0, 0, true);
+  def("draw-torus",   f_build_torus,  0, 0, true);
   def("time",         f_time,         0, 0, false);
   def("frame",        f_frame,        0, 0, false);
   def("gh",           f_gh,           1, 0, false);
@@ -144,6 +209,9 @@ void S7ScriptHost::init() {
   def("mouse-x",      f_mouse_x,      0, 0, false);
   def("mouse-y",      f_mouse_y,      0, 0, false);
   def("mouse-button", f_mouse_button, 0, 0, false);
+  def("camera-dist",  f_camera_dist,  0, 0, false);
+  def("camera-yaw",   f_camera_yaw,   0, 0, false);
+  def("camera-pitch", f_camera_pitch, 0, 0, false);
   def("set-camera-transform", f_set_camera_transform, 1, 0, false);
   def("get-camera-transform", f_get_camera_transform, 0, 0, false);
   def("set-camera",           f_set_camera_transform, 1, 0, false);  // alias
@@ -154,6 +222,13 @@ void S7ScriptHost::init() {
   def("set-ortho",            f_set_ortho,            0, 0, true);
   def("set-ortho-zoom",       f_set_ortho_zoom,       1, 0, false);
   def("get-screen-size",      f_get_screen_size,      0, 0, false);
+  def("persist",              f_persist,              2, 0, false);
+  def("persist!",             f_persist_bang,         2, 0, false);
+  def("clear-state",          f_clear_state,          0, 0, false);
+  def("shader-source",        f_shader_source,        2, 0, false);
+  def("shader-off",           f_shader_off,           0, 0, false);
+  def("shader-set-float!",    f_shader_set_float,     2, 0, false);
+  def("shader-set-vec!",      f_shader_set_vec,       2, 0, false);
   def("grab",         f_grab,         0, 0, true);
   def("ungrab",       f_ungrab,       0, 0, false);
   def("pdata-size",   f_pdata_size,   0, 0, false);

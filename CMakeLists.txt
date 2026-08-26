@@ -214,6 +214,23 @@ endif()
 # Vendored-header warnings are silenced by marking their include dirs SYSTEM
 # (see libfluxus_min.cmake and the fluxus_editor target above).
 
+# --- audio input probe (console) -------------------------------------------
+juce_add_console_app(audio_probe)
+target_sources(audio_probe PRIVATE spikes/audioprobe/main.cpp)
+target_compile_definitions(audio_probe PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(audio_probe PRIVATE
+    juce::juce_audio_devices
+    PUBLIC juce::juce_recommended_config_flags)
+
+# --- AudioHost analysis probe (console; real AudioHost, stub sink) ----------
+juce_add_console_app(audio_host_probe)
+target_sources(audio_host_probe PRIVATE spikes/audiohostprobe/main.cpp app/AudioHost.cpp)
+target_include_directories(audio_host_probe PRIVATE app)
+target_compile_definitions(audio_host_probe PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(audio_host_probe PRIVATE
+    juce::juce_audio_utils juce::juce_dsp
+    PUBLIC juce::juce_recommended_config_flags)
+
 # --- FFT band-analysis test (console) --------------------------------------
 juce_add_console_app(fft_test)
 target_sources(fft_test PRIVATE spikes/fft/main.cpp)

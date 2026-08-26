@@ -33,6 +33,7 @@ extern "C" {
   int  flux_build_sphere(int slices, int stacks);
   int  flux_build_torus(double inner, double outer, int slices, int stacks);
   int  flux_build_plane(void);
+  int  flux_build_seg_plane(int xsegs, int ysegs);   // subdivided grid (terrain)
   int  flux_build_ribbon(int n);        // camera-facing ribbon of n points
   int  flux_build_particles(int n);     // n billboard particles
   int  flux_build_nurbs_sphere(int hseg, int rseg);  // (poly approximation)
@@ -63,6 +64,9 @@ extern "C" {
   int    flux_mouse_button(void);
   void   flux_camera_drag(double dx, double dy);   // orbit
   void   flux_camera_zoom(double d);               // dolly
+  double flux_camera_dist(void);                   // wheel-accumulated dolly distance
+  double flux_camera_yaw(void);                    // mouse-drag orbit angles
+  double flux_camera_pitch(void);
 
   // script-driven camera (scripts run on the GL thread, so these may touch the
   // renderer's camera directly). set-camera-transform overrides the mouse orbit
@@ -79,6 +83,23 @@ extern "C" {
   void   flux_set_viewport(double x, double y, double w, double h);
   void   flux_set_resolution(int w, int h);          // host feeds pixel size
   void   flux_get_screen_size(double* out2);         // -> #(w h)
+
+  // persistent per-session state: a string-keyed store of double arrays that
+  // SURVIVES the per-frame buffer re-eval + scene Clear(). Lets scripts keep
+  // mutable state across frames (real fluxus-style damping/inertia) even though
+  // this port re-runs the whole program every frame.
+  //   flux_state_get: fills out[0..n) and returns 1 if key exists, else 0.
+  int  flux_state_get(const char* key, double* out, int n);
+  void flux_state_set(const char* key, const double* v, int n);
+  void flux_state_clear(void);
+
+  // GLSL shaders (per-primitive). Source strings are compiled once + cached;
+  // set on the grabbed prim if grabbed, else on subsequently-built prims.
+  // Uniforms are set on the currently-targeted shader's program (persist to render).
+  void flux_shader_source(const char* vert, const char* frag);
+  void flux_shader_clear(void);
+  void flux_shader_set_float(const char* name, double v);
+  void flux_shader_set_vec(const char* name, double x, double y, double z);
 
   // scripts report an error string back to the host (or "" to clear)
   void flux_report_error(const char* msg);

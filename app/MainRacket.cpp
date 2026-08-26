@@ -1,6 +1,7 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "FluxusComponent.h"
 #include "RacketScriptHost.h"
+#include <cstdlib>
 
 // Variant app: the fluxus engine driven by REAL Racket (CS) via ffi/unsafe.
 // Same transparent code-on-scene overlay as FluxusApp, but the script host is
@@ -50,7 +51,16 @@ public:
         "      \"p\")))\n"
         "(define (renderchain) (vertex_1 50))\n"
         "(every-frame (renderchain))\n";
-      setContentOwned(new FluxusComponent([] { return std::make_unique<RacketScriptHost>(); }, starter), false);
+      // optional starter override: FLUXUS_SCRIPT env, else ~/.fluxus-script.scm
+      // (the dotfile path lets the app be launched via `open` — which grants
+      // microphone TCC to the app itself — while still loading a custom script).
+      juce::String starterStr(starter);
+      juce::File sf;
+      if (auto* p = std::getenv("FLUXUS_SCRIPT")) sf = juce::File(juce::String::fromUTF8(p));
+      if (sf == juce::File())
+        sf = juce::File::getSpecialLocation(juce::File::userHomeDirectory).getChildFile(".fluxus-script.scm");
+      if (sf.existsAsFile()) starterStr = sf.loadFileAsString();
+      setContentOwned(new FluxusComponent([] { return std::make_unique<RacketScriptHost>(); }, starterStr), false);
       centreWithSize(1180, 720);
       setResizable(true, false);
       setVisible(true);

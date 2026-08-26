@@ -91,6 +91,7 @@ target_compile_definitions(libfluxus_min PRIVATE
     FLUXUS_MAJOR_VERSION=0
     FLUXUS_MINOR_VERSION=18
     FLUXUS_MINIMAL_NO_PNG      # PNGLoader compiles as a no-op stub (no libpng)
+    GLSL                       # enable GLSLShader (macOS GL 2.1 has glCreateProgram etc.)
 )
 
 # Silence the (many) legacy warnings.

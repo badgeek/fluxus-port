@@ -38,12 +38,21 @@
 ;; ---- real engine commands (FFI, vector-shaped like fluxus) -----------------
 (define _cube  (cfun "flux_build_cube"   (_fun -> _int) (lambda () 0)))
 (define _plane (cfun "flux_build_plane"  (_fun -> _int) (lambda () 0)))
+(define _segplane (cfun "flux_build_seg_plane" (_fun _int _int -> _int) (lambda (a b) 0)))
 (define _sph   (cfun "flux_build_sphere" (_fun _int _int -> _int) (lambda (a b) 0)))
 (define _tor   (cfun "flux_build_torus"  (_fun _double _double _int _int -> _int) (lambda (a b c d) 0)))
 (define (build-cube) (_cube))
 (define (build-plane) (_plane))
+(define (build-seg-plane (x 10) (y 10)) (_segplane x y))
 (define (build-sphere (sl 10) (st 10)) (_sph sl st))
 (define (build-torus (i 0.5) (o 1.0) (sl 12) (st 12)) (_tor (->fl i) (->fl o) sl st))
+;; fluxus draw-* : immediate draw of a template shape at the current state. This
+;; immediate-mode port has no retained template, so they just build the shape
+;; (cleared next frame like everything else).
+(define (draw-cube)   (_cube))
+(define (draw-plane)  (_plane))
+(define (draw-sphere) (_sph 10 10))
+(define (draw-torus)  (_tor 0.5 1.0 12 12))
 
 (define _bg  (cfun "flux_background" (_fun _double _double _double -> _void) (lambda (a b c) (void))))
 (define _col (cfun "flux_colour"     (_fun _double _double _double -> _void) (lambda (a b c) (void))))
@@ -88,6 +97,13 @@
 (define (mouse-x) (_mx))
 (define (mouse-y) (_my))
 (define (mouse-button) (_mb))
+;; mouse-driven camera params (wheel dolly + drag orbit), readable by scripts
+(define _cdist (cfun "flux_camera_dist"  (_fun -> _double) (lambda () 10.0)))
+(define _cyaw  (cfun "flux_camera_yaw"   (_fun -> _double) (lambda () 0.0)))
+(define _cpit  (cfun "flux_camera_pitch" (_fun -> _double) (lambda () 0.0)))
+(define (camera-dist)  (_cdist))
+(define (camera-yaw)   (_cyaw))
+(define (camera-pitch) (_cpit))
 
 ;; fluxus (with-state ...) — save/run/restore transform+colour
 (define-syntax-rule (with-state body ...) (begin (push) (let ((r (begin body ...))) (pop) r)))
@@ -207,6 +223,32 @@
 (define (viewport x y w h) (_set-vp (->fl x) (->fl y) (->fl w) (->fl h)))
 (define (get-screen-size)
   (let ((v (make-f64vector 2 0.0))) (_screen-sz v) (vector (f64vector-ref v 0) (f64vector-ref v 1) 0)))
+
+;; ---- persistent script state (FFI) -----------------------------------------
+;; survives the per-frame buffer re-eval, so scripts can keep mutable state
+;; (damping/inertia) like retained-mode fluxus. Values are numeric vectors.
+(define _state-get   (cfun "flux_state_get"   (_fun _string _f64vector _int -> _int)  (lambda (a b c) 0)))
+(define _state-set   (cfun "flux_state_set"   (_fun _string _f64vector _int -> _void) (lambda (a b c) (void))))
+(define _state-clear (cfun "flux_state_clear" (_fun -> _void) (lambda () (void))))
+(define (persist! key v)
+  (_state-set key (list->f64vector (map ->fl (vector->list v))) (vector-length v)))
+(define (persist key default)               ; default: a numeric vector
+  (let* ((n (vector-length default))
+         (buf (make-f64vector n 0.0)))
+    (if (= 1 (_state-get key buf n))
+        (list->vector (f64vector->list buf)) ; stored value from a previous frame
+        (begin (persist! key default) default))))
+(define (clear-state) (_state-clear))
+
+;; ---- GLSL shaders (FFI) ----------------------------------------------------
+(define _shader-src (cfun "flux_shader_source"    (_fun _string _string -> _void) (lambda (a b) (void))))
+(define _shader-off (cfun "flux_shader_clear"     (_fun -> _void) (lambda () (void))))
+(define _shader-f   (cfun "flux_shader_set_float" (_fun _string _double -> _void) (lambda (a b) (void))))
+(define _shader-v   (cfun "flux_shader_set_vec"   (_fun _string _double _double _double -> _void) (lambda (a b c d) (void))))
+(define (shader-source vert frag) (_shader-src vert frag))   ; compile from source strings
+(define (shader-off) (_shader-off))
+(define (shader-set-float! name x) (_shader-f name (->fl x)))
+(define (shader-set-vec! name v) (_shader-v name (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
 ;; mouse.ss: C fmod (engine prim) — real impl
 (define (fmod a b) (if (zero? b) 0.0 (- a (* b (truncate (/ a b))))))
 ;; pixels-tools.ss engine prims (pixels-index/pixels-texcoord are library defs)

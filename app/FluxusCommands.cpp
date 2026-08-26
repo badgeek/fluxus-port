@@ -8,11 +8,14 @@
 #include "GraphicsUtils.h"
 #include "Camera.h"
 #include "State.h"
+#include "GLSLShader.h"
 #include "dada.h"
 
 #include <vector>
 #include <mutex>
 #include <cmath>
+#include <map>
+#include <string>
 
 using namespace Fluxus;
 
@@ -27,8 +30,27 @@ struct BuildCtx {
   int       hints = 0;      // extra State hints OR'd onto built prims
   float     lineWidth = 2.0f;
   Primitive* grabbed = nullptr;   // current pdata target
+  GLSLShader* shader = nullptr;   // current shader for newly built prims (not owned)
 };
 BuildCtx g_ctx;
+
+// source->shader cache: compile a GLSL program once, reuse it across the per-frame
+// re-evals (immediate-mode would otherwise recompile every frame). Keyed by
+// vertex+fragment source; each cached shader holds one ref for the session.
+std::map<std::string, GLSLShader*> g_shaderCache;
+
+// swap a State's shader with correct refcounting (State DecRefs/deletes at 0).
+void setStateShader(State* s, GLSLShader* sh) {
+  if (!s) return;
+  if (s->Shader && s->Shader->DecRef()) delete s->Shader;
+  s->Shader = sh;
+  if (sh) sh->IncRef();
+}
+// the shader a script command currently targets: grabbed prim's, else build ctx.
+GLSLShader* currentShader() {
+  if (g_ctx.grabbed) return g_ctx.grabbed->GetState()->Shader;
+  return g_ctx.shader;
+}
 
 std::mutex  g_errMutex;
 std::string g_err;
@@ -36,6 +58,10 @@ std::string g_err;
 std::mutex         g_audioMutex;
 std::vector<float> g_bands;
 double             g_gain = 0.0;
+
+// persistent script state (GL thread only, but guard anyway)
+std::mutex                                  g_stateMutex;
+std::map<std::string, std::vector<double>>  g_state;
 
 // mouse + orbit camera state (persists across frames)
 struct CamState { double yaw = 0.3, pitch = 0.3, dist = 10.0; };
@@ -83,6 +109,7 @@ int addPrim(Primitive* p) {
   s->Colour    = g_ctx.col;
   s->Hints    |= g_ctx.hints;
   s->LineWidth = g_ctx.lineWidth;
+  if (g_ctx.shader) setStateShader(s, g_ctx.shader);
   return id;
 }
 } // namespace
@@ -100,6 +127,7 @@ void flux_frame_begin(double t, int frame) {
   g_ctx.hints = 0;
   g_ctx.lineWidth = 2.0f;
   g_ctx.grabbed = nullptr;
+  g_ctx.shader  = nullptr;
   applyCamera();   // orbit camera survives the per-frame scene Clear()
 }
 
@@ -148,6 +176,11 @@ int flux_build_torus(double in, double out, int sl, int st) {
 int flux_build_plane(void) {
   PolyPrimitive* p = new PolyPrimitive(PolyPrimitive::QUADS);
   MakePlane(p);
+  return addPrim(p);
+}
+int flux_build_seg_plane(int xsegs, int ysegs) {
+  PolyPrimitive* p = new PolyPrimitive(PolyPrimitive::QUADS);
+  MakePlane(p, xsegs > 0 ? xsegs : 1, ysegs > 0 ? ysegs : 1);   // grid in XY, +Z normals
   return addPrim(p);
 }
 int flux_build_nurbs_sphere(int hseg, int rseg) {
@@ -268,6 +301,9 @@ void flux_camera_zoom(double d) {
   if (g_cam.dist < 2.0)  g_cam.dist = 2.0;
   if (g_cam.dist > 80.0) g_cam.dist = 80.0;
 }
+double flux_camera_dist(void)  { return g_cam.dist; }
+double flux_camera_yaw(void)   { return g_cam.yaw; }
+double flux_camera_pitch(void) { return g_cam.pitch; }
 
 // ---- script-driven camera --------------------------------------------------
 void flux_set_camera_transform(const double* m) {
@@ -314,6 +350,54 @@ void flux_set_viewport(double x, double y, double w, double h) {
 }
 void flux_set_resolution(int w, int h) { g_screenW = w; g_screenH = h; }
 void flux_get_screen_size(double* out) { if (out) { out[0] = g_screenW; out[1] = g_screenH; } }
+
+int flux_state_get(const char* key, double* out, int n) {
+  if (!key || !out || n <= 0) return 0;
+  std::lock_guard<std::mutex> lk(g_stateMutex);
+  auto it = g_state.find(key);
+  if (it == g_state.end()) return 0;
+  const auto& v = it->second;
+  for (int i = 0; i < n; ++i) out[i] = (i < (int) v.size()) ? v[(size_t) i] : 0.0;
+  return 1;
+}
+void flux_state_set(const char* key, const double* v, int n) {
+  if (!key || !v || n < 0) return;
+  std::lock_guard<std::mutex> lk(g_stateMutex);
+  g_state[key].assign(v, v + n);
+}
+void flux_state_clear(void) {
+  std::lock_guard<std::mutex> lk(g_stateMutex);
+  g_state.clear();
+}
+
+// ---- GLSL shaders ----------------------------------------------------------
+void flux_shader_source(const char* vert, const char* frag) {
+  if (!vert || !frag) return;
+  GLSLShader::Init();   // set m_Enabled BEFORE compiling (render normally does this later)
+  std::string key = std::string(vert) + "\n---\n" + frag;
+  GLSLShader* sh;
+  auto it = g_shaderCache.find(key);
+  if (it != g_shaderCache.end()) sh = it->second;
+  else {
+    GLSLShaderPair pair(false, vert, frag);   // compile from source
+    sh = new GLSLShader(pair);                // shares the compiled program
+    g_shaderCache[key] = sh;                  // one session-held ref
+  }
+  if (State* s = grabbedState()) setStateShader(s, sh);   // grabbed prim
+  else                           g_ctx.shader = sh;       // next-built prims
+}
+void flux_shader_clear(void) {
+  if (State* s = grabbedState()) setStateShader(s, nullptr);
+  else                           g_ctx.shader = nullptr;
+}
+void flux_shader_set_float(const char* name, double v) {
+  GLSLShader* sh = currentShader();
+  if (sh && name) { sh->Apply(); sh->SetFloat(name, (float) v); }
+}
+void flux_shader_set_vec(const char* name, double x, double y, double z) {
+  GLSLShader* sh = currentShader();
+  if (sh && name) { sh->Apply(); sh->SetVector(name, dVector((float) x, (float) y, (float) z), 3); }
+}
 
 void flux_report_error(const char* msg) {
   std::lock_guard<std::mutex> lk(g_errMutex);
