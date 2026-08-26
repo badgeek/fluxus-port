@@ -2,6 +2,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include "PostFX.h"
 
 struct SharedScript;
 namespace Fluxus { class Renderer; }
@@ -27,4 +28,6 @@ private:
   int           frameCount = 0;
   long long     startMs = 0;
   std::thread::id glThread;   // the thread Racket/s7 was init'd on
+  int           resW = 0, resH = 0;
+  PostFX        postfx;       // optional full-screen post-processing pass
 };

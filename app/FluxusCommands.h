@@ -101,9 +101,21 @@ extern "C" {
   void flux_shader_set_float(const char* name, double v);
   void flux_shader_set_vec(const char* name, double x, double y, double z);
 
+  // full-screen post-processing: install a fragment shader run over the rendered
+  // scene (via an FBO in FluxusScene). A passthrough vertex stage + `tex`,
+  // `time`, `audio`, `resolution` uniforms are provided automatically.
+  void flux_post_shader(const char* frag);   // enable + set fragment source
+  void flux_post_off(void);
+  void flux_blur(double amount);             // built-in feedback motion-blur (0..~0.97)
+
   // scripts report an error string back to the host (or "" to clear)
   void flux_report_error(const char* msg);
 }
 
 // C++-side accessor for the host (not FFI).
 std::string flux_last_error();
+
+// C++-side post-FX accessors for FluxusScene (not FFI).
+// returns true if post is enabled; fills frag + feedback; sets dirty=true (and
+// clears it) when the fragment source changed since the last call.
+bool flux_post_state(std::string& frag, double& feedback, bool& dirty);

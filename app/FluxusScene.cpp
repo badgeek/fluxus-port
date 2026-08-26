@@ -30,6 +30,7 @@ void FluxusScene::init() {
 void FluxusScene::setResolution(int w, int h) {
   if (renderer) renderer->SetResolution(w, h);
   flux_set_resolution(w, h);
+  resW = w; resH = h;
 }
 
 void FluxusScene::renderFrame() {
@@ -65,5 +66,18 @@ void FluxusScene::renderFrame() {
     }
   }
 
-  renderer->Render();
+  // the script (just eval'd) may have installed a post-processing shader.
+  std::string frag; bool dirty = false; double feedback = 0.0;
+  const bool post = flux_post_state(frag, feedback, dirty) && resW > 0 && resH > 0
+                    && postfx.ensure(resW, resH);
+  if (post) {
+    if (dirty) postfx.setFragment(frag);
+    postfx.begin();                 // render scene into the FBO texture
+    renderer->Render();
+    postfx.end();
+    const double t = (nowMs() - startMs) / 1000.0;
+    postfx.draw(t, flux_audio_gain(), feedback);   // fullscreen pass to the screen
+  } else {
+    renderer->Render();
+  }
 }

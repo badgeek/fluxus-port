@@ -249,6 +249,13 @@
 (define (shader-off) (_shader-off))
 (define (shader-set-float! name x) (_shader-f name (->fl x)))
 (define (shader-set-vec! name v) (_shader-v name (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
+;; full-screen post-processing (FBO): (post-shader fragsrc) / (post-off)
+(define _post-src (cfun "flux_post_shader" (_fun _string -> _void) (lambda (a) (void))))
+(define _post-off (cfun "flux_post_off"    (_fun -> _void) (lambda () (void))))
+(define (post-shader frag) (_post-src frag))
+(define (post-off) (_post-off))
+(define _blur (cfun "flux_blur" (_fun _double -> _void) (lambda (a) (void))))
+(define (blur amt) (_blur (->fl amt)))   ; feedback motion-blur (0..~0.97)
 ;; mouse.ss: C fmod (engine prim) — real impl
 (define (fmod a b) (if (zero? b) 0.0 (- a (* b (truncate (/ a b))))))
 ;; pixels-tools.ss engine prims (pixels-index/pixels-texcoord are library defs)

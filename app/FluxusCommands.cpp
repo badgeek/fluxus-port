@@ -406,6 +406,52 @@ void flux_report_error(const char* msg) {
 
 } // extern "C"
 
+// ---- post-FX state (read by FluxusScene's PostFX) --------------------------
+namespace {
+std::mutex  g_postMutex;
+bool        g_postEnabled = false;
+std::string g_postFrag;
+double      g_postFeedback = 0.0;
+bool        g_postDirty   = false;
+
+// built-in feedback motion-blur fragment: blend the current frame over a decayed
+// copy of the previous output (max keeps bright trails that fade each frame).
+const char* kBlurFrag =
+  "uniform sampler2D tex;\n"
+  "uniform sampler2D prev;\n"
+  "uniform float feedback;\n"
+  "varying vec2 uv;\n"
+  "void main() {\n"
+  "  vec3 c = texture2D(tex, uv).rgb;\n"
+  "  vec3 p = texture2D(prev, uv).rgb * feedback;\n"
+  "  gl_FragColor = vec4(max(c, p), 1.0);\n"
+  "}\n";
+}
+extern "C" void flux_post_shader(const char* frag) {
+  std::lock_guard<std::mutex> lk(g_postMutex);
+  std::string f = frag ? frag : "";
+  if (f != g_postFrag) { g_postFrag = f; g_postDirty = true; }
+  g_postEnabled = true;
+}
+extern "C" void flux_post_off(void) {
+  std::lock_guard<std::mutex> lk(g_postMutex);
+  g_postEnabled = false;
+}
+extern "C" void flux_blur(double amount) {
+  std::lock_guard<std::mutex> lk(g_postMutex);
+  if (g_postFrag != kBlurFrag) { g_postFrag = kBlurFrag; g_postDirty = true; }
+  g_postFeedback = amount < 0 ? 0 : (amount > 0.97 ? 0.97 : amount);
+  g_postEnabled = true;
+}
+bool flux_post_state(std::string& frag, double& feedback, bool& dirty) {
+  std::lock_guard<std::mutex> lk(g_postMutex);
+  frag = g_postFrag;
+  feedback = g_postFeedback;
+  dirty = g_postDirty;
+  g_postDirty = false;
+  return g_postEnabled;
+}
+
 std::string flux_last_error() {
   std::lock_guard<std::mutex> lk(g_errMutex);
   return g_err;

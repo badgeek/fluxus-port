@@ -140,6 +140,9 @@ s7_pointer f_shader_set_float(s7_scheme* sc, s7_pointer a) {  // (shader-set-flo
     flux_shader_set_float(s7_string(s7_car(a)), s7_number_to_real(sc, s7_cadr(a)));
   return s7_nil(sc);
 }
+s7_pointer f_post_shader(s7_scheme* sc, s7_pointer a) { if (s7_is_pair(a)) flux_post_shader(s7_string(s7_car(a))); return s7_nil(sc); }
+s7_pointer f_post_off(s7_scheme* sc, s7_pointer)      { flux_post_off(); return s7_nil(sc); }
+s7_pointer f_blur(s7_scheme* sc, s7_pointer a)        { if (s7_is_pair(a)) flux_blur(s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
 s7_pointer f_shader_set_vec(s7_scheme* sc, s7_pointer a) {    // (shader-set-vec! name vec)
   if (s7_is_pair(a) && s7_is_pair(s7_cdr(a))) {
     const char* name = s7_string(s7_car(a));
@@ -229,6 +232,9 @@ void S7ScriptHost::init() {
   def("shader-off",           f_shader_off,           0, 0, false);
   def("shader-set-float!",    f_shader_set_float,     2, 0, false);
   def("shader-set-vec!",      f_shader_set_vec,       2, 0, false);
+  def("post-shader",          f_post_shader,          1, 0, false);
+  def("post-off",             f_post_off,             0, 0, false);
+  def("blur",                 f_blur,                 1, 0, false);
   def("grab",         f_grab,         0, 0, true);
   def("ungrab",       f_ungrab,       0, 0, false);
   def("pdata-size",   f_pdata_size,   0, 0, false);
