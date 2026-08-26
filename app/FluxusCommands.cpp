@@ -5,9 +5,12 @@
 #include "PolyPrimitive.h"
 #include "RibbonPrimitive.h"
 #include "ParticlePrimitive.h"
+#include "LocatorPrimitive.h"
 #include "GraphicsUtils.h"
 #include "Camera.h"
 #include "State.h"
+#include "Light.h"
+#include "SceneGraph.h"
 #include "GLSLShader.h"
 #include "dada.h"
 
@@ -32,6 +35,7 @@ struct BuildCtx {
   float     lineWidth = 2.0f;
   Primitive* grabbed = nullptr;   // current pdata target
   GLSLShader* shader = nullptr;   // current shader for newly built prims (not owned)
+  int         parent = -1;        // parent id for newly built prims (-1 = root)
 };
 BuildCtx g_ctx;
 
@@ -111,6 +115,7 @@ int addPrim(Primitive* p) {
   s->Hints    |= g_ctx.hints;
   s->LineWidth = g_ctx.lineWidth;
   if (g_ctx.shader) setStateShader(s, g_ctx.shader);
+  if (g_ctx.parent >= 0) g_ctx.r->GetSceneGraph().ReparentNode(id, g_ctx.parent);
   return id;
 }
 } // namespace
@@ -129,6 +134,7 @@ void flux_frame_begin(double t, int frame) {
   g_ctx.lineWidth = 2.0f;
   g_ctx.grabbed = nullptr;
   g_ctx.shader  = nullptr;
+  g_ctx.parent  = -1;
   applyCamera();   // orbit camera survives the per-frame scene Clear()
 }
 
@@ -215,6 +221,81 @@ void flux_opacity(double o)      { if (State* s = grabbedState()) s->Opacity = (
 void flux_wire_opacity(double o) { if (State* s = grabbedState()) s->WireOpacity = (float) o; }
 void flux_wire_colour(double r, double g, double b) { if (State* s = grabbedState()) s->WireColour = dColour((float) r, (float) g, (float) b, 1); }
 void flux_backfacecull(int on)   { if (State* s = grabbedState()) s->Cull = on != 0; }
+
+// ---- more builders ---------------------------------------------------------
+int flux_build_cylinder(double h, double r, int hs, int rs) {
+  PolyPrimitive* p = new PolyPrimitive(PolyPrimitive::TRILIST);
+  MakeCylinder(p, (float) h, (float) r, hs > 0 ? hs : 10, rs > 0 ? rs : 10);
+  return addPrim(p);
+}
+int flux_build_polygons(int type, int nverts) {
+  PolyPrimitive::Type t;
+  switch (type) {
+    case 1:  t = PolyPrimitive::QUADS;   break;
+    case 2:  t = PolyPrimitive::TRILIST; break;
+    case 3:  t = PolyPrimitive::TRIFAN;  break;
+    case 4:  t = PolyPrimitive::POLYGON; break;
+    default: t = PolyPrimitive::TRISTRIP;
+  }
+  PolyPrimitive* p = new PolyPrimitive(t);
+  for (int i = 0; i < (nverts > 0 ? nverts : 0); ++i)
+    p->AddVertex(dVertex(dVector(0, 0, 0), dVector(0, 1, 0), 0, 0));
+  return addPrim(p);
+}
+int flux_build_copy(int id) {
+  if (!g_ctx.r) return -1;
+  Primitive* src = g_ctx.r->GetPrimitive(id);
+  if (!src) return -1;
+  return addPrim(src->Clone());
+}
+int flux_build_locator(void) { return addPrim(new LocatorPrimitive()); }
+
+// ---- material (grabbed primitive) ------------------------------------------
+void flux_specular(double r, double g, double b)      { if (State* s = grabbedState()) s->Specular = dColour((float) r, (float) g, (float) b, 1); }
+void flux_ambient(double r, double g, double b)       { if (State* s = grabbedState()) s->Ambient  = dColour((float) r, (float) g, (float) b, 1); }
+void flux_emissive(double r, double g, double b)      { if (State* s = grabbedState()) s->Emissive = dColour((float) r, (float) g, (float) b, 1); }
+void flux_shinyness(double v)                         { if (State* s = grabbedState()) s->Shinyness = (float) v; }
+void flux_normal_colour(double r, double g, double b) { if (State* s = grabbedState()) s->NormalColour = dColour((float) r, (float) g, (float) b, 1); }
+void flux_point_width(double w)                       { if (State* s = grabbedState()) s->PointWidth = (float) w; }
+
+// ---- render hints ----------------------------------------------------------
+void flux_hint_none(void)          { if (State* s = grabbedState()) s->Hints = 0; else g_ctx.hints = 0; }
+void flux_hint_normal(int on)      { setHint(HINT_NORMAL, on); }
+void flux_hint_points(int on)      { setHint(HINT_POINTS, on); }
+void flux_hint_unlit(int on)       { setHint(HINT_UNLIT, on); }
+void flux_hint_vertcols(int on)    { setHint(HINT_VERTCOLS, on); }
+void flux_hint_depth_sort(int on)  { setHint(HINT_DEPTH_SORT, on); }
+void flux_hint_cull_ccw(int on)    { setHint(HINT_CULL_CCW, on); }
+void flux_hint_origin(int on)      { setHint(HINT_ORIGIN, on); }
+void flux_hint_cast_shadow(int on) { setHint(HINT_CAST_SHADOW, on); }
+void flux_hint_ignore_depth(int on){ setHint(HINT_IGNORE_DEPTH, on); }
+void flux_hint_nozwrite(int on)    { setHint(HINT_NOZWRITE, on); }
+void flux_hint_sphere_map(int on)  { setHint(HINT_SPHERE_MAP, on); }
+
+// ---- lights ----------------------------------------------------------------
+int flux_make_light(int type) {
+  if (!g_ctx.r) return -1;
+  Light* l = new Light();
+  l->SetType((Light::Type) (type >= 0 && type <= 2 ? type : 0));
+  l->SetCameraLock(false);
+  return g_ctx.r->AddLight(l);
+}
+static Light* light(int id) { return g_ctx.r ? g_ctx.r->GetLight(id) : nullptr; }
+void flux_light_position(int id, double x, double y, double z) { if (Light* l = light(id)) l->SetPosition(dVector((float) x, (float) y, (float) z)); }
+void flux_light_diffuse(int id, double r, double g, double b)  { if (Light* l = light(id)) l->SetDiffuse(dColour((float) r, (float) g, (float) b, 1)); }
+void flux_light_ambient(int id, double r, double g, double b)  { if (Light* l = light(id)) l->SetAmbient(dColour((float) r, (float) g, (float) b, 1)); }
+void flux_light_specular(int id, double r, double g, double b) { if (Light* l = light(id)) l->SetSpecular(dColour((float) r, (float) g, (float) b, 1)); }
+void flux_light_direction(int id, double x, double y, double z){ if (Light* l = light(id)) l->SetDirection(dVector((float) x, (float) y, (float) z)); }
+void flux_light_spot_angle(int id, double a)                   { if (Light* l = light(id)) l->SetSpotAngle((float) a); }
+
+// ---- fog / parent / select / shadows ---------------------------------------
+void flux_fog(double r, double g, double b, double d, double s, double e) {
+  if (g_ctx.r) g_ctx.r->SetFog(dColour((float) r, (float) g, (float) b, 1), (float) d, (float) s, (float) e);
+}
+void flux_parent(int id) { g_ctx.parent = id; }
+int  flux_select(int x, int y, int size) { return g_ctx.r ? g_ctx.r->Select(0, x, y, size > 0 ? size : 5) : 0; }
+void flux_shadow_light(int index)  { if (g_ctx.r) g_ctx.r->ShadowLight((unsigned) (index < 0 ? 0 : index)); }
+void flux_shadow_length(double len){ if (g_ctx.r) g_ctx.r->ShadowLength((float) len); }
 
 // ---- pdata (grabbed primitive) --------------------------------------------
 void flux_grab(int id)   { g_ctx.grabbed = g_ctx.r ? g_ctx.r->GetPrimitive(id) : nullptr; }

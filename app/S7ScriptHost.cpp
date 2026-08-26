@@ -156,6 +156,73 @@ s7_pointer f_shader_set_vec(s7_scheme* sc, s7_pointer a) {    // (shader-set-vec
   return s7_nil(sc);
 }
 
+// ---- extra builders / material / hints / lights / fog / parent / select ----
+s7_pointer f_build_cylinder(s7_scheme* sc, s7_pointer a) {
+  double h = 1, r = 1; int hs = 10, rs = 10; s7_pointer p = a;
+  if (s7_is_pair(p)) { h  = s7_number_to_real(sc, s7_car(p)); p = s7_cdr(p); }
+  if (s7_is_pair(p)) { r  = s7_number_to_real(sc, s7_car(p)); p = s7_cdr(p); }
+  if (s7_is_pair(p)) { hs = (int) s7_number_to_real(sc, s7_car(p)); p = s7_cdr(p); }
+  if (s7_is_pair(p)) { rs = (int) s7_number_to_real(sc, s7_car(p)); }
+  return s7_make_integer(sc, flux_build_cylinder(h, r, hs, rs));
+}
+s7_pointer f_build_polygons(s7_scheme* sc, s7_pointer a) {
+  int type = s7_is_pair(a) ? (int) s7_number_to_real(sc, s7_car(a)) : 0;
+  int nv   = (s7_is_pair(a) && s7_is_pair(s7_cdr(a))) ? (int) s7_number_to_real(sc, s7_cadr(a)) : 0;
+  return s7_make_integer(sc, flux_build_polygons(type, nv));
+}
+s7_pointer f_build_copy(s7_scheme* sc, s7_pointer a)    { return s7_make_integer(sc, flux_build_copy(s7_is_pair(a) ? (int) s7_number_to_real(sc, s7_car(a)) : -1)); }
+s7_pointer f_build_locator(s7_scheme* sc, s7_pointer)   { return s7_make_integer(sc, flux_build_locator()); }
+
+#define S7_VEC3(fn, cfn) s7_pointer fn(s7_scheme* sc, s7_pointer a) { double x,y,z; if (vec3(sc,a,x,y,z)) cfn(x,y,z); return s7_nil(sc); }
+S7_VEC3(f_specular,      flux_specular)
+S7_VEC3(f_ambient,       flux_ambient)
+S7_VEC3(f_emissive,      flux_emissive)
+S7_VEC3(f_normal_colour, flux_normal_colour)
+s7_pointer f_shinyness(s7_scheme* sc, s7_pointer a)   { if (s7_is_pair(a)) flux_shinyness(s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+s7_pointer f_point_width(s7_scheme* sc, s7_pointer a) { if (s7_is_pair(a)) flux_point_width(s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+
+#define S7_HINT(fn, cfn) s7_pointer fn(s7_scheme* sc, s7_pointer a) { int on = s7_is_pair(a) ? (s7_boolean(sc, s7_car(a)) ? 1 : 0) : 1; cfn(on); return s7_nil(sc); }
+s7_pointer f_hint_none(s7_scheme* sc, s7_pointer) { flux_hint_none(); return s7_nil(sc); }
+S7_HINT(f_hint_normal,       flux_hint_normal)
+S7_HINT(f_hint_points,       flux_hint_points)
+S7_HINT(f_hint_unlit,        flux_hint_unlit)
+S7_HINT(f_hint_vertcols,     flux_hint_vertcols)
+S7_HINT(f_hint_depth_sort,   flux_hint_depth_sort)
+S7_HINT(f_hint_cull_ccw,     flux_hint_cull_ccw)
+S7_HINT(f_hint_origin,       flux_hint_origin)
+S7_HINT(f_hint_cast_shadow,  flux_hint_cast_shadow)
+S7_HINT(f_hint_ignore_depth, flux_hint_ignore_depth)
+S7_HINT(f_hint_nozwrite,     flux_hint_nozwrite)
+S7_HINT(f_hint_sphere_map,   flux_hint_sphere_map)
+
+s7_pointer f_make_light(s7_scheme* sc, s7_pointer a) { return s7_make_integer(sc, flux_make_light(s7_is_pair(a) ? (int) s7_number_to_real(sc, s7_car(a)) : 0)); }
+#define S7_LIGHTV(fn, cfn) s7_pointer fn(s7_scheme* sc, s7_pointer a) { \
+  int id = (int) s7_number_to_real(sc, s7_car(a)); double x,y,z; if (vec3(sc, s7_cdr(a), x, y, z)) cfn(id, x, y, z); return s7_nil(sc); }
+S7_LIGHTV(f_light_position,  flux_light_position)
+S7_LIGHTV(f_light_diffuse,   flux_light_diffuse)
+S7_LIGHTV(f_light_ambient,   flux_light_ambient)
+S7_LIGHTV(f_light_specular,  flux_light_specular)
+S7_LIGHTV(f_light_direction, flux_light_direction)
+s7_pointer f_light_spot_angle(s7_scheme* sc, s7_pointer a) { flux_light_spot_angle((int) s7_number_to_real(sc, s7_car(a)), s7_number_to_real(sc, s7_cadr(a))); return s7_nil(sc); }
+
+s7_pointer f_fog(s7_scheme* sc, s7_pointer a) {   // (fog colour density start end)
+  double x,y,z; vec3(sc, a, x, y, z);
+  s7_pointer p = s7_cdr(a);
+  double d = s7_is_pair(p) ? s7_number_to_real(sc, s7_car(p)) : 0; if (s7_is_pair(p)) p = s7_cdr(p);
+  double st = s7_is_pair(p) ? s7_number_to_real(sc, s7_car(p)) : 0; if (s7_is_pair(p)) p = s7_cdr(p);
+  double en = s7_is_pair(p) ? s7_number_to_real(sc, s7_car(p)) : 100;
+  flux_fog(x, y, z, d, st, en); return s7_nil(sc);
+}
+s7_pointer f_parent(s7_scheme* sc, s7_pointer a) { if (s7_is_pair(a)) flux_parent((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+s7_pointer f_select(s7_scheme* sc, s7_pointer a) {
+  int x = (int) s7_number_to_real(sc, s7_car(a));
+  int y = (int) s7_number_to_real(sc, s7_cadr(a));
+  int sz = (s7_is_pair(s7_cddr(a))) ? (int) s7_number_to_real(sc, s7_caddr(a)) : 5;
+  return s7_make_integer(sc, flux_select(x, y, sz));
+}
+s7_pointer f_shadow_light(s7_scheme* sc, s7_pointer a)  { if (s7_is_pair(a)) flux_shadow_light((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+s7_pointer f_shadow_length(s7_scheme* sc, s7_pointer a) { if (s7_is_pair(a)) flux_shadow_length(s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+
 s7_pointer f_grab(s7_scheme* sc, s7_pointer a)  { if (s7_is_pair(a)) flux_grab((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
 s7_pointer f_ungrab(s7_scheme* sc, s7_pointer)  { flux_ungrab(); return s7_nil(sc); }
 s7_pointer f_pdata_size(s7_scheme* sc, s7_pointer) { return s7_make_integer(sc, flux_pdata_size()); }
@@ -228,6 +295,40 @@ void S7ScriptHost::init() {
   def("build-particles", f_build_particles, 1, 0, false);
   def("build-sphere", f_build_sphere, 0, 0, true);
   def("build-torus",  f_build_torus,  0, 0, true);
+  def("build-cylinder",  f_build_cylinder,  0, 0, true);
+  def("build-polygons",  f_build_polygons,  2, 0, false);
+  def("build-copy",      f_build_copy,      1, 0, false);
+  def("build-locator",   f_build_locator,   0, 0, false);
+  def("specular",        f_specular,        0, 0, true);
+  def("ambient",         f_ambient,         0, 0, true);
+  def("emissive",        f_emissive,        0, 0, true);
+  def("normal-colour",   f_normal_colour,   0, 0, true);
+  def("shinyness",       f_shinyness,       1, 0, false);
+  def("point-width",     f_point_width,     1, 0, false);
+  def("hint-none",         f_hint_none,        0, 0, false);
+  def("hint-normal",       f_hint_normal,      0, 0, true);
+  def("hint-points",       f_hint_points,      0, 0, true);
+  def("hint-unlit",        f_hint_unlit,       0, 0, true);
+  def("hint-vertcols",     f_hint_vertcols,    0, 0, true);
+  def("hint-depth-sort",   f_hint_depth_sort,  0, 0, true);
+  def("hint-cull-ccw",     f_hint_cull_ccw,    0, 0, true);
+  def("hint-origin",       f_hint_origin,      0, 0, true);
+  def("hint-cast-shadow",  f_hint_cast_shadow, 0, 0, true);
+  def("hint-ignore-depth", f_hint_ignore_depth,0, 0, true);
+  def("hint-nozwrite",     f_hint_nozwrite,    0, 0, true);
+  def("hint-sphere-map",   f_hint_sphere_map,  0, 0, true);
+  def("make-light",        f_make_light,       0, 0, true);
+  def("light-position",    f_light_position,   2, 0, false);
+  def("light-diffuse",     f_light_diffuse,    2, 0, false);
+  def("light-ambient",     f_light_ambient,    2, 0, false);
+  def("light-specular",    f_light_specular,   2, 0, false);
+  def("light-direction",   f_light_direction,  2, 0, false);
+  def("light-spot-angle",  f_light_spot_angle, 2, 0, false);
+  def("fog",               f_fog,              0, 0, true);
+  def("parent",            f_parent,           1, 0, false);
+  def("select",            f_select,           2, 0, true);
+  def("shadow-light",      f_shadow_light,     1, 0, false);
+  def("shadow-length",     f_shadow_length,    1, 0, false);
   def("draw-cube",    f_build_cube,   0, 0, false);   // immediate draw = build here
   def("draw-plane",   f_build_plane,  0, 0, false);
   def("draw-sphere",  f_build_sphere, 0, 0, true);

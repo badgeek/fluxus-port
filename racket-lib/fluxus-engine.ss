@@ -118,9 +118,8 @@
 (define (build-ribbon n)    (_rib n))
 (define (build-particles n) (_par n))
 (define (build-nurbs-sphere (h 10) (r 10)) (_nsp h r))
-(stub-id build-cylinder build-polygons build-nurbs build-nurbs-plane
-         build-line build-locator build-copy
-         build-extrusion build-type build-text build-pixels)
+(stub-id build-nurbs build-nurbs-plane
+         build-line build-extrusion build-type build-text build-pixels)
 
 ;; grabbed-prim state (FFI)
 (define _op  (cfun "flux_opacity"      (_fun _double -> _void) (lambda (x) (void))))
@@ -133,10 +132,8 @@
 (define (backfacecull on) (_bfc (if (and on (not (zero? on))) 1 0)))
 
 (stub-void concat shader-set! shader texture multitexture
-           hint-none hint-normal hint-points
-           hint-unlit hint-vertcols hint-depth-sort hint-cull-ccw hint-wire-stippled
-           point-width blend-mode specular ambient emissive shinyness
-           normal-colour parent apply-transform clear clear-colour texture-params)
+           hint-wire-stippled
+           blend-mode apply-transform clear clear-colour texture-params)
 
 ;; every-frame: registers the body as a thunk AND runs it once. In immediate mode
 ;; the whole buffer re-evals each frame, so this runs the body every frame (as
@@ -210,7 +207,6 @@
 (define (poly-set-index . _) (void)) ;; auto-stub
 
 ;; ---- stubs for engine prims used by the loaded .ss libs (not wired to libfluxus)
-(define (select . _) 0)                 ;; input.ss mouse-over
 ;; camera.ss quaternion helpers (engine prims)
 (define (qmul . _) (vector 0 0 0 1))
 (define (qnormalise q) q)
@@ -282,6 +278,84 @@
 (define _aa (cfun "flux_set_antialias" (_fun _int -> _void) (lambda (x) (void))))
 (define (anti-alias (on #t)) (_aa (if on 1 0)))
 (define (hint-anti-alias (on #t)) (_aa (if on 1 0)))
+
+;; ---- more builders (real engine, FFI) --------------------------------------
+(define _cyl (cfun "flux_build_cylinder" (_fun _double _double _int _int -> _int) (lambda (a b c d) 0)))
+(define (build-cylinder (h 1.0) (r 1.0) (hs 10) (rs 10)) (_cyl (->fl h) (->fl r) hs rs))
+(define (poly-type-num t)
+  (cond ((number? t) t)
+        ((eq? t 'triangle-strip) 0) ((eq? t 'quad-list) 1)
+        ((eq? t 'triangle-list) 2)  ((eq? t 'triangle-fan) 3)
+        ((eq? t 'polygon) 4)        (else 0)))
+(define _polys (cfun "flux_build_polygons" (_fun _int _int -> _int) (lambda (a b) 0)))
+(define (build-polygons type nverts) (_polys (poly-type-num type) nverts))
+(define _copy (cfun "flux_build_copy" (_fun _int -> _int) (lambda (a) 0)))
+(define (build-copy id) (_copy id))
+(define _loc (cfun "flux_build_locator" (_fun -> _int) (lambda () 0)))
+(define (build-locator) (_loc))
+
+;; ---- material (grabbed prim) -----------------------------------------------
+(define _spec (cfun "flux_specular"      (_fun _double _double _double -> _void) (lambda (a b c) (void))))
+(define _amb  (cfun "flux_ambient"       (_fun _double _double _double -> _void) (lambda (a b c) (void))))
+(define _emi  (cfun "flux_emissive"      (_fun _double _double _double -> _void) (lambda (a b c) (void))))
+(define _shin (cfun "flux_shinyness"     (_fun _double -> _void) (lambda (a) (void))))
+(define _ncol (cfun "flux_normal_colour" (_fun _double _double _double -> _void) (lambda (a b c) (void))))
+(define _pw   (cfun "flux_point_width"   (_fun _double -> _void) (lambda (a) (void))))
+(define (specular v)      (_spec (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
+(define (ambient v)       (_amb  (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
+(define (emissive v)      (_emi  (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
+(define (shinyness s)     (_shin (->fl s)))
+(define (normal-colour v) (_ncol (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
+(define (point-width w)   (_pw   (->fl w)))
+
+;; ---- render hints ----------------------------------------------------------
+(define _hnone (cfun "flux_hint_none" (_fun -> _void) (lambda () (void))))
+(define (hint-none) (_hnone))
+(define-syntax-rule (hint-def name cname)
+  (begin (define f (cfun cname (_fun _int -> _void) (lambda (x) (void))))
+         (define (name (on #t)) (f (if on 1 0)))))
+(hint-def hint-normal       "flux_hint_normal")
+(hint-def hint-points       "flux_hint_points")
+(hint-def hint-unlit        "flux_hint_unlit")
+(hint-def hint-vertcols     "flux_hint_vertcols")
+(hint-def hint-depth-sort   "flux_hint_depth_sort")
+(hint-def hint-cull-ccw     "flux_hint_cull_ccw")
+(hint-def hint-origin       "flux_hint_origin")
+(hint-def hint-cast-shadow  "flux_hint_cast_shadow")
+(hint-def hint-ignore-depth "flux_hint_ignore_depth")
+(hint-def hint-nozwrite     "flux_hint_nozwrite")
+(hint-def hint-sphere-map   "flux_hint_sphere_map")
+
+;; ---- lights ----------------------------------------------------------------
+(define (light-type-num t)
+  (cond ((number? t) t) ((eq? t 'point) 0) ((eq? t 'directional) 1) ((eq? t 'spot) 2) (else 0)))
+(define _mklight (cfun "flux_make_light" (_fun _int -> _int) (lambda (a) 0)))
+(define (make-light (type 'point) . _) (_mklight (light-type-num type)))
+(define _lpos (cfun "flux_light_position"  (_fun _int _double _double _double -> _void) (lambda (a b c d) (void))))
+(define _ldif (cfun "flux_light_diffuse"   (_fun _int _double _double _double -> _void) (lambda (a b c d) (void))))
+(define _lamb (cfun "flux_light_ambient"   (_fun _int _double _double _double -> _void) (lambda (a b c d) (void))))
+(define _lspc (cfun "flux_light_specular"  (_fun _int _double _double _double -> _void) (lambda (a b c d) (void))))
+(define _ldir (cfun "flux_light_direction" (_fun _int _double _double _double -> _void) (lambda (a b c d) (void))))
+(define _lspa (cfun "flux_light_spot_angle" (_fun _int _double -> _void) (lambda (a b) (void))))
+(define (light-position id v)  (_lpos id (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
+(define (light-diffuse id v)   (_ldif id (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
+(define (light-ambient id v)   (_lamb id (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
+(define (light-specular id v)  (_lspc id (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
+(define (light-direction id v) (_ldir id (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
+(define (light-spot-angle id a) (_lspa id (->fl a)))
+
+;; ---- fog / parent / select / shadows ---------------------------------------
+(define _fog (cfun "flux_fog" (_fun _double _double _double _double _double _double -> _void) (lambda (a b c d e f) (void))))
+(define (fog col density start end)
+  (_fog (->fl (vx col)) (->fl (vy col)) (->fl (vz col)) (->fl density) (->fl start) (->fl end)))
+(define _parent (cfun "flux_parent" (_fun _int -> _void) (lambda (a) (void))))
+(define (parent id) (_parent id))
+(define _select (cfun "flux_select" (_fun _int _int _int -> _int) (lambda (a b c) 0)))
+(define (select x y (size 5)) (_select (inexact->exact (round x)) (inexact->exact (round y)) size))
+(define _shl (cfun "flux_shadow_light" (_fun _int -> _void) (lambda (a) (void))))
+(define (shadow-light i) (_shl i))
+(define _shlen (cfun "flux_shadow_length" (_fun _double -> _void) (lambda (a) (void))))
+(define (shadow-length l) (_shlen (->fl l)))
 ;; mouse.ss: C fmod (engine prim) — real impl
 (define (fmod a b) (if (zero? b) 0.0 (- a (* b (truncate (/ a b))))))
 ;; pixels-tools.ss engine prims (pixels-index/pixels-texcoord are library defs)
@@ -296,7 +370,6 @@
 (define (set-camera-update . _) (void))
 ;; collada-import.ss engine prims
 (define (hide . _) (void))
-(define (hint-origin . _) (void))
 (define (fullpath p) p)
 ;; viewport / ortho are wired via FFI (see camera section above)
 (define (lock-camera . _) (void))

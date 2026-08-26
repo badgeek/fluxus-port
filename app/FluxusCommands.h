@@ -37,6 +37,47 @@ extern "C" {
   int  flux_build_ribbon(int n);        // camera-facing ribbon of n points
   int  flux_build_particles(int n);     // n billboard particles
   int  flux_build_nurbs_sphere(int hseg, int rseg);  // (poly approximation)
+  int  flux_build_cylinder(double h, double r, int hseg, int rseg);
+  int  flux_build_polygons(int type, int nverts);    // empty mesh (0..4 = tristrip/quads/trilist/trifan/polygon)
+  int  flux_build_copy(int id);                       // clone an existing primitive
+  int  flux_build_locator(void);                      // invisible transform node
+
+  // material (grabbed primitive), like colour/opacity
+  void flux_specular(double r, double g, double b);
+  void flux_ambient(double r, double g, double b);
+  void flux_emissive(double r, double g, double b);
+  void flux_shinyness(double s);
+  void flux_normal_colour(double r, double g, double b);
+  void flux_point_width(double w);
+
+  // render hints (grabbed prim or build context)
+  void flux_hint_none(void);
+  void flux_hint_normal(int on);
+  void flux_hint_points(int on);
+  void flux_hint_unlit(int on);
+  void flux_hint_vertcols(int on);
+  void flux_hint_depth_sort(int on);
+  void flux_hint_cull_ccw(int on);
+  void flux_hint_origin(int on);
+  void flux_hint_cast_shadow(int on);
+  void flux_hint_ignore_depth(int on);
+  void flux_hint_nozwrite(int on);
+  void flux_hint_sphere_map(int on);
+
+  // lights
+  int  flux_make_light(int type);                     // 0 point, 1 directional, 2 spot
+  void flux_light_position(int id, double x, double y, double z);
+  void flux_light_diffuse(int id, double r, double g, double b);
+  void flux_light_ambient(int id, double r, double g, double b);
+  void flux_light_specular(int id, double r, double g, double b);
+  void flux_light_direction(int id, double x, double y, double z);
+  void flux_light_spot_angle(int id, double a);
+
+  void flux_fog(double r, double g, double b, double density, double start, double end);
+  void flux_parent(int id);                            // parent subsequently-built prims to id
+  int  flux_select(int x, int y, int size);            // pick a primitive at screen x,y
+  void flux_shadow_light(int index);
+  void flux_shadow_length(double len);
 
   // pdata — vertex-level access on a grabbed primitive (fluxus signature feature)
   void   flux_grab(int id);
