@@ -31,4 +31,6 @@ private:
   int           resW = 0, resH = 0;
   bool          committedOnce = false;   // retained mode: has the buffer been eval'd yet
   PostFX        postfx;       // optional full-screen post-processing pass
+  float         prevVP[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};   // last frame view-proj
+  long long     lastRenderMs = 0;
 };

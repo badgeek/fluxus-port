@@ -15,11 +15,14 @@ public:
   void setFragment(const std::string& frag);   // recompile if changed
   void begin();                                 // bind FBO (scene renders into it)
   void end();                                   // unbind
-  void draw(double timeSeconds, double audio, double feedback);  // fullscreen post pass
+  // fullscreen post pass. vpInv = inverse(proj*view) this frame, vpPrev = proj*view
+  // last frame, dt = seconds since last frame (for reprojection motion blur).
+  void draw(double timeSeconds, double audio, double feedback,
+            const float* vpInv, const float* vpPrev, float dt);
   void release();                               // free GL objects
 
 private:
-  unsigned int fbo = 0, tex = 0, depth = 0, prev = 0;  // prev = last output (feedback)
+  unsigned int fbo = 0, tex = 0, depth = 0, prev = 0;  // depth is a sampleable texture
   int w = 0, h = 0;
   Fluxus::GLSLShader* shader = nullptr;
   std::string curFrag;

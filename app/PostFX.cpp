@@ -18,7 +18,7 @@ PostFX::~PostFX() { release(); }
 void PostFX::release() {
   if (tex)   { glDeleteTextures(1, &tex); tex = 0; }
   if (prev)  { glDeleteTextures(1, &prev); prev = 0; }
-  if (depth) { glDeleteRenderbuffersEXT(1, &depth); depth = 0; }
+  if (depth) { glDeleteTextures(1, &depth); depth = 0; }
   if (fbo)   { glDeleteFramebuffersEXT(1, &fbo); fbo = 0; }
   if (shader && shader->DecRef()) delete shader;
   shader = nullptr;
@@ -32,7 +32,7 @@ bool PostFX::ensure(int W, int H) {
 
   if (tex)   { glDeleteTextures(1, &tex); tex = 0; }
   if (prev)  { glDeleteTextures(1, &prev); prev = 0; }
-  if (depth) { glDeleteRenderbuffersEXT(1, &depth); depth = 0; }
+  if (depth) { glDeleteTextures(1, &depth); depth = 0; }
   if (fbo)   { glDeleteFramebuffersEXT(1, &fbo); fbo = 0; }
   w = W; h = H;
 
@@ -47,15 +47,20 @@ bool PostFX::ensure(int W, int H) {
   }
   glBindTexture(GL_TEXTURE_2D, 0);
 
-  glGenRenderbuffersEXT(1, &depth);
-  glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, depth);
-  glRenderbufferStorageEXT(GL_RENDERBUFFER_EXT, GL_DEPTH_COMPONENT24, w, h);
-  glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, 0);
+  // depth as a sampleable texture (for reprojection motion blur)
+  glGenTextures(1, &depth);
+  glBindTexture(GL_TEXTURE_2D, depth);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, w, h, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  glBindTexture(GL_TEXTURE_2D, 0);
 
   glGenFramebuffersEXT(1, &fbo);
   glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, fbo);
   glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, tex, 0);
-  glFramebufferRenderbufferEXT(GL_FRAMEBUFFER_EXT, GL_DEPTH_ATTACHMENT_EXT, GL_RENDERBUFFER_EXT, depth);
+  glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_DEPTH_ATTACHMENT_EXT, GL_TEXTURE_2D, depth, 0);
   const GLenum st = glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT);
   glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
   return st == GL_FRAMEBUFFER_COMPLETE_EXT;
@@ -81,16 +86,19 @@ void PostFX::end() {
   glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
 }
 
-void PostFX::draw(double timeSeconds, double audio, double feedback) {
+void PostFX::draw(double timeSeconds, double audio, double feedback,
+                  const float* vpInv, const float* vpPrev, float dt) {
   if (!fbo || !shader) return;
 
   glViewport(0, 0, w, h);
   glDisable(GL_DEPTH_TEST);
   glDisable(GL_LIGHTING);
+  glDisable(GL_BLEND);          // the fullscreen pass REPLACES the screen (no accumulation)
   glEnable(GL_TEXTURE_2D);
 
-  glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, tex);   // scene
-  glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, prev);  // last output
+  glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, tex);    // scene
+  glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, prev);   // last output
+  glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, depth);  // scene depth
 
   glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity();
   glMatrixMode(GL_MODELVIEW);  glPushMatrix(); glLoadIdentity();
@@ -98,10 +106,14 @@ void PostFX::draw(double timeSeconds, double audio, double feedback) {
   shader->Apply();
   shader->SetInt("tex", 0);
   shader->SetInt("prev", 1);
+  shader->SetInt("depthTex", 2);
   shader->SetFloat("time", (float) timeSeconds);
   shader->SetFloat("audio", (float) audio);
   shader->SetFloat("feedback", (float) feedback);
+  shader->SetFloat("dt", dt);
   shader->SetVector("resolution", dVector((float) w, (float) h, 0), 2);
+  if (vpInv)  { dMatrix m; for (int i=0;i<16;++i) m.arr()[i]=vpInv[i];  shader->SetMatrix("uVPinv",  m); }
+  if (vpPrev) { dMatrix m; for (int i=0;i<16;++i) m.arr()[i]=vpPrev[i]; shader->SetMatrix("uVPprev", m); }
 
   glColor4f(1, 1, 1, 1);
   glBegin(GL_QUADS);
@@ -120,6 +132,7 @@ void PostFX::draw(double timeSeconds, double audio, double feedback) {
 
   glMatrixMode(GL_PROJECTION); glPopMatrix();
   glMatrixMode(GL_MODELVIEW);  glPopMatrix();
+  glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, 0);
   glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, 0);
   glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, 0);
   glDisable(GL_TEXTURE_2D);
