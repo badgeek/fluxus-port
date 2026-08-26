@@ -84,6 +84,8 @@ void FluxusScene::renderFrame() {
     shared->lastError = err;   // "" = ok
   }
 
+  glEnable(GL_BLEND);   // per-prim blend factors (blend-mode) drive the result
+
   // optional line/polygon smoothing (anti-alias) for the wireframe look
   if (flux_antialias_on()) {
     glEnable(GL_LINE_SMOOTH);

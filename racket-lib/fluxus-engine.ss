@@ -131,9 +131,9 @@
 (define (wire-colour v) (_wc (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
 (define (backfacecull on) (_bfc (if (and on (not (zero? on))) 1 0)))
 
-(stub-void concat shader-set! shader multitexture
+(stub-void concat shader-set! shader
            hint-wire-stippled
-           blend-mode apply-transform clear clear-colour texture-params)
+           apply-transform clear clear-colour texture-params)
 
 ;; every-frame: registers the body as a thunk AND runs it once. In immediate mode
 ;; the whole buffer re-evals each frame, so this runs the body every frame (as
@@ -268,6 +268,22 @@
 (define (shader-off) (_shader-off))
 (define (shader-set-float! name x) (_shader-f name (->fl x)))
 (define (shader-set-vec! name v) (_shader-v name (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
+(define _shader-i (cfun "flux_shader_set_int" (_fun _string _int -> _void) (lambda (a b) (void))))
+(define (shader-set-int! name v) (_shader-i name v))
+
+;; blend-mode: GL source/destination factors. Accepts symbols or raw GL ints.
+(define (blend-enum s)
+  (cond ((number? s) s)
+        ((eq? s 'zero) 0) ((eq? s 'one) 1)
+        ((eq? s 'src-color) 768) ((eq? s 'one-minus-src-color) 769)
+        ((eq? s 'src-alpha) 770) ((eq? s 'one-minus-src-alpha) 771)
+        ((eq? s 'dst-alpha) 772) ((eq? s 'one-minus-dst-alpha) 773)
+        ((eq? s 'dst-color) 774) ((eq? s 'one-minus-dst-color) 775)
+        (else 1)))
+(define _blend (cfun "flux_blend_mode" (_fun _int _int -> _void) (lambda (a b) (void))))
+(define (blend-mode src dst) (_blend (blend-enum src) (blend-enum dst)))
+(define _mtex (cfun "flux_multitexture" (_fun _int _int -> _void) (lambda (a b) (void))))
+(define (multitexture unit id) (_mtex unit id))
 ;; full-screen post-processing (FBO): (post-shader fragsrc) / (post-off)
 (define _post-src (cfun "flux_post_shader" (_fun _string -> _void) (lambda (a) (void))))
 (define _post-off (cfun "flux_post_off"    (_fun -> _void) (lambda () (void))))

@@ -40,6 +40,8 @@ struct BuildCtx {
   GLSLShader* shader = nullptr;   // current shader for newly built prims (not owned)
   int         parent = -1;        // parent id for newly built prims (-1 = root)
   unsigned    texture = 0;        // GL texture id for newly built prims (0 = none)
+  int         srcBlend = GL_SRC_ALPHA;           // blend factors for newly built prims
+  int         dstBlend = GL_ONE_MINUS_SRC_ALPHA;
 };
 BuildCtx g_ctx;
 
@@ -170,6 +172,8 @@ int addPrim(Primitive* p) {
   s->LineWidth = g_ctx.lineWidth;
   if (g_ctx.shader) setStateShader(s, g_ctx.shader);
   if (g_ctx.texture) s->Textures[0] = g_ctx.texture;
+  s->SourceBlend = g_ctx.srcBlend;
+  s->DestinationBlend = g_ctx.dstBlend;
   if (g_ctx.parent >= 0) g_ctx.r->GetSceneGraph().ReparentNode(id, g_ctx.parent);
   return id;
 }
@@ -191,6 +195,8 @@ void flux_frame_begin(double t, int frame) {
   g_ctx.shader  = nullptr;
   g_ctx.parent  = -1;
   g_ctx.texture = 0;
+  g_ctx.srcBlend = GL_SRC_ALPHA;
+  g_ctx.dstBlend = GL_ONE_MINUS_SRC_ALPHA;
   applyCamera();   // orbit camera survives the per-frame scene Clear()
 }
 
@@ -706,6 +712,18 @@ void flux_shader_set_float(const char* name, double v) {
 void flux_shader_set_vec(const char* name, double x, double y, double z) {
   GLSLShader* sh = currentShader();
   if (sh && name) { sh->Apply(); sh->SetVector(name, dVector((float) x, (float) y, (float) z), 3); }
+}
+void flux_shader_set_int(const char* name, int v) {
+  GLSLShader* sh = currentShader();
+  if (sh && name) { sh->Apply(); sh->SetInt(name, v); }
+}
+void flux_blend_mode(int src, int dst) {
+  if (State* s = grabbedState()) { s->SourceBlend = src; s->DestinationBlend = dst; }
+  else { g_ctx.srcBlend = src; g_ctx.dstBlend = dst; }
+}
+void flux_multitexture(int unit, int id) {
+  if (unit < 0 || unit >= 8) return;
+  if (State* s = grabbedState()) s->Textures[(unsigned) unit] = (unsigned) id;
 }
 
 void flux_report_error(const char* msg) {

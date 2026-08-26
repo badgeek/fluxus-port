@@ -140,6 +140,32 @@ s7_pointer f_shader_set_float(s7_scheme* sc, s7_pointer a) {  // (shader-set-flo
     flux_shader_set_float(s7_string(s7_car(a)), s7_number_to_real(sc, s7_cadr(a)));
   return s7_nil(sc);
 }
+static int blendEnum(s7_scheme* sc, s7_pointer v) {
+  if (s7_is_number(v)) return (int) s7_number_to_real(sc, v);
+  if (!s7_is_symbol(v)) return 1;
+  const std::string n = s7_symbol_name(v);
+  if (n == "zero") return 0;                     if (n == "one") return 1;
+  if (n == "src-color") return 768;              if (n == "one-minus-src-color") return 769;
+  if (n == "src-alpha") return 770;              if (n == "one-minus-src-alpha") return 771;
+  if (n == "dst-alpha") return 772;              if (n == "one-minus-dst-alpha") return 773;
+  if (n == "dst-color") return 774;              if (n == "one-minus-dst-color") return 775;
+  return 1;
+}
+s7_pointer f_blend_mode(s7_scheme* sc, s7_pointer a) {
+  if (s7_is_pair(a) && s7_is_pair(s7_cdr(a)))
+    flux_blend_mode(blendEnum(sc, s7_car(a)), blendEnum(sc, s7_cadr(a)));
+  return s7_nil(sc);
+}
+s7_pointer f_multitexture(s7_scheme* sc, s7_pointer a) {
+  if (s7_is_pair(a) && s7_is_pair(s7_cdr(a)))
+    flux_multitexture((int) s7_number_to_real(sc, s7_car(a)), (int) s7_number_to_real(sc, s7_cadr(a)));
+  return s7_nil(sc);
+}
+s7_pointer f_shader_set_int(s7_scheme* sc, s7_pointer a) {
+  if (s7_is_pair(a) && s7_is_pair(s7_cdr(a)))
+    flux_shader_set_int(s7_string(s7_car(a)), (int) s7_number_to_real(sc, s7_cadr(a)));
+  return s7_nil(sc);
+}
 s7_pointer f_post_shader(s7_scheme* sc, s7_pointer a) { if (s7_is_pair(a)) flux_post_shader(s7_string(s7_car(a))); return s7_nil(sc); }
 s7_pointer f_post_off(s7_scheme* sc, s7_pointer)      { flux_post_off(); return s7_nil(sc); }
 s7_pointer f_blur(s7_scheme* sc, s7_pointer a)        { if (s7_is_pair(a)) flux_blur(s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
@@ -378,6 +404,9 @@ void S7ScriptHost::init() {
   def("shader-off",           f_shader_off,           0, 0, false);
   def("shader-set-float!",    f_shader_set_float,     2, 0, false);
   def("shader-set-vec!",      f_shader_set_vec,       2, 0, false);
+  def("shader-set-int!",      f_shader_set_int,       2, 0, false);
+  def("blend-mode",           f_blend_mode,           2, 0, false);
+  def("multitexture",         f_multitexture,         2, 0, false);
   def("post-shader",          f_post_shader,          1, 0, false);
   def("post-off",             f_post_off,             0, 0, false);
   def("blur",                 f_blur,                 1, 0, false);

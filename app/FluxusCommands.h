@@ -172,6 +172,10 @@ extern "C" {
   void flux_shader_clear(void);
   void flux_shader_set_float(const char* name, double v);
   void flux_shader_set_vec(const char* name, double x, double y, double z);
+  void flux_shader_set_int(const char* name, int v);      // e.g. bind a sampler to a unit
+
+  void flux_blend_mode(int src, int dst);                 // GL blend factors (grabbed/ctx)
+  void flux_multitexture(int unit, int id);               // set a texture on unit 0..7 (grabbed)
 
   // full-screen post-processing: install a fragment shader run over the rendered
   // scene (via an FBO in FluxusScene). A passthrough vertex stage + `tex`,
