@@ -26,7 +26,7 @@
             (- (vdot s eye)) (- (vdot u eye)) (vdot f eye) 1)))
 
 ; ---- the object -------------------------------------------------------------
-(define obj (build-nurbs-sphere 12 30))
+(define obj (build-sphere 12 30))
 
 (with-primitive obj
   (scale (vector 2 2 2))

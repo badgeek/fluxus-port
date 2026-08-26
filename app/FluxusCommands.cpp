@@ -254,9 +254,10 @@ int flux_build_seg_plane(int xsegs, int ysegs) {
   return addPrim(p);
 }
 int flux_build_nurbs_sphere(int hseg, int rseg) {
-  // poly approximation (real NURBS CVs don't carry per-vertex normals for deform)
-  PolyPrimitive* p = new PolyPrimitive(PolyPrimitive::TRILIST);
-  MakeSphere(p, 1.0f, hseg > 0 ? hseg : 10, rseg > 0 ? rseg : 10);
+  // real NURBS sphere (GLU). control points are pdata "p"; moving them bends the
+  // smooth surface. (NURBS has no per-vertex "n" — GLU computes normals itself.)
+  NURBSPrimitive* p = new NURBSPrimitive();
+  MakeNURBSSphere(p, 1.0f, hseg > 0 ? hseg : 10, rseg > 0 ? rseg : 10);
   return addPrim(p);
 }
 int flux_build_ribbon(int n) {

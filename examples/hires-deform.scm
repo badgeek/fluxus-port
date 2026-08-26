@@ -1,5 +1,5 @@
 ; high-res audio deform, done natively.
-; The mesh is dense (build-nurbs-sphere 90 90 -> ~48k verts). The deformation runs
+; The mesh is dense (build-sphere 90 90 -> ~48k verts). The deformation runs
 ; entirely in C++ via (deform-audio ...) — it reads the audio bands directly and
 ; writes p = ori + n*disp per vertex, so there is NO per-vertex FFI. That's what
 ; makes high resolution cheap here (the per-frame rebuild in C++ is fast; the old
@@ -9,7 +9,7 @@
 (start-audio "system:capture_1" 512 44100)
 (anti-alias #t)
 
-(define S (build-nurbs-sphere 90 90))
+(define S (build-sphere 90 90))
 (with-primitive S
   (scale (vector 2.5 2.5 2.5))
   (pdata-add "ori" "v")

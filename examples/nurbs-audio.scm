@@ -1,6 +1,6 @@
 (clear)
 (start-audio "system:capture_1" 512 44100)
-(define x (build-nurbs-sphere 10 30))
+(define x (build-sphere 10 30))
 
 (with-primitive x
     (scale (vector 2 2 2))

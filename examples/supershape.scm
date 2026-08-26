@@ -1,6 +1,6 @@
 ; supershape — Gielis superformula morphing with audio (optimised).
 ;
-; PERF NOTES: build-nurbs-sphere N N makes N*N*6 unshared verts (60 -> 21600!),
+; PERF NOTES: build-sphere N N makes N*N*6 unshared verts (60 -> 21600!),
 ; and pdata-index-map! costs ~9 FFI crossings/vertex. So: (1) modest resolution,
 ; (2) precompute each vertex's (theta,phi) ONCE and cache across frames with
 ; persist, (3) the per-frame loop only does the superformula + one pdata-set!.
@@ -10,7 +10,7 @@
 (anti-alias #t)
 
 (define RES 26)                              ; 26*26*6 = 4056 verts
-(define S (build-nurbs-sphere RES RES))
+(define S (build-sphere RES RES))
 (with-primitive S
   (pdata-add "ori" "v")
   (pdata-copy "p" "ori"))

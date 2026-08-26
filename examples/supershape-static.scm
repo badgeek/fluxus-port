@@ -7,7 +7,7 @@
 (anti-alias #t)
 
 (define RES 140)                        ; ~118k verts, built ONCE
-(define S (build-nurbs-sphere RES RES))
+(define S (build-sphere RES RES))
 
 (define (superr angle m n1 n2 n3)
   (let ((t (/ (* m angle) 4.0)))

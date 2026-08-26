@@ -11,7 +11,7 @@
 (anti-alias #t)
 
 (define RES 72)                              ; high res is fine now (72*72*6 ~= 31k)
-(define S (build-nurbs-sphere RES RES))
+(define S (build-sphere RES RES))
 (with-primitive S
   (scale (vector 2.5 2.5 2.5))
   (pdata-add "ori" "v")

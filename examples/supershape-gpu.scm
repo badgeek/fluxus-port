@@ -8,7 +8,7 @@
 (start-audio "system:capture_1" 512 44100)
 
 (define RES 160)                    ; ~150k verts — GPU does all the shaping
-(define S (build-nurbs-sphere RES RES))
+(define S (build-sphere RES RES))
 
 (define vert "
 uniform float time; uniform float audio;
