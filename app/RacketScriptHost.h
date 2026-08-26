@@ -13,4 +13,5 @@ public:
   void setRenderer(Fluxus::Renderer* r) override;
   void setFrameInfo(double timeSeconds, int frame) override;
   bool eval(const std::string& code, std::string& errorOut) override;
+  bool runFrame(std::string& errorOut) override;   // retained-mode per-frame thunk
 };

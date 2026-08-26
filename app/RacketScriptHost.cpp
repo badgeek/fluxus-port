@@ -42,6 +42,12 @@ const char* kHostPrelude =
 "                                  (if (exn? e) (exn-message e) (format \"~a\" e)))))))"
 "      (let ((p (open-input-string s)))"
 "        (let loop () (let ((f (read p))) (unless (eof-object? f) (eval f (current-namespace)) (loop)))))))"
+"  (define (flux-run-frame)"
+"    (_report \"\")"
+"    (with-handlers ((( lambda (e) #t)"
+"                     (lambda (e) (_report (string-append \"; error: \""
+"                                  (if (exn? e) (exn-message e) (format \"~a\" e)))))))"
+"      ((unbox frame-callback))))"     // retained-mode: run the every-frame thunk
 ")";
 
 std::string requireLibForm() {
@@ -119,6 +125,12 @@ bool RacketScriptHost::eval(const std::string& code, std::string& errorOut) {
   // so no escaping needed. Errors are reported via flux_report_error.
   ptr call = Scons(sym("flux-run-guarded"), Scons(Sstring(code.c_str()), Snil));
   racket_eval(call);
+  errorOut = flux_last_error();
+  return errorOut.empty();
+}
+
+bool RacketScriptHost::runFrame(std::string& errorOut) {
+  racket_eval(Scons(sym("flux-run-frame"), Snil));   // invoke the registered thunk
   errorOut = flux_last_error();
   return errorOut.empty();
 }

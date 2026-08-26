@@ -48,6 +48,25 @@ extern "C" {
   void   flux_pdata_copy(const char* src, const char* dst);
   void   flux_recalc_normals(void);
 
+  // native audio deform of the grabbed prim: for each vertex, p = ori + n*disp,
+  // where disp = bands[i % nbands]*bandScale + wobble*travelling-wave. Runs the
+  // whole per-vertex loop in C++ (reads the audio bands directly) so a high-res
+  // mesh can be deformed every frame WITHOUT per-vertex FFI. Needs pdata "ori"
+  // (a copy of the base positions) and "n" (normals). recalcNormals!=0 rebuilds
+  // normals afterwards for correct shading.
+  void   flux_deform_audio(double bandScale, double wobble, double freq,
+                           double speed, int recalcNormals);
+
+  // shape cache: compute an expensive base shape ONCE (in script), snapshot the
+  // grabbed prim's positions + normals into a named C++ store, then each frame
+  // deform cheaply FROM that cached base (p = base + normal*disp) entirely in
+  // C++ — the costly per-vertex build never re-runs. disp uses the audio bands +
+  // a travelling wobble; it relaxes back to the cached shape when silent.
+  void   flux_cache_shape(const char* name);          // snapshot grabbed prim's p + n
+  int    flux_shape_cached(const char* name);          // 1 if a cache exists
+  void   flux_deform_cached(const char* name, double bandScale, double wobble,
+                            double freq, double speed, int recalcNormals);
+
   double flux_time(void);
   int    flux_frame(void);
   double flux_delta(void);
@@ -107,6 +126,8 @@ extern "C" {
   void flux_post_shader(const char* frag);   // enable + set fragment source
   void flux_post_off(void);
   void flux_blur(double amount);             // built-in feedback motion-blur (0..~0.97)
+  void flux_set_antialias(int on);           // GL line/polygon smoothing
+  void flux_set_retained(int on);            // retained mode: build once, per-frame thunk only
 
   // scripts report an error string back to the host (or "" to clear)
   void flux_report_error(const char* msg);
@@ -119,3 +140,8 @@ std::string flux_last_error();
 // returns true if post is enabled; fills frag + feedback; sets dirty=true (and
 // clears it) when the fragment source changed since the last call.
 bool flux_post_state(std::string& frag, double& feedback, bool& dirty);
+
+// C++-side: whether the script asked for anti-aliasing (line/polygon smoothing).
+bool flux_antialias_on();
+// C++-side: whether the script opted into retained mode (build once, thunk/frame).
+bool flux_retained_on();

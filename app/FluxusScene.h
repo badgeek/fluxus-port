@@ -29,5 +29,6 @@ private:
   long long     startMs = 0;
   std::thread::id glThread;   // the thread Racket/s7 was init'd on
   int           resW = 0, resH = 0;
+  bool          committedOnce = false;   // retained mode: has the buffer been eval'd yet
   PostFX        postfx;       // optional full-screen post-processing pass
 };

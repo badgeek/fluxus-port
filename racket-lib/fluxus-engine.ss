@@ -133,15 +133,24 @@
 (define (backfacecull on) (_bfc (if (and on (not (zero? on))) 1 0)))
 
 (stub-void concat shader-set! shader texture multitexture
-           hint-none hint-normal hint-points hint-anti-alias
+           hint-none hint-normal hint-points
            hint-unlit hint-vertcols hint-depth-sort hint-cull-ccw hint-wire-stippled
            point-width blend-mode specular ambient emissive shinyness
            normal-colour parent apply-transform clear clear-colour texture-params)
 
-;; every-frame: our model re-evals the whole buffer each frame, so the arg is
-;; already run each frame — just accept it. start-audio: JUCE audio auto-starts.
-(define (every-frame . _) (void))
+;; every-frame: registers the body as a thunk AND runs it once. In immediate mode
+;; the whole buffer re-evals each frame, so this runs the body every frame (as
+;; before). In retained mode the host commits the buffer once and then calls the
+;; stored thunk (flux-run-frame) each frame — no rebuild.
+(define frame-callback (box (lambda () (void))))
+(define-syntax-rule (every-frame body ...)
+  (begin (set-box! frame-callback (lambda () body ...))
+         ((unbox frame-callback))))
 (define (start-audio . _) (void))
+
+;; retained mode opt-in: build once, then per-frame run only the every-frame thunk
+(define _retained (cfun "flux_set_retained" (_fun _int -> _void) (lambda (x) (void))))
+(define (retained (on #t)) (_retained (if on 1 0)))
 
 ;; ---- pdata (FFI, grabbed primitive) ----------------------------------------
 (define grab   (cfun "flux_grab"   (_fun _int -> _void) (lambda (x) (void))))
@@ -158,6 +167,20 @@
 (define (pdata-add name type) (_padd name type))
 (define (pdata-copy src dst) (_pcpy src dst))
 (define (recalc-normals) (_rn))
+;; native audio deform of the grabbed prim (p = ori + n*disp), whole loop in C++
+(define _deform (cfun "flux_deform_audio" (_fun _double _double _double _double _int -> _void)
+                      (lambda (a b c d e) (void))))
+(define (deform-audio (band-scale 1.0) (wobble 0.0) (freq 6.0) (speed 1.0) (recalc #t))
+  (_deform (->fl band-scale) (->fl wobble) (->fl freq) (->fl speed) (if recalc 1 0)))
+;; shape cache: snapshot an expensive base shape once, deform cheaply from it
+(define _cacheshape (cfun "flux_cache_shape"  (_fun _string -> _void) (lambda (a) (void))))
+(define _shapecached (cfun "flux_shape_cached" (_fun _string -> _int) (lambda (a) 0)))
+(define _deformc   (cfun "flux_deform_cached" (_fun _string _double _double _double _double _int -> _void)
+                        (lambda (a b c d e f) (void))))
+(define (cache-shape name) (_cacheshape name))
+(define (shape-cached? name) (= 1 (_shapecached name)))
+(define (deform-cached name (band-scale 1.0) (wobble 0.0) (freq 6.0) (speed 1.0) (recalc #t))
+  (_deformc name (->fl band-scale) (->fl wobble) (->fl freq) (->fl speed) (if recalc 1 0)))
 (define-syntax-rule (with-primitive id body ...)
   (begin (grab id) (let ((r (begin body ...))) (ungrab) r)))
 (stub-void pdata-op)
@@ -256,6 +279,9 @@
 (define (post-off) (_post-off))
 (define _blur (cfun "flux_blur" (_fun _double -> _void) (lambda (a) (void))))
 (define (blur amt) (_blur (->fl amt)))   ; feedback motion-blur (0..~0.97)
+(define _aa (cfun "flux_set_antialias" (_fun _int -> _void) (lambda (x) (void))))
+(define (anti-alias (on #t)) (_aa (if on 1 0)))
+(define (hint-anti-alias (on #t)) (_aa (if on 1 0)))
 ;; mouse.ss: C fmod (engine prim) — real impl
 (define (fmod a b) (if (zero? b) 0.0 (- a (* b (truncate (/ a b))))))
 ;; pixels-tools.ss engine prims (pixels-index/pixels-texcoord are library defs)

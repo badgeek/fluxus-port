@@ -143,6 +143,7 @@ s7_pointer f_shader_set_float(s7_scheme* sc, s7_pointer a) {  // (shader-set-flo
 s7_pointer f_post_shader(s7_scheme* sc, s7_pointer a) { if (s7_is_pair(a)) flux_post_shader(s7_string(s7_car(a))); return s7_nil(sc); }
 s7_pointer f_post_off(s7_scheme* sc, s7_pointer)      { flux_post_off(); return s7_nil(sc); }
 s7_pointer f_blur(s7_scheme* sc, s7_pointer a)        { if (s7_is_pair(a)) flux_blur(s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+s7_pointer f_antialias(s7_scheme* sc, s7_pointer a)   { int on = s7_is_pair(a) ? (s7_boolean(sc, s7_car(a)) ? 1 : 0) : 1; flux_set_antialias(on); return s7_nil(sc); }
 s7_pointer f_shader_set_vec(s7_scheme* sc, s7_pointer a) {    // (shader-set-vec! name vec)
   if (s7_is_pair(a) && s7_is_pair(s7_cdr(a))) {
     const char* name = s7_string(s7_car(a));
@@ -158,6 +159,32 @@ s7_pointer f_shader_set_vec(s7_scheme* sc, s7_pointer a) {    // (shader-set-vec
 s7_pointer f_grab(s7_scheme* sc, s7_pointer a)  { if (s7_is_pair(a)) flux_grab((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
 s7_pointer f_ungrab(s7_scheme* sc, s7_pointer)  { flux_ungrab(); return s7_nil(sc); }
 s7_pointer f_pdata_size(s7_scheme* sc, s7_pointer) { return s7_make_integer(sc, flux_pdata_size()); }
+s7_pointer f_deform_audio(s7_scheme* sc, s7_pointer a) {  // (deform-audio bandScale [wobble freq speed recalc])
+  double bs = 1, wob = 0, fr = 6, sp = 1; int rc = 1;
+  s7_pointer p = a;
+  if (s7_is_pair(p)) { bs  = s7_number_to_real(sc, s7_car(p)); p = s7_cdr(p); }
+  if (s7_is_pair(p)) { wob = s7_number_to_real(sc, s7_car(p)); p = s7_cdr(p); }
+  if (s7_is_pair(p)) { fr  = s7_number_to_real(sc, s7_car(p)); p = s7_cdr(p); }
+  if (s7_is_pair(p)) { sp  = s7_number_to_real(sc, s7_car(p)); p = s7_cdr(p); }
+  if (s7_is_pair(p)) { rc  = s7_boolean(sc, s7_car(p)) ? 1 : 0; }
+  flux_deform_audio(bs, wob, fr, sp, rc);
+  return s7_nil(sc);
+}
+s7_pointer f_cache_shape(s7_scheme* sc, s7_pointer a)  { if (s7_is_pair(a)) flux_cache_shape(s7_string(s7_car(a))); return s7_nil(sc); }
+s7_pointer f_shape_cached(s7_scheme* sc, s7_pointer a) { return s7_make_boolean(sc, s7_is_pair(a) && flux_shape_cached(s7_string(s7_car(a)))); }
+s7_pointer f_deform_cached(s7_scheme* sc, s7_pointer a) {  // (deform-cached name bandScale [wobble freq speed recalc])
+  if (!s7_is_pair(a)) return s7_nil(sc);
+  const char* name = s7_string(s7_car(a));
+  double bs = 1, wob = 0, fr = 6, sp = 1; int rc = 1;
+  s7_pointer p = s7_cdr(a);
+  if (s7_is_pair(p)) { bs  = s7_number_to_real(sc, s7_car(p)); p = s7_cdr(p); }
+  if (s7_is_pair(p)) { wob = s7_number_to_real(sc, s7_car(p)); p = s7_cdr(p); }
+  if (s7_is_pair(p)) { fr  = s7_number_to_real(sc, s7_car(p)); p = s7_cdr(p); }
+  if (s7_is_pair(p)) { sp  = s7_number_to_real(sc, s7_car(p)); p = s7_cdr(p); }
+  if (s7_is_pair(p)) { rc  = s7_boolean(sc, s7_car(p)) ? 1 : 0; }
+  flux_deform_cached(name, bs, wob, fr, sp, rc);
+  return s7_nil(sc);
+}
 s7_pointer f_pdata_ref(s7_scheme* sc, s7_pointer a) {   // (pdata-ref name i)
   const char* name = s7_string(s7_car(a));
   int i = (int) s7_number_to_real(sc, s7_cadr(a));
@@ -235,9 +262,15 @@ void S7ScriptHost::init() {
   def("post-shader",          f_post_shader,          1, 0, false);
   def("post-off",             f_post_off,             0, 0, false);
   def("blur",                 f_blur,                 1, 0, false);
+  def("anti-alias",           f_antialias,            0, 0, true);
+  def("hint-anti-alias",      f_antialias,            0, 0, true);
   def("grab",         f_grab,         0, 0, true);
   def("ungrab",       f_ungrab,       0, 0, false);
   def("pdata-size",   f_pdata_size,   0, 0, false);
+  def("deform-audio", f_deform_audio, 0, 0, true);
+  def("cache-shape",  f_cache_shape,  1, 0, false);
+  def("shape-cached?",f_shape_cached, 1, 0, false);
+  def("deform-cached",f_deform_cached, 1, 0, true);
   def("pdata-ref",    f_pdata_ref,    2, 0, false);
   def("pdata-set!",   f_pdata_set,    3, 0, false);
 
@@ -247,6 +280,10 @@ void S7ScriptHost::init() {
   s7_eval_c_string(sc,
     "(define-macro (with-primitive id . body)"
     "  `(begin (grab ,id) (let ((__r (begin ,@body))) (ungrab) __r)))");
+  // s7 host is immediate-only: every-frame just runs its body each re-eval, and
+  // retained is a no-op (retained mode is a Racket-host feature).
+  s7_eval_c_string(sc, "(define-macro (every-frame . body) `(begin ,@body))");
+  s7_eval_c_string(sc, "(define (retained . _) #f)");
 }
 
 void S7ScriptHost::setRenderer(Fluxus::Renderer* r) { flux_set_renderer((void*) r); }

@@ -16,6 +16,7 @@
 #include <cmath>
 #include <map>
 #include <string>
+#include <atomic>
 
 using namespace Fluxus;
 
@@ -222,6 +223,85 @@ void flux_ungrab(void)   { g_ctx.grabbed = nullptr; }
 int flux_pdata_size(void) { return g_ctx.grabbed ? (int) g_ctx.grabbed->Size() : 0; }
 
 void flux_recalc_normals(void) { if (g_ctx.grabbed) g_ctx.grabbed->RecalculateNormals(false); }
+
+void flux_deform_audio(double bandScale, double wobble, double freq,
+                       double speed, int recalcNormals) {
+  Primitive* p = g_ctx.grabbed;
+  if (!p) return;
+  // verify the required pdata exists
+  std::string on("ori"), nn("n"), pn("p");
+  char t = 'v'; unsigned so = 0, sn = 0;
+  p->GetDataInfo(on, t, so);
+  p->GetDataInfo(nn, t, sn);
+  if (so == 0 || sn == 0) return;
+
+  std::vector<float> bands;
+  { std::lock_guard<std::mutex> lk(g_audioMutex); bands = g_bands; }
+  const int nb = (int) bands.size();
+  const double time = g_ctx.time;
+  const unsigned sz = p->Size();
+  for (unsigned i = 0; i < sz; ++i) {
+    const dVector o = p->GetData<dVector>(on, i);
+    const dVector n = p->GetData<dVector>(nn, i);
+    const double band = nb ? (double) bands[(size_t) ((int) i % nb)] : 0.0;
+    const double w = wobble * (std::sin(freq * o.x + speed * time) +
+                               std::cos(freq * o.y + speed * time * 0.8));
+    const float disp = (float) (band * bandScale + w);
+    p->SetData<dVector>(pn, i, o + n * disp);
+  }
+  if (recalcNormals) p->RecalculateNormals(false);
+}
+
+namespace {
+struct CachedShape { std::vector<dVector> pos, nrm; };
+std::map<std::string, CachedShape> g_shapeCache;
+}
+void flux_cache_shape(const char* name) {
+  Primitive* p = g_ctx.grabbed;
+  if (!p || !name) return;
+  const unsigned sz = p->Size();
+  std::string pn("p"), nn("n");
+  char t = 'v'; unsigned sn = 0;
+  p->GetDataInfo(nn, t, sn);
+  const bool hasN = sn > 0;
+  CachedShape cs;
+  cs.pos.resize(sz);
+  cs.nrm.resize(sz);
+  for (unsigned i = 0; i < sz; ++i) {
+    cs.pos[i] = p->GetData<dVector>(pn, i);
+    cs.nrm[i] = hasN ? p->GetData<dVector>(nn, i) : dVector(0, 0, 0);
+  }
+  g_shapeCache[name] = std::move(cs);
+}
+int flux_shape_cached(const char* name) {
+  return (name && g_shapeCache.find(name) != g_shapeCache.end()) ? 1 : 0;
+}
+void flux_deform_cached(const char* name, double bandScale, double wobble,
+                        double freq, double speed, int recalcNormals) {
+  Primitive* p = g_ctx.grabbed;
+  if (!p || !name) return;
+  auto it = g_shapeCache.find(name);
+  if (it == g_shapeCache.end()) return;
+  const CachedShape& cs = it->second;
+  if (cs.pos.size() != p->Size()) return;
+
+  std::vector<float> bands;
+  { std::lock_guard<std::mutex> lk(g_audioMutex); bands = g_bands; }
+  const int nb = (int) bands.size();
+  const double time = g_ctx.time;
+  std::string pn("p");
+  const unsigned sz = p->Size();
+  for (unsigned i = 0; i < sz; ++i) {
+    const dVector base = cs.pos[i];
+    const dVector n    = cs.nrm[i];
+    const double band = nb ? (double) bands[(size_t) ((int) i % nb)] : 0.0;
+    const double w = wobble * (std::sin(freq * base.x + speed * time) +
+                               std::cos(freq * base.y + speed * time * 0.8));
+    const float disp = (float) (band * bandScale + w);
+    p->SetData<dVector>(pn, i, base + n * disp);
+  }
+  if (recalcNormals) p->RecalculateNormals(false);
+}
 
 void flux_pdata_add(const char* name, const char* type) {
   Primitive* p = g_ctx.grabbed;
@@ -437,6 +517,14 @@ extern "C" void flux_post_off(void) {
   std::lock_guard<std::mutex> lk(g_postMutex);
   g_postEnabled = false;
 }
+
+std::atomic<bool> g_antialias{false};
+extern "C" void flux_set_antialias(int on) { g_antialias = (on != 0); }
+bool flux_antialias_on() { return g_antialias.load(); }
+
+std::atomic<bool> g_retained{false};
+extern "C" void flux_set_retained(int on) { g_retained = (on != 0); }
+bool flux_retained_on() { return g_retained.load(); }
 extern "C" void flux_blur(double amount) {
   std::lock_guard<std::mutex> lk(g_postMutex);
   if (g_postFrag != kBlurFrag) { g_postFrag = kBlurFrag; g_postDirty = true; }

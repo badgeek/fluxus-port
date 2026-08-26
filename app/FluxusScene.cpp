@@ -6,6 +6,7 @@
 // engine + system GL only
 #include "Renderer.h"
 #include "dada.h"
+#include <OpenGL/gl.h>
 
 #include <chrono>
 
@@ -41,29 +42,55 @@ void FluxusScene::renderFrame() {
   // thread-safe — calling it from another thread crashes. Skip those frames.
   if (std::this_thread::get_id() != glThread) return;
 
-  // fluxus immediate model: wipe the scene each frame (Clear keeps lights,
-  // re-adds the default camera), then let the script rebuild it.
-  renderer->Clear();
-  renderer->SetBGColour(dColour(0.08f, 0.09f, 0.12f, 1.0f));
-
   ++frameCount;
   const double t = (nowMs() - startMs) / 1000.0;
   host->setRenderer(renderer.get());
-  host->setFrameInfo(t, frameCount);
 
-  // pull the latest editor buffer (message thread writes it)
+  // pull the latest editor buffer + dirty flag (message thread writes them)
+  bool isDirty = false;
   if (shared) {
     std::lock_guard<std::mutex> lk(shared->m);
     currentScript = shared->pending;
+    isDirty = shared->dirty;
+    shared->dirty = false;
   }
 
-  if (!currentScript.empty()) {
-    std::string err;
-    host->eval(currentScript, err);
-    if (shared) {
-      std::lock_guard<std::mutex> lk(shared->m);
-      shared->lastError = err;   // "" = ok
-    }
+  // Two models:
+  //  - immediate (default): wipe + re-eval the whole buffer every frame.
+  //  - retained ((retained) opt-in): eval the buffer ONCE (build persistent
+  //    geometry + register the every-frame thunk), then per frame run only that
+  //    thunk — no Clear, no rebuild. Fast for heavy static meshes.
+  const bool commit = isDirty || !committedOnce;
+  std::string err;
+  if (commit) {
+    renderer->Clear();
+    renderer->SetBGColour(dColour(0.08f, 0.09f, 0.12f, 1.0f));
+    flux_set_retained(0);                 // script re-declares (retained) if it wants it
+    host->setFrameInfo(t, frameCount);
+    if (!currentScript.empty()) host->eval(currentScript, err);
+    committedOnce = true;
+  } else if (flux_retained_on()) {
+    host->setFrameInfo(t, frameCount);    // update time + camera, keep the scene
+    host->runFrame(err);
+  } else {
+    renderer->Clear();
+    renderer->SetBGColour(dColour(0.08f, 0.09f, 0.12f, 1.0f));
+    host->setFrameInfo(t, frameCount);
+    if (!currentScript.empty()) host->eval(currentScript, err);
+  }
+  if (shared) {
+    std::lock_guard<std::mutex> lk(shared->m);
+    shared->lastError = err;   // "" = ok
+  }
+
+  // optional line/polygon smoothing (anti-alias) for the wireframe look
+  if (flux_antialias_on()) {
+    glEnable(GL_LINE_SMOOTH);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
+  } else {
+    glDisable(GL_LINE_SMOOTH);
   }
 
   // the script (just eval'd) may have installed a post-processing shader.

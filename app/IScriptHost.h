@@ -14,4 +14,8 @@ public:
   virtual void setRenderer(Fluxus::Renderer* r) = 0;       // target for build-* / state ops
   virtual void setFrameInfo(double timeSeconds, int frame) = 0;
   virtual bool eval(const std::string& code, std::string& errorOut) = 0;  // false => errorOut set
+
+  // retained mode: run the registered (every-frame ...) thunk without re-evaluating
+  // the whole buffer. Default no-op (host stays immediate-only). false => errorOut set.
+  virtual bool runFrame(std::string& /*errorOut*/) { return true; }
 };
