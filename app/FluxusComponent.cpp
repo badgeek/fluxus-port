@@ -39,6 +39,7 @@ FluxusComponent::FluxusComponent(ScriptHostFactory mh, juce::String starter)
   code.setColour(juce::CaretComponent::caretColourId,      juce::Colours::white);
   code.setColour(juce::TextEditor::highlightColourId,      juce::Colour(0x4066ff66));
   code.setOpaque(false);
+  code.setScrollbarsShown(false);   // no scrollbar line over the scene
   code.setText(starterText, juce::dontSendNotification);
   code.addKeyListener(this);   // Ctrl+E / Shift+Enter commits; edits alone don't run
   addAndMakeVisible(code);
@@ -56,6 +57,8 @@ FluxusComponent::FluxusComponent(ScriptHostFactory mh, juce::String starter)
   ctx.setRenderer(this);
   ctx.setComponentPaintingEnabled(true);   // paint the overlay OVER the GL
   ctx.setContinuousRepainting(true);
+  { juce::OpenGLPixelFormat pf; pf.multisamplingLevel = 4; ctx.setPixelFormat(pf); }
+  ctx.setMultisamplingEnabled(true);       // MSAA for smoother edges
   ctx.attachTo(*this);
 
   pushScript();

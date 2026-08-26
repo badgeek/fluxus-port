@@ -33,6 +33,8 @@ FluxusGLComponent::FluxusGLComponent(ScriptHostFactory mh) : makeHost(std::move(
   ctx.setRenderer(this);
   ctx.setComponentPaintingEnabled(true);
   ctx.setContinuousRepainting(true);
+  { juce::OpenGLPixelFormat pf; pf.multisamplingLevel = 4; ctx.setPixelFormat(pf); }
+  ctx.setMultisamplingEnabled(true);       // MSAA for smoother edges
   ctx.attachTo(*this);
 
   audio = makeJuceAudioHost();

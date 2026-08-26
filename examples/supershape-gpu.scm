@@ -19,16 +19,23 @@ float superr(float a, float m, float e1, float e2, float e3){
   float t = m * a / 4.0;
   return pow(pow(abs(cos(t)), e2) + pow(abs(sin(t)), e3), -1.0 / e1);
 }
+vec3 ss(float th, float ph){                       // supershape position
+  float r1 = superr(th, m1, n1, n2, n3);
+  float r2 = superr(ph, m2, n1, n2, n3);
+  float cp = r2 * cos(ph);
+  return vec3(r1 * cos(th) * cp, r1 * sin(th) * cp, r2 * sin(ph)) * 2.4;
+}
 void main(){
   vec3 d = normalize(gl_Vertex.xyz);
   float th = atan(d.y, d.x);
   float ph = asin(clamp(d.z, -1.0, 1.0));
-  float r1 = superr(th, m1, n1, n2, n3);
-  float r2 = superr(ph, m2, n1, n2, n3);
-  float cp = r2 * cos(ph);
-  vec3 pos = vec3(r1 * cos(th) * cp, r1 * sin(th) * cp, r2 * sin(ph)) * 2.4;
+  float e = 0.01;
+  vec3 pos = ss(th, ph);
+  vec3 dt  = ss(th + e, ph) - pos;                 // tangents by finite difference
+  vec3 dp  = ss(th, ph + e) - pos;
+  vec3 nrm = normalize(cross(dt, dp));             // analytic surface normal
   P = pos;
-  N = gl_NormalMatrix * normalize(pos);            // radial normal (approx)
+  N = gl_NormalMatrix * nrm;
   gl_Position = gl_ModelViewProjectionMatrix * vec4(pos, 1.0);
 }")
 
