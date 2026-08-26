@@ -96,6 +96,7 @@ s7_pointer f_get_camera_transform(s7_scheme* sc, s7_pointer) {
 s7_pointer f_set_camera_position(s7_scheme* sc, s7_pointer a) { double x,y,z; if (vec3(sc,a,x,y,z)) flux_set_camera_position(x,y,z); return s7_nil(sc); }
 s7_pointer f_camera_reset(s7_scheme* sc, s7_pointer)      { flux_camera_reset(); return s7_nil(sc); }
 s7_pointer f_set_fov(s7_scheme* sc, s7_pointer a)         { if (s7_is_pair(a)) flux_set_fov(s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+s7_pointer f_set_aspect(s7_scheme* sc, s7_pointer a)      { if (s7_is_pair(a)) flux_set_aspect(s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
 s7_pointer f_set_ortho(s7_scheme* sc, s7_pointer a)       { int on = s7_is_pair(a) ? (s7_boolean(sc, s7_car(a)) ? 1 : 0) : 1; flux_set_ortho(on); return s7_nil(sc); }
 s7_pointer f_set_ortho_zoom(s7_scheme* sc, s7_pointer a)  { if (s7_is_pair(a)) flux_set_ortho_zoom(s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
 s7_pointer f_get_screen_size(s7_scheme* sc, s7_pointer)   { double s[2]; flux_get_screen_size(s); s7_pointer v = s7_make_vector(sc, 3); s7_vector_set(sc, v, 0, s7_make_real(sc, s[0])); s7_vector_set(sc, v, 1, s7_make_real(sc, s[1])); s7_vector_set(sc, v, 2, s7_make_real(sc, 0)); return v; }
@@ -127,6 +128,9 @@ s7_pointer f_persist_bang(s7_scheme* sc, s7_pointer a) {  // (persist! key vecto
   return s7_nil(sc);
 }
 s7_pointer f_clear_state(s7_scheme* sc, s7_pointer) { flux_state_clear(); return s7_nil(sc); }
+// (clear): no-op in our immediate model — the renderer wipes + re-evals each
+// frame, so a top-of-script (clear) is already implied (matches racket stub).
+s7_pointer f_clear(s7_scheme* sc, s7_pointer) { return s7_nil(sc); }
 
 // ---- GLSL shaders ----------------------------------------------------------
 s7_pointer f_shader_source(s7_scheme* sc, s7_pointer a) {   // (shader-source vert frag)
@@ -394,12 +398,14 @@ void S7ScriptHost::init() {
   def("set-camera-position",  f_set_camera_position,  0, 0, true);
   def("camera-reset",         f_camera_reset,         0, 0, false);
   def("set-fov",              f_set_fov,              1, 0, false);
+  def("set-aspect",           f_set_aspect,           1, 0, false);
   def("set-ortho",            f_set_ortho,            0, 0, true);
   def("set-ortho-zoom",       f_set_ortho_zoom,       1, 0, false);
   def("get-screen-size",      f_get_screen_size,      0, 0, false);
   def("persist",              f_persist,              2, 0, false);
   def("persist!",             f_persist_bang,         2, 0, false);
   def("clear-state",          f_clear_state,          0, 0, false);
+  def("clear",                f_clear,                0, 0, false);
   def("shader-source",        f_shader_source,        2, 0, false);
   def("shader-off",           f_shader_off,           0, 0, false);
   def("shader-set-float!",    f_shader_set_float,     2, 0, false);

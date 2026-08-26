@@ -139,6 +139,12 @@ bool    g_camOverride = false;
 dMatrix g_camOverrideMat;
 dMatrix g_camAppliedMat;
 int     g_screenW = 720, g_screenH = 576;
+// aspect-ratio lock (0 = auto/off). When >0 the frustum is built for this w/h
+// and the viewport is letterboxed (bars) so content keeps the AR as the window
+// resizes. g_lastVfov remembers the vertical fov so a resize can rebuild the
+// frustum even for scripts that don't call (set-fov) every frame.
+double  g_aspectLock = 0.0, g_prevAspectLock = 0.0;
+double  g_lastVfov   = 73.7397;   // = 2*atan(0.75) deg, the default frustum fov
 
 Camera* cam0() {
   if (!g_ctx.r) return nullptr;
@@ -652,15 +658,34 @@ void flux_set_camera_position(double x, double y, double z) {
 }
 void flux_camera_reset(void) { g_camOverride = false; }
 
+// build the frustum for a vertical fov + aspect (w/h) on the given camera
+static void applyFrustum(Camera* c, double vfovDeg, double aspect) {
+  const double front = 1.0;                                   // near clip
+  const double t = front * std::tan(vfovDeg * 0.5 * 3.14159265358979323846 / 180.0);
+  const double r = t * aspect;
+  c->SetFrustum((float) -r, (float) r, (float) -t, (float) t);
+}
+// centre a viewport of target AR inside a window of the current pixel size,
+// adding letterbox/pillarbox bars so content isn't stretched.
+static void applyLetterbox(Camera* c, double targetAR) {
+  const double winAR = (g_screenH > 0) ? (double) g_screenW / g_screenH : targetAR;
+  double vx = 0, vy = 0, vw = 1, vh = 1;
+  if (winAR > targetAR) { vw = targetAR / winAR; vx = (1.0 - vw) * 0.5; }  // pillarbox
+  else                  { vh = winAR / targetAR; vy = (1.0 - vh) * 0.5; }  // letterbox
+  c->SetViewport((float) vx, (float) vy, (float) vw, (float) vh);
+}
+
 void flux_set_fov(double vfovDeg) {
   Camera* c = cam0();
   if (!c) return;
-  const double front  = 1.0;                                  // near clip
-  const double t      = front * std::tan(vfovDeg * 0.5 * 3.14159265358979323846 / 180.0);
-  const double aspect = (g_screenH > 0) ? (double) g_screenW / g_screenH : 4.0 / 3.0;
-  const double r      = t * aspect;
-  c->SetFrustum((float) -r, (float) r, (float) -t, (float) t);
+  g_lastVfov = vfovDeg;
+  const double aspect = (g_aspectLock > 0.0) ? g_aspectLock
+                      : (g_screenH > 0) ? (double) g_screenW / g_screenH : 4.0 / 3.0;
+  applyFrustum(c, vfovDeg, aspect);
 }
+
+// lock the render aspect ratio (w/h); ratio<=0 restores auto (fill window).
+void flux_set_aspect(double ratio) { g_aspectLock = (ratio > 0.0) ? ratio : 0.0; }
 void flux_set_frustum(double l, double r, double b, double t) {
   if (Camera* c = cam0()) c->SetFrustum((float) l, (float) r, (float) b, (float) t);
 }
@@ -670,7 +695,22 @@ void flux_set_clip(double f, double b) { if (Camera* c = cam0()) c->SetClip((flo
 void flux_set_viewport(double x, double y, double w, double h) {
   if (Camera* c = cam0()) c->SetViewport((float) x, (float) y, (float) w, (float) h);
 }
-void flux_set_resolution(int w, int h) { g_screenW = w; g_screenH = h; }
+void flux_set_resolution(int w, int h) {
+  g_screenW = w; g_screenH = h;
+  // apply the aspect lock every frame (runs on the GL thread) so the render
+  // tracks window resizes: locked -> rebuild frustum + letterbox; just-unlocked
+  // -> restore the full viewport + a window-aspect frustum once.
+  if (Camera* c = cam0()) {
+    if (g_aspectLock > 0.0) {
+      applyFrustum(c, g_lastVfov, g_aspectLock);
+      applyLetterbox(c, g_aspectLock);
+    } else if (g_prevAspectLock > 0.0) {
+      c->SetViewport(0.0f, 0.0f, 1.0f, 1.0f);
+      applyFrustum(c, g_lastVfov, (h > 0) ? (double) w / h : 4.0 / 3.0);
+    }
+  }
+  g_prevAspectLock = g_aspectLock;
+}
 void flux_get_screen_size(double* out) { if (out) { out[0] = g_screenW; out[1] = g_screenH; } }
 
 int flux_state_get(const char* key, double* out, int n) {

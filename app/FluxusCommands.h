@@ -150,6 +150,7 @@ extern "C" {
   void   flux_camera_reset(void);                    // back to mouse orbit
   void   flux_set_fov(double vfovDeg);               // vertical fov -> frustum
   void   flux_set_frustum(double l, double r, double b, double t);
+  void   flux_set_aspect(double ratio);              // lock render AR (w/h); <=0 = auto
   void   flux_set_ortho(int on);
   void   flux_set_ortho_zoom(double z);
   void   flux_set_clip(double front, double back);
