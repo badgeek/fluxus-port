@@ -222,6 +222,8 @@ s7_pointer f_select(s7_scheme* sc, s7_pointer a) {
 }
 s7_pointer f_shadow_light(s7_scheme* sc, s7_pointer a)  { if (s7_is_pair(a)) flux_shadow_light((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
 s7_pointer f_shadow_length(s7_scheme* sc, s7_pointer a) { if (s7_is_pair(a)) flux_shadow_length(s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+s7_pointer f_load_texture(s7_scheme* sc, s7_pointer a) { return s7_make_integer(sc, s7_is_pair(a) ? (int) flux_load_texture(s7_string(s7_car(a))) : 0); }
+s7_pointer f_texture(s7_scheme* sc, s7_pointer a)      { if (s7_is_pair(a)) flux_texture((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
 
 s7_pointer f_grab(s7_scheme* sc, s7_pointer a)  { if (s7_is_pair(a)) flux_grab((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
 s7_pointer f_ungrab(s7_scheme* sc, s7_pointer)  { flux_ungrab(); return s7_nil(sc); }
@@ -329,6 +331,8 @@ void S7ScriptHost::init() {
   def("select",            f_select,           2, 0, true);
   def("shadow-light",      f_shadow_light,     1, 0, false);
   def("shadow-length",     f_shadow_length,    1, 0, false);
+  def("load-texture",      f_load_texture,     1, 0, false);
+  def("texture",           f_texture,          1, 0, false);
   def("draw-cube",    f_build_cube,   0, 0, false);   // immediate draw = build here
   def("draw-plane",   f_build_plane,  0, 0, false);
   def("draw-sphere",  f_build_sphere, 0, 0, true);

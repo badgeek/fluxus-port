@@ -43,6 +43,7 @@ target_sources(FluxusApp PRIVATE
     app/FluxusComponent.cpp
     app/FluxusScene.cpp
     app/PostFX.cpp
+    app/TextureLoader.cpp
     app/FluxusCommands.cpp
       app/AudioHost.cpp
     app/S7ScriptHost.cpp)
@@ -106,6 +107,7 @@ target_sources(FluxusGLApp PRIVATE
     app/EditorOverlay.cpp
     app/FluxusScene.cpp
     app/PostFX.cpp
+    app/TextureLoader.cpp
     app/FluxusCommands.cpp
       app/AudioHost.cpp
     app/S7ScriptHost.cpp)
@@ -146,6 +148,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       app/FluxusComponent.cpp
       app/FluxusScene.cpp
       app/PostFX.cpp
+      app/TextureLoader.cpp
       app/FluxusCommands.cpp
       app/AudioHost.cpp
       app/RacketScriptHost.cpp)
@@ -184,6 +187,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       app/EditorOverlay.cpp
       app/FluxusScene.cpp
       app/PostFX.cpp
+      app/TextureLoader.cpp
       app/FluxusCommands.cpp
       app/AudioHost.cpp
       app/RacketScriptHost.cpp)

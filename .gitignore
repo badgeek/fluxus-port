@@ -12,3 +12,6 @@ spikes/racket/racket_bind
 # macOS / bundles
 .DS_Store
 *.app/
+
+# user-provided texture assets (not checked in)
+assets/

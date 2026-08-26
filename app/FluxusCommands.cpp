@@ -36,6 +36,7 @@ struct BuildCtx {
   Primitive* grabbed = nullptr;   // current pdata target
   GLSLShader* shader = nullptr;   // current shader for newly built prims (not owned)
   int         parent = -1;        // parent id for newly built prims (-1 = root)
+  unsigned    texture = 0;        // GL texture id for newly built prims (0 = none)
 };
 BuildCtx g_ctx;
 
@@ -55,6 +56,29 @@ void setStateShader(State* s, GLSLShader* sh) {
 GLSLShader* currentShader() {
   if (g_ctx.grabbed) return g_ctx.grabbed->GetState()->Shader;
   return g_ctx.shader;
+}
+
+// Built-in texturing shader. Apple's OpenGL-on-Metal layer ignores fixed-function
+// texturing (glEnable(GL_TEXTURE_2D)), but GLSL sampler2D works — so a textured
+// prim is drawn with this shader, sampling texture unit 0 (where the engine binds
+// State.Textures[0]) with the mesh's texcoords, modulated by the vertex colour.
+GLSLShader* builtinTexShader() {
+  static GLSLShader* sh = nullptr;
+  if (!sh) {
+    GLSLShader::Init();
+    const char* v =
+      "varying vec2 uv;\n"
+      "void main(){ uv = gl_MultiTexCoord0.xy; gl_FrontColor = gl_Color;\n"
+      "  gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex; }\n";
+    const char* f =
+      "uniform sampler2D tex;\n"
+      "varying vec2 uv;\n"
+      "void main(){ gl_FragColor = texture2D(tex, uv) * gl_Color; }\n";
+    GLSLShaderPair pair(false, v, f);
+    sh = new GLSLShader(pair);
+    sh->Apply(); sh->SetInt("tex", 0); GLSLShader::Unapply();   // pin sampler to unit 0
+  }
+  return sh;
 }
 
 std::mutex  g_errMutex;
@@ -115,6 +139,7 @@ int addPrim(Primitive* p) {
   s->Hints    |= g_ctx.hints;
   s->LineWidth = g_ctx.lineWidth;
   if (g_ctx.shader) setStateShader(s, g_ctx.shader);
+  if (g_ctx.texture) s->Textures[0] = g_ctx.texture;
   if (g_ctx.parent >= 0) g_ctx.r->GetSceneGraph().ReparentNode(id, g_ctx.parent);
   return id;
 }
@@ -135,6 +160,7 @@ void flux_frame_begin(double t, int frame) {
   g_ctx.grabbed = nullptr;
   g_ctx.shader  = nullptr;
   g_ctx.parent  = -1;
+  g_ctx.texture = 0;
   applyCamera();   // orbit camera survives the per-frame scene Clear()
 }
 
@@ -296,6 +322,17 @@ void flux_parent(int id) { g_ctx.parent = id; }
 int  flux_select(int x, int y, int size) { return g_ctx.r ? g_ctx.r->Select(0, x, y, size > 0 ? size : 5) : 0; }
 void flux_shadow_light(int index)  { if (g_ctx.r) g_ctx.r->ShadowLight((unsigned) (index < 0 ? 0 : index)); }
 void flux_shadow_length(double len){ if (g_ctx.r) g_ctx.r->ShadowLength((float) len); }
+
+void flux_texture(int id) {
+  GLSLShader* tsh = (id != 0) ? builtinTexShader() : nullptr;
+  if (State* s = grabbedState()) {
+    s->Textures[0] = (unsigned) id;
+    if (id && !s->Shader) setStateShader(s, tsh);   // texture via shader (Metal-GL)
+  } else {
+    g_ctx.texture = (unsigned) id;
+    if (id && !g_ctx.shader) g_ctx.shader = tsh;     // attach to next-built prims
+  }
+}
 
 // ---- pdata (grabbed primitive) --------------------------------------------
 void flux_grab(int id)   { g_ctx.grabbed = g_ctx.r ? g_ctx.r->GetPrimitive(id) : nullptr; }

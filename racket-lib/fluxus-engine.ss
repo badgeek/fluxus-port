@@ -131,7 +131,7 @@
 (define (wire-colour v) (_wc (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
 (define (backfacecull on) (_bfc (if (and on (not (zero? on))) 1 0)))
 
-(stub-void concat shader-set! shader texture multitexture
+(stub-void concat shader-set! shader multitexture
            hint-wire-stippled
            blend-mode apply-transform clear clear-colour texture-params)
 
@@ -356,6 +356,12 @@
 (define (shadow-light i) (_shl i))
 (define _shlen (cfun "flux_shadow_length" (_fun _double -> _void) (lambda (a) (void))))
 (define (shadow-length l) (_shlen (->fl l)))
+
+;; ---- textures (image decode in TextureLoader.cpp via JUCE) ------------------
+(define _loadtex (cfun "flux_load_texture" (_fun _string -> _uint) (lambda (a) 0)))
+(define _tex     (cfun "flux_texture"      (_fun _int -> _void) (lambda (a) (void))))
+(define (load-texture path) (_loadtex path))   ; -> GL id (0 on failure)
+(define (texture id) (_tex id))
 ;; mouse.ss: C fmod (engine prim) — real impl
 (define (fmod a b) (if (zero? b) 0.0 (- a (* b (truncate (/ a b))))))
 ;; pixels-tools.ss engine prims (pixels-index/pixels-texcoord are library defs)

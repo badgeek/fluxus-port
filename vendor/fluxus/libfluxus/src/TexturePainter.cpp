@@ -27,7 +27,7 @@ using namespace Fluxus;
 TexturePainter *TexturePainter::m_Singleton=NULL;
 
 TexturePainter::TexturePainter() :
-m_MultitexturingEnabled(true),
+m_MultitexturingEnabled(true),    // binds each texture to its explicit unit (glActiveTexture)
 m_TextureCompressionEnabled(true),
 m_SGISGenerateMipmap(true)
 {

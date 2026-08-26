@@ -79,6 +79,11 @@ extern "C" {
   void flux_shadow_light(int index);
   void flux_shadow_length(double len);
 
+  // textures: (load-texture path) -> GL id (implemented in TextureLoader.cpp via
+  // JUCE image decode); (texture id) applies it to the grabbed prim / next-built.
+  unsigned flux_load_texture(const char* path);
+  void     flux_texture(int id);
+
   // pdata — vertex-level access on a grabbed primitive (fluxus signature feature)
   void   flux_grab(int id);
   void   flux_ungrab(void);

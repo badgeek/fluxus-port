@@ -1,3 +1,4 @@
+#include <cstdio>
 #include "FluxusScene.h"
 #include "SharedScript.h"
 #include "IScriptHost.h"
