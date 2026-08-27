@@ -13,16 +13,20 @@
 namespace {
 const char* kStarter =
   "; fluxus GLEditor - edit, then Ctrl+E (or Shift+Enter) to run\n"
-  "(background (vector 0.08 0.09 0.12))\n"
-  "(colour (vector 0.9 0.5 0.2))\n"
-  "(rotate (vector (* 25 (time)) (* 40 (time)) 0))\n"
-  "(build-cube)\n"
-  "\n"
-  "(with-state\n"
-  "  (translate (vector 2.5 0 0))\n"
-  "  (colour (vector 0.3 0.7 1.0))\n"
-  "  (scale (vector 0.6 0.6 0.6))\n"
-  "  (build-sphere 16 16))\n";
+  "; retained: the Racket host compiles this once and per frame runs only the\n"
+  "; thunk (low CPU); (clear) wipes the scene each frame so it rebuilds cleanly.\n"
+  "(retained)\n"
+  "(every-frame\n"
+  "  (clear)\n"
+  "  (background (vector 0.08 0.09 0.12))\n"
+  "  (colour (vector 0.9 0.5 0.2))\n"
+  "  (rotate (vector (* 25 (time)) (* 40 (time)) 0))\n"
+  "  (build-cube)\n"
+  "  (with-state\n"
+  "    (translate (vector 2.5 0 0))\n"
+  "    (colour (vector 0.3 0.7 1.0))\n"
+  "    (scale (vector 0.6 0.6 0.6))\n"
+  "    (build-sphere 16 16)))\n";
 
 // GLUT special-key codes (freeglut), matched by GLEditor::Handle
 enum { K_LEFT=100, K_UP=101, K_RIGHT=102, K_DOWN=103,
@@ -33,19 +37,23 @@ FluxusGLComponent::FluxusGLComponent(ScriptHostFactory mh) : makeHost(std::move(
   setWantsKeyboardFocus(true);
   ctx.setRenderer(this);
   ctx.setComponentPaintingEnabled(true);
-  ctx.setContinuousRepainting(true);
+  ctx.setContinuousRepainting(false);      // cap fps via the 30 Hz timer below
   { juce::OpenGLPixelFormat pf; pf.multisamplingLevel = 4; ctx.setPixelFormat(pf); }
   ctx.setMultisamplingEnabled(true);       // MSAA for smoother edges
   ctx.attachTo(*this);
 
   audio = makeJuceAudioHost();
   audio->start();
+  startTimerHz(30);                        // ~30 fps is plenty; halves render CPU
 }
 
 FluxusGLComponent::~FluxusGLComponent() {
+  stopTimer();
   if (audio) audio->stop();
   ctx.detach();
 }
+
+void FluxusGLComponent::timerCallback() { ctx.triggerRepaint(); }
 
 void FluxusGLComponent::newOpenGLContextCreated() {
   scene = std::make_unique<FluxusScene>(&shared, makeHost());

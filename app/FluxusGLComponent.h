@@ -15,7 +15,8 @@ using ScriptHostFactory = std::function<std::unique_ptr<IScriptHost>()>;
 // overlay — the code renders through the fluxus PolyGlyph font in GL, exactly
 // like the original fluxus scratchpad, instead of a JUCE TextEditor.
 class FluxusGLComponent : public juce::Component,
-                          private juce::OpenGLRenderer {
+                          private juce::OpenGLRenderer,
+                          private juce::Timer {
 public:
   explicit FluxusGLComponent(ScriptHostFactory makeHost);
   ~FluxusGLComponent() override;
@@ -39,6 +40,7 @@ public:
   void resized() override {}
 
 private:
+  void timerCallback() override;   // 30 Hz repaint (cap fps; see .cpp)
   juce::OpenGLContext ctx;
   std::unique_ptr<FluxusScene>   scene;
   std::unique_ptr<EditorOverlay> overlay;
