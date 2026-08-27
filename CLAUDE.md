@@ -56,6 +56,33 @@ editor (JUCE TextEditor | fluxus GLEditor)
    otherwise they set the build context for the next-built primitive
    (see `grabbedState()` in FluxusCommands.cpp).
 
+## Performance (measure before "optimizing")
+- **Startup was ~25s; it's now ~4s — don't undo the fix.** The embedded Racket
+  boot did not point `current-compiled-file-roots`/`use-compiled-file-paths` at
+  the install's separate compiled-collects root, so it recompiled the whole
+  collects tree from source every launch. `RacketScriptHost::init` now sets them
+  to match the `racket` CLI. `make precompile` builds `racket-lib/compiled/*.zo`
+  (gitignored) for the last ~1s.
+- **Immediate mode re-`read`s + re-compiles the WHOLE script every frame** (all
+  top-level `define`s, `string-append`s, lists — not just the drawing). For a
+  heavy sketch that dominates CPU (profile: the "OpenGL Renderer" thread sits in
+  `RacketScriptHost::eval → Scall2`, GL draw is a few %). Fix: **retained mode +
+  real `(clear)`** — `(retained)` compiles the buffer once and per frame runs
+  only the every-frame thunk; put `(clear)` (now a genuine `Renderer::Clear`) and
+  `(background …)` at the top of that thunk to wipe + rebuild. Same visuals, big
+  CPU drop (the deck went ~96% → ~20%). `(clear)` at the top of an immediate-mode
+  sketch stays harmless (the host already clears before each eval).
+- **Measure steady-state, not startup.** ~99% CPU right after launch is Racket
+  still loading — wait for full load before judging. An idle/empty sketch is
+  ~10%. The JUCE-editor apps render at a 30 Hz timer (not vsync-continuous).
+
+## Self-calibration + new script commands
+- `(set-window-size w h)` resizes the GL content (e.g. `1080 1920` for vertical
+  IG; a `540 960` window grabs at `1080x1920` on retina). `(screenshot "path")`
+  writes the finished framebuffer to a PNG, **once per path** (safe to call every
+  frame). `(set-aspect ratio)` letterboxes to a locked AR. Use these + the
+  **fluxus-calibrate skill** to draw → screenshot → Read → adjust in a loop.
+
 ## Vendored fluxus (`vendor/fluxus/`)
 Minimally edited for the port — find every change with `grep -rn "fluxus->JUCE port"`.
 Key edits: `OpenGL.h` (mac GL shim, no GLEW/GLUT), `RenderBackend`/`GLBackend` (the
