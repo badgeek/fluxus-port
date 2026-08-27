@@ -112,6 +112,23 @@ void RacketScriptHost::init() {
 
   racket_namespace_require(sym("racket/base"));
   racket_namespace_require(sym("ffi/unsafe"));
+
+  // The install keeps its compiled collects in a SEPARATE root
+  // (<RACKET_DIR>/lib/racket/compiled), which the plain `racket` CLI has on
+  // current-compiled-file-roots but the embedded boot does NOT — so without this
+  // the require below recompiles the whole collects tree from source every launch
+  // (~22s). Point the roots (and use-compiled-file-paths) where the CLI does so we
+  // load bytecode: cuts init from ~25s to ~4s. Also lets our racket-lib/compiled
+  // *.zo be used (precompile with: raco make / managed-compile-zo on racket-lib).
+  {
+    std::string root = std::string(RACKET_DIR) + "/lib/racket/compiled";
+    std::string form =
+      "(begin"
+      "  (use-compiled-file-paths (list (string->path \"compiled\")))"
+      "  (current-compiled-file-roots (list 'same (string->path \"" + root + "\"))))";
+    eval_cstr(form.c_str());
+  }
+
   eval_cstr(requireLibForm().c_str());   // load the fluxus .ss library (FFI-backed)
   eval_cstr(kHostPrelude);               // host infra (error reporter + runner)
 }

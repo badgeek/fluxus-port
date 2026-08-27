@@ -15,3 +15,7 @@ spikes/racket/racket_bind
 
 # user-provided texture assets (not checked in)
 assets/
+
+# Racket precompiled bytecode (regenerate with: make precompile)
+racket-lib/compiled/
+**/compiled/*.zo

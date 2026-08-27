@@ -32,11 +32,27 @@ $(CMAKE) --build $(BUILD) --target $(1)
 FLUXUS_SCRIPT="$(SCRIPT)" "$(call APP_BIN,$(1))"
 endef
 
-.PHONY: all configure build clean \
+RACKET   ?= /opt/homebrew/Cellar/minimal-racket/9.3/bin/racket
+RACKET_LIB = racket-lib
+# the .ss files the Racket hosts require (see RacketScriptHost::requireLibForm)
+LIBSS = fluxus-modules building-blocks maths randomness poly-tools shapes \
+        input camera mouse help pixels-tools voxels-tools planetarium \
+        collada-import fluxus-engine
+
+.PHONY: all configure build clean precompile \
         run run-s7 run-gl run-racket \
         gl-racket racket s7 gl
 
 all: build
+
+# --- precompile the fluxus .ss to bytecode (racket-lib/compiled/*.zo) --------
+# Optional: the embedded Racket already loads the compiled COLLECTS fast (the app
+# sets current-compiled-file-roots), so this only shaves the last ~1s of .ss
+# expansion. Regenerate after editing any racket-lib/*.ss.
+precompile:
+	$(RACKET) -e '(require compiler/cm) (for-each managed-compile-zo (list \
+	  $(foreach f,$(LIBSS),"$(RACKET_LIB)/$(f).ss")))'
+	@echo "precompiled: $$(find $(RACKET_LIB) -name '*.zo' | wc -l | tr -d ' ') .zo"
 
 # --- configure (first run fetches JUCE + FreeType) --------------------------
 $(BUILD):
