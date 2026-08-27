@@ -44,13 +44,15 @@ FluxusComponent::FluxusComponent(ScriptHostFactory mh, juce::String starter)
 
   ctx.setRenderer(this);
   ctx.setComponentPaintingEnabled(true);   // paint the overlay OVER the GL
-  ctx.setContinuousRepainting(true);
+  ctx.setContinuousRepainting(false);   // cap the frame rate via the timer below
+                                        // (immediate-mode rebuilds every frame, so
+                                        // vsync-continuous pegs a CPU core)
   { juce::OpenGLPixelFormat pf; pf.multisamplingLevel = 4; ctx.setPixelFormat(pf); }
   ctx.setMultisamplingEnabled(true);       // MSAA for smoother edges
   ctx.attachTo(*this);
 
   pushScript();
-  startTimerHz(10);
+  startTimerHz(30);   // drives repaint (see timerCallback) + console/resize poll
 
   audio = makeJuceAudioHost();   // CoreAudio mic -> FFT bands for (gh n)/(gain)
   audio->start();
@@ -116,6 +118,8 @@ bool FluxusComponent::keyPressed(const juce::KeyPress& key, juce::Component*) {
 }
 
 void FluxusComponent::timerCallback() {
+  ctx.triggerRepaint();   // ~30 fps render (enough for typing + slow rotation)
+
   // apply a script-requested window resize ((set-window-size w h)) — sets the GL
   // content to exactly w x h (e.g. 1080x1920 for a vertical IG frame).
   int rw = 0, rh = 0;
