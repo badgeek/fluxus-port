@@ -172,10 +172,37 @@
       (if (< tt (+ acc d)) (list i (- tt acc) d)
           (if (null? (cdr ls)) (list i (- tt acc) d) (loop (cdr ls) (+ i 1) (+ acc d)))))))
 
+;; ---- glitch post-process ---------------------------------------------------
+;; occasional digital glitch: per-row horizontal displacement + block tears, a
+;; brief RGB split, scanlines. Bursts intermittently (louder audio = stronger).
+;; Mostly leaves the clean B&W frame alone between bursts.
+(define glitch "
+uniform sampler2D tex; uniform float time; uniform float audio; uniform vec2 resolution;
+varying vec2 uv;
+float h1(float n){ return fract(sin(n)*43758.5453); }
+float h2(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)))*43758.5453); }
+void main(){
+  vec2 u = uv;
+  float burst = step(0.82, h1(floor(time*6.0)));         // ~18% of the time
+  float amt = burst * (0.45 + 0.55*audio);
+  float band = floor(u.y * 26.0);
+  u.x += (h1(band + floor(time*22.0)) - 0.5) * 0.06 * amt;               // row jitter
+  float tear = step(0.72, h2(vec2(band, floor(time*11.0))));
+  u.x += tear * amt * (h1(band*3.1 + floor(time*11.0)) - 0.5) * 0.18;    // block tear
+  float ca = 0.0015 + 0.02*amt;                                          // rgb split
+  vec3 col = vec3(texture2D(tex, u+vec2(ca,0.0)).r,
+                  texture2D(tex, u).g,
+                  texture2D(tex, u-vec2(ca,0.0)).b);
+  col *= 0.92 + 0.08*sin(u.y*resolution.y*1.5);                          // scanlines
+  float vig = 16.0*uv.x*uv.y*(1.0-uv.x)*(1.0-uv.y); col *= pow(vig,0.12);
+  gl_FragColor = vec4(clamp(col,0.0,1.0), 1.0);
+}")
+
 ;; ---- layout ----------------------------------------------------------------
 (every-frame
   (clear) (background (vector 0 0 0))    ; retained: wipe + repaint bg each frame
   (set-fov FOV) (ortho #f)
+  (post-shader glitch)
   (let* ((sz (get-screen-size))
          (asp (if (> (vy sz) 0) (/ (vx sz) (vy sz)) 0.5625))
          (hh (* CAM-DIST (tan (* 0.5 FOV DEG))))
