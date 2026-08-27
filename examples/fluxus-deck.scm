@@ -83,6 +83,8 @@
       (with-primitive tp (identity) (hint-unlit)
         (translate (vector x (- y (* 0.5 h)) 0)) (scale (vector sc sc sc)) (colour WHITE)))))
 (define (text-w str h) (* CW (string-length str) (/ h 0.9)))
+; right-anchored text: xr = right edge (so shorter captions still align right)
+(define (rtext str xr y h) (ltext str (- xr (text-w str h)) y h))
 
 ;; ---- wrap + typing ---------------------------------------------------------
 (define (split-words str)
@@ -193,7 +195,7 @@
 
     ; --- frame furniture (all slides) ---
     (ltext idx ml (* 0.90 hh) (* 0.04 hh))
-    (ltext cap (* 0.16 hw) (* 0.90 hh) (* 0.028 hh))
+    (rtext cap mr (* 0.90 hh) (* 0.028 hh))
     (line ml (* 0.84 hh) mr (* 0.84 hh) 0.03)
     (line ml (* -0.86 hh) mr (* -0.86 hh) 0.018)
     (ltext "LIVE CODED / SCHEME" ml (* -0.91 hh) (* 0.028 hh))

@@ -108,8 +108,23 @@ centre cross, rule-of-thirds, title-safe margin (90%) and labels. Load it to see
 where the safe area and thirds fall, then match your sketch's text/terrain to
 those guides.
 
+## Aligning text (build-text is LEFT-anchored)
+
+`build-text` builds glyphs from a left origin, so a bare `(build-text …)` is
+left-aligned. A line's world width is `width = CW * length * scale`
+(`CW = 0.44`, the pen advance per char). Anchor by computing that width — never a
+fixed x, or short strings drift:
+
+```scheme
+(define (text-w str h) (* CW (string-length str) (/ h 0.9)))   ; h = cap height
+(define (ltext str x  y h) …)            ; left  edge at x
+(define (rtext str xr y h) (ltext str (- xr (text-w str h)) y h))  ; RIGHT edge at xr
+;; centre: (ltext str (- cx (* 0.5 (text-w str h))) y h)
+```
+
+Common bug: a top-right caption placed with a fixed left x looks unaligned when
+the text is short — right-align it to the margin with `rtext … mr …` instead.
+
 ## Notes
-- `build-text` pen advance is `CW = 0.44` per char; a line's world width is
-  `CW * length * scale`. Centre text by translating x by `-0.5 * width`.
 - Only the JUCE-editor apps resize from code (`set-window-size` is applied by the
   component's message-thread timer). `(screenshot …)` works in every app.
