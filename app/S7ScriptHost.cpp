@@ -138,9 +138,9 @@ s7_pointer f_persist_bang(s7_scheme* sc, s7_pointer a) {  // (persist! key vecto
   return s7_nil(sc);
 }
 s7_pointer f_clear_state(s7_scheme* sc, s7_pointer) { flux_state_clear(); return s7_nil(sc); }
-// (clear): no-op in our immediate model — the renderer wipes + re-evals each
-// frame, so a top-of-script (clear) is already implied (matches racket stub).
-s7_pointer f_clear(s7_scheme* sc, s7_pointer) { return s7_nil(sc); }
+// (clear): wipe the scene graph (see flux_scene_clear). Harmless/redundant in
+// immediate mode; needed at the top of a retained sketch's per-frame thunk.
+s7_pointer f_clear(s7_scheme* sc, s7_pointer) { flux_scene_clear(); return s7_nil(sc); }
 
 // ---- GLSL shaders ----------------------------------------------------------
 s7_pointer f_shader_source(s7_scheme* sc, s7_pointer a) {   // (shader-source vert frag)

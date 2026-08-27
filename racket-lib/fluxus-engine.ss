@@ -135,7 +135,11 @@
 
 (stub-void concat shader-set! shader
            hint-wire-stippled
-           apply-transform clear clear-colour texture-params)
+           apply-transform clear-colour texture-params)
+;; (clear): wipe the scene graph (real, not a stub) — needed at the top of a
+;; retained sketch's per-frame thunk so it can rebuild without re-parsing.
+(define _scene-clear (cfun "flux_scene_clear" (_fun -> _void) (lambda () (void))))
+(define (clear) (_scene-clear))
 
 ;; every-frame: registers the body as a thunk AND runs it once. In immediate mode
 ;; the whole buffer re-evals each frame, so this runs the body every frame (as

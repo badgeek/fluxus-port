@@ -6,6 +6,10 @@
 (start-audio "system:capture_1" 512 44100)
 (set-window-size 540 960)             ; 9:16 vertical (grabs at 1080x1920 on retina)
 (background (vector 0 0 0))
+; retained mode: compile the program ONCE, then per frame run only the every-frame
+; thunk (which clears + rebuilds). Avoids re-reading/re-compiling the whole file
+; every frame — the big CPU cost in immediate mode.
+(retained)
 
 ;; ---- config ----------------------------------------------------------------
 (define FOV 50.0)
@@ -168,6 +172,7 @@
 
 ;; ---- layout ----------------------------------------------------------------
 (every-frame
+  (clear) (background (vector 0 0 0))    ; retained: wipe + repaint bg each frame
   (set-fov FOV) (ortho #f)
   (let* ((sz (get-screen-size))
          (asp (if (> (vy sz) 0) (/ (vx sz) (vy sz)) 0.5625))

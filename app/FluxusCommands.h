@@ -151,6 +151,7 @@ extern "C" {
   void   flux_set_fov(double vfovDeg);               // vertical fov -> frustum
   void   flux_set_frustum(double l, double r, double b, double t);
   void   flux_set_aspect(double ratio);              // lock render AR (w/h); <=0 = auto
+  void   flux_scene_clear(void);                     // (clear): wipe the scene graph
   void   flux_request_window_size(int w, int h);     // (set-window-size w h)
   int    flux_take_window_request(int* w, int* h);   // message thread: pending resize?
 

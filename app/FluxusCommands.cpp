@@ -201,6 +201,14 @@ extern "C" {
 
 void flux_set_renderer(void* renderer) { g_ctx.r = static_cast<Renderer*>(renderer); }
 
+// (clear): wipe the scene graph. In immediate mode the host already clears each
+// frame (so a top-of-script (clear) is a harmless redundant wipe); in RETAINED
+// mode the host does NOT clear, so a sketch that rebuilds every frame calls
+// (clear) itself at the top of its every-frame thunk. Retained + (clear) lets a
+// heavy sketch compile once and only re-run its thunk (no per-frame re-parse of
+// the whole program), which is far cheaper than immediate mode.
+void flux_scene_clear(void) { if (g_ctx.r) g_ctx.r->Clear(); }
+
 void flux_frame_begin(double t, int frame) {
   g_ctx.time  = t;
   g_ctx.frame = frame;
