@@ -26,6 +26,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <float.h>
+#include <cwctype>
 
 #include "GLEditor.h"
 #include "PolyGlyph.h"
@@ -211,6 +212,35 @@ void GLEditor::SetText(const wstring& s)
 		m_Text=s;
 	}
 	ProcessTabs();
+}
+
+// fluxus->JUCE port: select the whole buffer (Cmd/Ctrl+A)
+void GLEditor::SelectAll()
+{
+	if (m_Text.empty()) { m_Selection=false; return; }
+	m_HighlightStart=0;
+	m_HighlightEnd=(unsigned int)m_Text.size();
+	m_Selection=true;
+	m_Position=(unsigned int)m_Text.size();
+}
+
+// fluxus->JUCE port: move the cursor one word left (dir<0) or right (dir>=0)
+void GLEditor::JumpWord(int dir)
+{
+	m_Selection=false;
+	const unsigned int n=(unsigned int)m_Text.size();
+	if (dir<0)
+	{
+		if (m_Position>0) m_Position--;
+		while (m_Position>0 && iswspace(m_Text[m_Position])) m_Position--;
+		while (m_Position>0 && !iswspace(m_Text[m_Position-1])) m_Position--;
+	}
+	else
+	{
+		while (m_Position<n && iswspace(m_Text[m_Position])) m_Position++;
+		while (m_Position<n && !iswspace(m_Text[m_Position])) m_Position++;
+	}
+	m_DesiredXPos=OffsetToCurrentLineStart();
 }
 
 void GLEditor::ClearAllText()

@@ -24,6 +24,7 @@ public:
   void loadScript(const juce::String& text);
   bool loadFile(const juce::File& f);
   juce::String getScript();                   // current GL editor text (File -> Save)
+  bool loadAudio(const juce::File& f);        // File -> Load Audio (play + analyse)
 
   void newOpenGLContextCreated() override;
   void renderOpenGL() override;
@@ -46,6 +47,7 @@ private:
   SharedScript shared;
   juce::Point<float> lastMouse;
   bool fontReady = false;
+  bool overlayVisible = true;   // Ctrl+H toggles the code overlay
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FluxusGLComponent)
 };

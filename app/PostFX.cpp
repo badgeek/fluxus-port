@@ -79,7 +79,10 @@ void PostFX::setFragment(const std::string& frag) {
 void PostFX::begin() {
   if (!fbo) return;
   glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, fbo);
+  glDisable(GL_SCISSOR_TEST);     // clear the FULL FBO, not just a letterbox rect
   glViewport(0, 0, w, h);
+  glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }
 
 void PostFX::end() {

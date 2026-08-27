@@ -28,6 +28,7 @@ public:
       menu = std::make_unique<FluxusMenu>(                        // File -> Open / Save
           [comp](const juce::File& f) { comp->loadFile(f); },
           [comp] { return comp->getScript(); });
+      menu->setAudioCallback([comp](const juce::File& f) { comp->loadAudio(f); });
       menu->attach(this);
       centreWithSize(1100, 720);
       setResizable(true, false);

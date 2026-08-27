@@ -84,3 +84,24 @@ extern "C" unsigned flux_font_atlas(void) {
   cached = uploadImage(img, /*flipY*/ true);   // consistent with image textures
   return cached;
 }
+
+// Write an RGBA framebuffer grab (bottom-up, from glReadPixels) to a PNG. Runs on
+// the GL thread; used by the (screenshot "path") command for self-calibration.
+extern "C" void flux_write_png(const char* path, const unsigned char* rgba, int w, int h) {
+  if (!path || !rgba || w <= 0 || h <= 0) return;
+  juce::Image img(juce::Image::ARGB, w, h, false);
+  juce::Image::BitmapData bd(img, juce::Image::BitmapData::writeOnly);
+  for (int y = 0; y < h; ++y) {
+    const unsigned char* row = rgba + (size_t) (h - 1 - y) * (size_t) w * 4;  // flip Y
+    for (int x = 0; x < w; ++x) {
+      const unsigned char* p = row + (size_t) x * 4;
+      bd.setPixelColour(x, y, juce::Colour(p[0], p[1], p[2], (juce::uint8) 255));
+    }
+  }
+  juce::File f(juce::String::fromUTF8(path));
+  f.deleteFile();
+  if (auto os = f.createOutputStream()) {
+    juce::PNGImageFormat png;
+    png.writeImageToStream(img, *os);
+  }
+}

@@ -91,6 +91,11 @@ bool FluxusComponent::loadFile(const juce::File& f) {
 
 juce::String FluxusComponent::getScript() const { return code.getText(); }
 
+bool FluxusComponent::loadAudio(const juce::File& f) {
+  return audio && f.existsAsFile()
+      && audio->loadAudioFile(f.getFullPathName().toRawUTF8());
+}
+
 void FluxusComponent::pushScript() {
   std::lock_guard<std::mutex> lk(shared.m);
   shared.pending = code.getText().toStdString();
@@ -111,6 +116,13 @@ bool FluxusComponent::keyPressed(const juce::KeyPress& key, juce::Component*) {
 }
 
 void FluxusComponent::timerCallback() {
+  // apply a script-requested window resize ((set-window-size w h)) — sets the GL
+  // content to exactly w x h (e.g. 1080x1920 for a vertical IG frame).
+  int rw = 0, rh = 0;
+  if (flux_take_window_request(&rw, &rh) && rw > 0 && rh > 0)
+    if (auto* win = findParentComponentOfClass<juce::ResizableWindow>())
+      win->setContentComponentSize(rw, rh);
+
   juce::String err;
   { std::lock_guard<std::mutex> lk(shared.m); err = juce::String(shared.lastError); }
   if (err != lastShown) {

@@ -44,6 +44,7 @@ public:
           [comp](bool v) { comp->setEditorVisible(v); },
           [comp](bool f) { comp->setEditorFullWidth(f); },
           comp->isEditorVisible(), comp->isEditorFullWidth());
+      menu->setAudioCallback([comp](const juce::File& f) { comp->loadAudio(f); });
       menu->attach(this);
       centreWithSize(1180, 720);
       setResizable(true, false);

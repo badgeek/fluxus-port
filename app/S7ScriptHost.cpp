@@ -97,6 +97,16 @@ s7_pointer f_set_camera_position(s7_scheme* sc, s7_pointer a) { double x,y,z; if
 s7_pointer f_camera_reset(s7_scheme* sc, s7_pointer)      { flux_camera_reset(); return s7_nil(sc); }
 s7_pointer f_set_fov(s7_scheme* sc, s7_pointer a)         { if (s7_is_pair(a)) flux_set_fov(s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
 s7_pointer f_set_aspect(s7_scheme* sc, s7_pointer a)      { if (s7_is_pair(a)) flux_set_aspect(s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+s7_pointer f_set_window_size(s7_scheme* sc, s7_pointer a) {
+  if (s7_is_pair(a) && s7_is_pair(s7_cdr(a)))
+    flux_request_window_size((int) s7_number_to_real(sc, s7_car(a)),
+                             (int) s7_number_to_real(sc, s7_cadr(a)));
+  return s7_nil(sc);
+}
+s7_pointer f_screenshot(s7_scheme* sc, s7_pointer a) {
+  if (s7_is_pair(a) && s7_is_string(s7_car(a))) flux_screenshot(s7_string(s7_car(a)));
+  return s7_nil(sc);
+}
 s7_pointer f_set_ortho(s7_scheme* sc, s7_pointer a)       { int on = s7_is_pair(a) ? (s7_boolean(sc, s7_car(a)) ? 1 : 0) : 1; flux_set_ortho(on); return s7_nil(sc); }
 s7_pointer f_set_ortho_zoom(s7_scheme* sc, s7_pointer a)  { if (s7_is_pair(a)) flux_set_ortho_zoom(s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
 s7_pointer f_get_screen_size(s7_scheme* sc, s7_pointer)   { double s[2]; flux_get_screen_size(s); s7_pointer v = s7_make_vector(sc, 3); s7_vector_set(sc, v, 0, s7_make_real(sc, s[0])); s7_vector_set(sc, v, 1, s7_make_real(sc, s[1])); s7_vector_set(sc, v, 2, s7_make_real(sc, 0)); return v; }
@@ -399,6 +409,8 @@ void S7ScriptHost::init() {
   def("camera-reset",         f_camera_reset,         0, 0, false);
   def("set-fov",              f_set_fov,              1, 0, false);
   def("set-aspect",           f_set_aspect,           1, 0, false);
+  def("set-window-size",      f_set_window_size,      2, 0, false);
+  def("screenshot",           f_screenshot,           1, 0, false);
   def("set-ortho",            f_set_ortho,            0, 0, true);
   def("set-ortho-zoom",       f_set_ortho_zoom,       1, 0, false);
   def("get-screen-size",      f_get_screen_size,      0, 0, false);

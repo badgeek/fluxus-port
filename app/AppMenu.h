@@ -18,6 +18,9 @@ public:
   FluxusMenu(LoadFn onOpen, TextFn getText)
     : load(std::move(onOpen)), text(std::move(getText)) {}
 
+  // opt-in: File -> Load Audio… (play an ogg/wav/… and drive the visuals with it)
+  void setAudioCallback(LoadFn onOpenAudio) { audioLoad = std::move(onOpenAudio); }
+
   // opt-in View menu (JUCE-editor apps only): show/hide + full-width editor.
   void setViewCallbacks(ToggleFn showEditor, ToggleFn fullWidth,
                         bool initVisible, bool initFullWidth) {
@@ -52,6 +55,7 @@ public:
       m.addSeparator();
       m.addItem(kSave,   "Save",   currentFile != juce::File());
       m.addItem(kSaveAs, "Save As…");
+      if (audioLoad) { m.addSeparator(); m.addItem(kLoadAudio, "Load Audio…"); }
     } else if (name == "Aspect") {
       for (int i = 0; i < (int) (sizeof(kAspects) / sizeof(kAspects[0])); ++i)
         m.addItem(kAspectBase + i, kAspects[i].name, true, i == currentAspect);
@@ -68,6 +72,7 @@ public:
       case kOpen:   openFile();  break;
       case kSave:   save();      break;
       case kSaveAs: saveAs();    break;
+      case kLoadAudio: openAudio(); break;
       case kShowEditor: editorVisible = !editorVisible; if (onShowEditor) onShowEditor(editorVisible); break;
       case kFullWidth:  editorFull    = !editorFull;    if (onFullWidth)  onFullWidth(editorFull);     break;
       default: break;
@@ -89,8 +94,19 @@ public:
   }
 
 private:
-  enum { kOpen = 1, kSave, kSaveAs, kAspectBase = 100, kViewBase = 200,
+  enum { kOpen = 1, kSave, kSaveAs, kLoadAudio, kAspectBase = 100, kViewBase = 200,
          kShowEditor = kViewBase, kFullWidth };
+
+  void openAudio() {
+    chooser = std::make_unique<juce::FileChooser>(
+        "Load audio for the visuals", juce::File(), "*.ogg;*.wav;*.mp3;*.flac;*.aif;*.aiff");
+    const auto flags = juce::FileBrowserComponent::openMode
+                     | juce::FileBrowserComponent::canSelectFiles;
+    chooser->launchAsync(flags, [this](const juce::FileChooser& fc) {
+      const auto f = fc.getResult();
+      if (audioLoad && f.existsAsFile()) audioLoad(f);
+    });
+  }
 
   void setAspect(int i) {
     currentAspect = i;
@@ -141,6 +157,7 @@ private:
 
   LoadFn load;
   TextFn text;
+  LoadFn audioLoad;
   ToggleFn onShowEditor, onFullWidth;
   bool hasView = false, editorVisible = true, editorFull = false;
   juce::File currentFile;

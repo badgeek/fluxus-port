@@ -4,6 +4,7 @@
 #include "IScriptHost.h"
 #include "AudioHost.h"
 #include "FluxusCommands.h"   // mouse/camera
+#include <juce_gui_basics/juce_gui_basics.h>   // SystemClipboard
 
 #ifndef FLUXUS_FONT_PATH
 #define FLUXUS_FONT_PATH ""
@@ -72,8 +73,10 @@ void FluxusGLComponent::renderOpenGL() {
   scene->setResolution(pw, ph);
   scene->renderFrame();          // eval script + render 3D
 
-  overlay->reshape(pw, ph);
-  overlay->render();             // fluxus GL text over the scene
+  if (overlayVisible) {
+    overlay->reshape(pw, ph);
+    overlay->render();           // fluxus GL text over the scene
+  }
 }
 
 void FluxusGLComponent::loadScript(const juce::String& text) {
@@ -91,6 +94,11 @@ bool FluxusGLComponent::loadFile(const juce::File& f) {
 
 juce::String FluxusGLComponent::getScript() {
   return overlay ? juce::String(overlay->getText()) : juce::String();
+}
+
+bool FluxusGLComponent::loadAudio(const juce::File& f) {
+  return audio && f.existsAsFile()
+      && audio->loadAudioFile(f.getFullPathName().toRawUTF8());
 }
 
 void FluxusGLComponent::parentHierarchyChanged() {
@@ -120,6 +128,39 @@ bool FluxusGLComponent::keyPressed(const juce::KeyPress& k) {
   if (mods.isAltDown())                          mod |= 4;
 
   const int kc = k.getKeyCode();
+
+  // system-clipboard bridge: Cmd/Ctrl + C / X / V (GLEditor only has its own
+  // internal buffer, and JUCE delivers these as plain letters, so bridge here).
+  const bool cmd = (mods.isCommandDown() || mods.isCtrlDown()) && !mods.isShiftDown();
+  if (cmd && overlay) {
+    const int u = juce::CharacterFunctions::toUpperCase((juce::juce_wchar) kc);
+    if (u == 'C') {
+      const auto s = overlay->getSelection();
+      if (!s.empty()) juce::SystemClipboard::copyTextToClipboard(juce::String::fromUTF8(s.c_str()));
+      return true;
+    }
+    if (u == 'X') {
+      const auto s = overlay->getSelection();
+      if (!s.empty()) {
+        juce::SystemClipboard::copyTextToClipboard(juce::String::fromUTF8(s.c_str()));
+        overlay->cutSelection();
+      }
+      return true;
+    }
+    if (u == 'V') {
+      const auto t = juce::SystemClipboard::getTextFromClipboard();
+      if (t.isNotEmpty()) overlay->insertText(t.toStdString());
+      return true;
+    }
+    if (u == 'A') { overlay->selectAll(); return true; }        // select all
+    if (u == 'H') { overlayVisible = !overlayVisible; return true; } // toggle editor
+  }
+
+  // Ctrl/Cmd + Left/Right: jump by word
+  if ((mods.isCtrlDown() || mods.isCommandDown()) && overlay) {
+    if (kc == juce::KeyPress::leftKey)  { overlay->jumpWord(-1); return true; }
+    if (kc == juce::KeyPress::rightKey) { overlay->jumpWord(1);  return true; }
+  }
 
   // fluxus eval: Ctrl+E (or Cmd+E / Shift+Enter) commits the buffer to the scene
   const bool ctrlE = (mods.isCtrlDown() || mods.isCommandDown()) && (kc == (int) 'E' || kc == (int) 'e');

@@ -54,6 +54,9 @@ public:
 
 	wstring GetText();
 	wstring GetAllText() { return m_Text; }
+	bool HasSelection() const { return m_Selection; }   // fluxus->JUCE port: clipboard bridge
+	void SelectAll();                                   // fluxus->JUCE port: Cmd+A
+	void JumpWord(int dir);                             // fluxus->JUCE port: Ctrl+arrow word jump
 	wstring GetSExpr();
 	void ClearAllText();
 

@@ -10,6 +10,7 @@
 #include <OpenGL/gl.h>
 
 #include <chrono>
+#include <vector>
 
 using namespace Fluxus;
 
@@ -81,6 +82,17 @@ void FluxusScene::renderFrame() {
   ++frameCount;
   const double t = (nowMs() - startMs) / 1000.0;
   host->setRenderer(renderer.get());
+
+  // Paint the WHOLE window opaque-black first. With an aspect lock the camera
+  // renders into a letterbox sub-rect; the renderer's clear/scissor only covers
+  // that rect, so without this the bars stay uncleared and the transparent JUCE
+  // window shows the desktop through them. Full viewport + no scissor here.
+  if (resW > 0 && resH > 0) {
+    glDisable(GL_SCISSOR_TEST);
+    glViewport(0, 0, resW, resH);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  }
 
   // pull the latest editor buffer + dirty flag (message thread writes them)
   bool isDirty = false;
@@ -159,5 +171,15 @@ void FluxusScene::renderFrame() {
     for (int i = 0; i < 16; ++i) prevVP[i] = vp[i];   // remember for next frame
   } else {
     renderer->Render();
+  }
+
+  // one-shot screenshot of the finished frame (reads the default framebuffer, so
+  // it captures exactly what's on screen including the post pass).
+  char shotPath[1024];
+  if (resW > 0 && resH > 0 && flux_take_screenshot(shotPath, (int) sizeof(shotPath))) {
+    std::vector<unsigned char> px((size_t) resW * resH * 4);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, resW, resH, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+    flux_write_png(shotPath, px.data(), resW, resH);
   }
 }

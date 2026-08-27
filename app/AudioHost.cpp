@@ -2,24 +2,70 @@
 #include "FluxusCommands.h"
 
 #include <juce_audio_devices/juce_audio_devices.h>
+#include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_dsp/juce_dsp.h>
 
 #include <array>
+#include <atomic>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
-// JUCE (CoreAudio) mic -> FFT -> bands + gain -> flux_set_audio.
+// JUCE (CoreAudio) mic OR a loaded audio file -> FFT -> bands + gain ->
+// flux_set_audio. When a file is loaded it is streamed to the output AND fed to
+// the analyser, so scripts react to the track instead of the mic.
 class JuceAudioHost : public IAudioHost,
                       private juce::AudioIODeviceCallback {
 public:
   void start() override {
-    adm.initialiseWithDefaultDevices(1, 0);   // 1 input, 0 outputs
+    adm.initialiseWithDefaultDevices(2, 2);   // try mic + speakers on one device
+    if (auto* d = adm.getCurrentAudioDevice()) {
+      if (d->getActiveOutputChannels().countNumberOfSetBits() == 0) {
+        adm.closeAudioDevice();               // opened an input-only device; need output
+        adm.initialiseWithDefaultDevices(0, 2);
+      }
+    } else {
+      adm.initialiseWithDefaultDevices(0, 2);
+    }
     adm.addAudioCallback(this);
+    if (auto* d = adm.getCurrentAudioDevice())
+      std::fprintf(stderr, "[audio] device=%s out=%d in=%d sr=%g\n",
+        d->getName().toRawUTF8(),
+        d->getActiveOutputChannels().countNumberOfSetBits(),
+        d->getActiveInputChannels().countNumberOfSetBits(),
+        d->getCurrentSampleRate());
   }
   void stop() override {
     adm.removeAudioCallback(this);
     adm.closeAudioDevice();
   }
+
+  bool loadAudioFile(const char* path) override {
+    juce::File f { juce::String::fromUTF8(path) };
+    std::fprintf(stderr, "[audio] loadAudioFile: %s exists=%d\n",
+                 f.getFullPathName().toRawUTF8(), (int) f.existsAsFile());
+    if (!f.existsAsFile()) return false;
+    juce::AudioFormatManager fm; fm.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> r(fm.createReaderFor(f));
+    if (!r) { std::fprintf(stderr, "[audio] no reader for %s (unsupported format?)\n",
+                           f.getFileExtension().toRawUTF8()); return false; }
+    const int len = (int) r->lengthInSamples;
+    const int chs = (int) juce::jmax(1u, r->numChannels);
+    if (len <= 0) return false;
+    juce::AudioBuffer<float> buf(chs, len);
+    r->read(&buf, 0, len, 0, true, true);
+    loading.store(true);                 // block the callback from touching fileBuf
+    fileBuf = std::move(buf);
+    fileLen = len;
+    filePos = 0.0;
+    fileSR  = r->sampleRate > 0 ? r->sampleRate : 44100.0;
+    loading.store(false);
+    playing.store(true);
+    std::fprintf(stderr, "[audio] loaded %s (%d ch, %d smp, %g Hz)\n",
+                 f.getFileName().toRawUTF8(), chs, len, fileSR);
+    return true;
+  }
+  void stopAudioFile() override { playing.store(false); }
 
 private:
   static constexpr int fftOrder = 10;          // 1024-point
@@ -36,7 +82,18 @@ private:
   int    fifoIndex = 0;
   double lastGain  = 0.0;
 
-  void audioDeviceAboutToStart(juce::AudioIODevice*) override {}
+  // loaded track (decoded to memory); streamed + analysed when `playing`.
+  juce::AudioBuffer<float> fileBuf;
+  int              fileLen  = 0;
+  double           filePos  = 0.0;      // fractional read position (for resampling)
+  double           fileSR   = 44100.0;
+  double           deviceSR = 44100.0;
+  std::atomic<bool> playing { false };
+  std::atomic<bool> loading { false };
+
+  void audioDeviceAboutToStart(juce::AudioIODevice* d) override {
+    if (d) deviceSR = d->getCurrentSampleRate();
+  }
   void audioDeviceStopped() override {}
 
   void audioDeviceIOCallbackWithContext(const float* const* in, int numIn,
@@ -46,6 +103,38 @@ private:
     for (int c = 0; c < numOut; ++c)
       if (out[c]) juce::FloatVectorOperations::clear(out[c], numSamples);
 
+    // --- loaded file: stream to output + analyse (loops) ---
+    if (playing.load() && !loading.load() && fileLen > 0) {
+      const int chs  = fileBuf.getNumChannels();
+      const double step = fileSR / juce::jmax(1.0, deviceSR);   // resample ratio
+      double pos = filePos;
+      double sumsq = 0.0;
+      for (int i = 0; i < numSamples; ++i) {
+        if (pos >= (double) fileLen) pos -= (double) fileLen;   // loop
+        const int   i0 = (int) pos;
+        const int   i1 = (i0 + 1 < fileLen) ? i0 + 1 : 0;
+        const float fr = (float) (pos - i0);
+        float mono = 0.0f;
+        for (int oc = 0; oc < numOut; ++oc) {
+          const int c = (oc < chs) ? oc : 0;
+          const float s = fileBuf.getSample(c, i0) * (1.0f - fr)
+                        + fileBuf.getSample(c, i1) * fr;         // linear interp
+          if (out[oc]) out[oc][i] = s * 0.9f;
+        }
+        for (int c = 0; c < chs; ++c)
+          mono += fileBuf.getSample(c, i0) * (1.0f - fr) + fileBuf.getSample(c, i1) * fr;
+        mono /= (float) chs;
+        sumsq += (double) mono * mono;
+        fifo[(size_t) fifoIndex++] = mono;
+        if (fifoIndex == fftSize) { processBlock(); fifoIndex = 0; }
+        pos += step;
+      }
+      filePos = pos;
+      lastGain = std::sqrt(sumsq / juce::jmax(1, numSamples));
+      return;
+    }
+
+    // --- otherwise: live mic input ---
     if (numIn <= 0 || in[0] == nullptr) return;
     const float* ch = in[0];
 

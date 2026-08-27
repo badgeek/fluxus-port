@@ -27,6 +27,7 @@ public:
   void loadScript(const juce::String& text);
   bool loadFile(const juce::File& f);
   juce::String getScript() const;             // current editor text (File -> Save)
+  bool loadAudio(const juce::File& f);        // File -> Load Audio (play + analyse)
   void setEditorVisible(bool v);              // View -> Show Editor
   void setEditorFullWidth(bool f);            // View -> Editor Full Width
   bool isEditorVisible()  const { return editorVisible; }

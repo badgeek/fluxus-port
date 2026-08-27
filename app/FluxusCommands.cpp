@@ -23,6 +23,7 @@
 #include <cstdio>
 #include <map>
 #include <string>
+#include <set>
 #include <atomic>
 
 using namespace Fluxus;
@@ -139,6 +140,16 @@ bool    g_camOverride = false;
 dMatrix g_camOverrideMat;
 dMatrix g_camAppliedMat;
 int     g_screenW = 720, g_screenH = 576;
+// script-requested window size (scheme (set-window-size w h)); the message-thread
+// component polls flux_take_window_request and resizes its window content. Defs
+// live in the extern "C" block below so they export C symbols.
+static std::mutex g_winMutex;
+static int  g_winReqW = 0, g_winReqH = 0;
+static bool g_winReqPending = false;
+// one-shot screenshot state
+static std::mutex g_shotMutex;
+static std::string g_shotPending;
+static std::set<std::string> g_shotDone;
 // aspect-ratio lock (0 = auto/off). When >0 the frustum is built for this w/h
 // and the viewport is letterboxed (bars) so content keeps the AR as the window
 // resizes. g_lastVfov remembers the vertical fov so a resize can rebuild the
@@ -331,7 +342,10 @@ int flux_build_text(const char* str) {
   // cell in the 16x16 atlas (T flipped for GL's bottom-left origin).
   PolyPrimitive* p = new PolyPrimitive(PolyPrimitive::QUADS);
   const float cw = 1.0f / 16.0f, ch = 1.0f / 16.0f;   // atlas cell (texcoords)
-  const float W = 0.6f, H = 0.9f;                       // world size per char
+  const float W = 0.6f, H = 0.9f;                       // glyph quad size
+  const float ADV = 0.44f;                              // pen advance per char
+  // (< W so cells overlap a little -> tighter letter + word spacing). Layout
+  // code (scheme CW) must match ADV to centre text correctly.
   const dVector N(0, 0, 1);
   float x = 0, y = 0;
   for (const char* c = str ? str : ""; *c; ++c) {
@@ -343,7 +357,7 @@ int flux_build_text(const char* str) {
     p->AddVertex(dVertex(dVector(x + W, y,     0), N, s1, 1 - t1));   // bottom-right
     p->AddVertex(dVertex(dVector(x + W, y + H, 0), N, s1, 1 - t0));   // top-right
     p->AddVertex(dVertex(dVector(x,     y + H, 0), N, s0, 1 - t0));   // top-left
-    x += W;
+    x += ADV;
   }
   int id = addPrim(p);
   State* s = p->GetState();
@@ -686,6 +700,34 @@ void flux_set_fov(double vfovDeg) {
 
 // lock the render aspect ratio (w/h); ratio<=0 restores auto (fill window).
 void flux_set_aspect(double ratio) { g_aspectLock = (ratio > 0.0) ? ratio : 0.0; }
+
+void flux_request_window_size(int w, int h) {
+  std::lock_guard<std::mutex> lk(g_winMutex);
+  g_winReqW = w; g_winReqH = h; g_winReqPending = true;
+}
+int flux_take_window_request(int* w, int* h) {
+  std::lock_guard<std::mutex> lk(g_winMutex);
+  if (!g_winReqPending) return 0;
+  if (w) *w = g_winReqW; if (h) *h = g_winReqH;
+  g_winReqPending = false; return 1;
+}
+
+// one-shot screenshot request. Captured once per unique path, so a script may
+// call (screenshot p) unconditionally every frame — only the first is written.
+void flux_screenshot(const char* path) {
+  if (!path) return;
+  std::lock_guard<std::mutex> lk(g_shotMutex);
+  if (g_shotDone.count(path)) return;          // already captured this path
+  g_shotPending = path;
+}
+int flux_take_screenshot(char* out, int cap) {
+  std::lock_guard<std::mutex> lk(g_shotMutex);
+  if (g_shotPending.empty() || !out || cap <= 0) return 0;
+  std::snprintf(out, (size_t) cap, "%s", g_shotPending.c_str());
+  g_shotDone.insert(g_shotPending);
+  g_shotPending.clear();
+  return 1;
+}
 void flux_set_frustum(double l, double r, double b, double t) {
   if (Camera* c = cam0()) c->SetFrustum((float) l, (float) r, (float) b, (float) t);
 }

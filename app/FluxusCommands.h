@@ -151,6 +151,15 @@ extern "C" {
   void   flux_set_fov(double vfovDeg);               // vertical fov -> frustum
   void   flux_set_frustum(double l, double r, double b, double t);
   void   flux_set_aspect(double ratio);              // lock render AR (w/h); <=0 = auto
+  void   flux_request_window_size(int w, int h);     // (set-window-size w h)
+  int    flux_take_window_request(int* w, int* h);   // message thread: pending resize?
+
+  // one-shot screenshot: (screenshot "path") requests a grab; captured once per
+  // path (calling it every frame is safe — repeats are ignored). The scene grabs
+  // the GL framebuffer after Render and writes a PNG via flux_write_png.
+  void   flux_screenshot(const char* path);
+  int    flux_take_screenshot(char* out, int cap);   // GL thread: pop pending path
+  void   flux_write_png(const char* path, const unsigned char* rgba, int w, int h);
   void   flux_set_ortho(int on);
   void   flux_set_ortho_zoom(double z);
   void   flux_set_clip(double front, double back);
