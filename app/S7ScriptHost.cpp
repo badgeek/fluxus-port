@@ -1,5 +1,6 @@
 #include "S7ScriptHost.h"
 #include "FluxusCommands.h"     // shared engine command layer (same as the Racket host)
+#include "VideoHost.h"          // AVFoundation video texture
 
 extern "C" {
 #include "s7.h"
@@ -274,6 +275,20 @@ s7_pointer f_shadow_light(s7_scheme* sc, s7_pointer a)  { if (s7_is_pair(a)) flu
 s7_pointer f_shadow_length(s7_scheme* sc, s7_pointer a) { if (s7_is_pair(a)) flux_shadow_length(s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
 s7_pointer f_load_texture(s7_scheme* sc, s7_pointer a) { return s7_make_integer(sc, s7_is_pair(a) ? (int) flux_load_texture(s7_string(s7_car(a))) : 0); }
 s7_pointer f_texture(s7_scheme* sc, s7_pointer a)      { if (s7_is_pair(a)) flux_texture((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+s7_pointer f_video_open(s7_scheme* sc, s7_pointer a)   { return s7_make_integer(sc, s7_is_pair(a) ? flux_video_open(s7_string(s7_car(a))) : 0); }
+s7_pointer f_video_texture(s7_scheme* sc, s7_pointer)  { return s7_make_integer(sc, (int) flux_video_texture()); }
+s7_pointer f_video_width(s7_scheme* sc, s7_pointer)    { return s7_make_integer(sc, flux_video_width()); }
+s7_pointer f_video_height(s7_scheme* sc, s7_pointer)   { return s7_make_integer(sc, flux_video_height()); }
+s7_pointer f_video_duration(s7_scheme* sc, s7_pointer) { return s7_make_real(sc, flux_video_duration()); }
+s7_pointer f_video_play(s7_scheme* sc, s7_pointer)     { flux_video_play();  return s7_nil(sc); }
+s7_pointer f_video_pause(s7_scheme* sc, s7_pointer)    { flux_video_pause(); return s7_nil(sc); }
+s7_pointer f_video_seek(s7_scheme* sc, s7_pointer a)   { if (s7_is_pair(a)) flux_video_seek(s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+s7_pointer f_video_close(s7_scheme* sc, s7_pointer)    { flux_video_close(); return s7_nil(sc); }
+s7_pointer f_camera_open(s7_scheme* sc, s7_pointer a)  { return s7_make_integer(sc, flux_camera_open(s7_is_pair(a) ? (int) s7_number_to_real(sc, s7_car(a)) : 0)); }
+s7_pointer f_camera_texture(s7_scheme* sc, s7_pointer) { return s7_make_integer(sc, (int) flux_camera_texture()); }
+s7_pointer f_camera_width(s7_scheme* sc, s7_pointer)   { return s7_make_integer(sc, flux_camera_width()); }
+s7_pointer f_camera_height(s7_scheme* sc, s7_pointer)  { return s7_make_integer(sc, flux_camera_height()); }
+s7_pointer f_camera_close(s7_scheme* sc, s7_pointer)   { flux_camera_close(); return s7_nil(sc); }
 s7_pointer f_build_text(s7_scheme* sc, s7_pointer a)   { return s7_make_integer(sc, flux_build_text(s7_is_pair(a) ? s7_string(s7_car(a)) : "")); }
 s7_pointer f_build_pixels(s7_scheme* sc, s7_pointer a) {
   int w = 16, h = 16;
@@ -392,6 +407,20 @@ void S7ScriptHost::init() {
   def("shadow-length",     f_shadow_length,    1, 0, false);
   def("load-texture",      f_load_texture,     1, 0, false);
   def("texture",           f_texture,          1, 0, false);
+  def("video-open",        f_video_open,       1, 0, false);
+  def("video-texture",     f_video_texture,    0, 0, false);
+  def("video-width",       f_video_width,      0, 0, false);
+  def("video-height",      f_video_height,     0, 0, false);
+  def("video-duration",    f_video_duration,   0, 0, false);
+  def("video-play",        f_video_play,       0, 0, false);
+  def("video-pause",       f_video_pause,      0, 0, false);
+  def("video-seek",        f_video_seek,       1, 0, false);
+  def("video-close",       f_video_close,      0, 0, false);
+  def("camera-open",       f_camera_open,      0, 1, false);
+  def("camera-texture",    f_camera_texture,   0, 0, false);
+  def("camera-width",      f_camera_width,     0, 0, false);
+  def("camera-height",     f_camera_height,    0, 0, false);
+  def("camera-close",      f_camera_close,     0, 0, false);
   def("build-text",        f_build_text,       1, 0, false);
   def("build-pixels",      f_build_pixels,     0, 0, true);
   def("pixels-upload",     f_pixels_upload,    0, 0, false);

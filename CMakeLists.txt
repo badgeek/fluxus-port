@@ -11,6 +11,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(FetchContent)
 
+# --- video texture (AVFoundation, Objective-C++) ---------------------------
+# app/VideoHost.mm decodes a movie -> GL texture. Needs ARC + these frameworks
+# (OpenGL comes in via juce_opengl). Applied to every app target below.
+set(FLUXUS_VIDEO_FRAMEWORKS
+    "-framework AVFoundation" "-framework CoreVideo"
+    "-framework CoreMedia"    "-framework QuartzCore")
+set_source_files_properties(app/VideoHost.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+
 # --- JUCE ------------------------------------------------------------------
 set(JUCE_TAG "8.0.4" CACHE STRING "JUCE git tag")
 FetchContent_Declare(JUCE
@@ -36,7 +44,9 @@ target_compile_options(s7 PRIVATE -w)
 # --- the JUCE app ----------------------------------------------------------
 juce_add_gui_app(FluxusApp PRODUCT_NAME "FluxusApp"
     MICROPHONE_PERMISSION_ENABLED TRUE
-    MICROPHONE_PERMISSION_TEXT "Fluxus uses the microphone for audio-reactive visuals.")
+    MICROPHONE_PERMISSION_TEXT "Fluxus uses the microphone for audio-reactive visuals."
+    CAMERA_PERMISSION_ENABLED TRUE
+    CAMERA_PERMISSION_TEXT "Fluxus uses the camera as a live video texture.")
 
 target_sources(FluxusApp PRIVATE
     app/Main.cpp
@@ -46,6 +56,7 @@ target_sources(FluxusApp PRIVATE
     app/TextureLoader.cpp
     app/FluxusCommands.cpp
       app/AudioHost.cpp
+      app/VideoHost.mm
     app/S7ScriptHost.cpp)
 
 target_compile_definitions(FluxusApp PRIVATE
@@ -62,6 +73,7 @@ target_link_libraries(FluxusApp PRIVATE
     juce::juce_gui_extra
     juce::juce_audio_utils
     juce::juce_dsp
+    ${FLUXUS_VIDEO_FRAMEWORKS}
     PUBLIC
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
@@ -99,7 +111,9 @@ set(FLUXUS_FONT "${CMAKE_CURRENT_SOURCE_DIR}/vendor/fluxus/modules/material/font
 
 juce_add_gui_app(FluxusGLApp PRODUCT_NAME "FluxusGLApp"
     MICROPHONE_PERMISSION_ENABLED TRUE
-    MICROPHONE_PERMISSION_TEXT "Fluxus uses the microphone for audio-reactive visuals.")
+    MICROPHONE_PERMISSION_TEXT "Fluxus uses the microphone for audio-reactive visuals."
+    CAMERA_PERMISSION_ENABLED TRUE
+    CAMERA_PERMISSION_TEXT "Fluxus uses the camera as a live video texture.")
 
 target_sources(FluxusGLApp PRIVATE
     app/MainGL.cpp
@@ -110,6 +124,7 @@ target_sources(FluxusGLApp PRIVATE
     app/TextureLoader.cpp
     app/FluxusCommands.cpp
       app/AudioHost.cpp
+      app/VideoHost.mm
     app/S7ScriptHost.cpp)
 
 target_compile_definitions(FluxusGLApp PRIVATE
@@ -128,6 +143,7 @@ target_link_libraries(FluxusGLApp PRIVATE
     juce::juce_gui_extra
     juce::juce_audio_utils
     juce::juce_dsp
+    ${FLUXUS_VIDEO_FRAMEWORKS}
     PUBLIC
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
@@ -141,7 +157,9 @@ set(RACKET_DIR "/opt/homebrew/Cellar/minimal-racket/9.3" CACHE PATH "Racket CS i
 if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
   juce_add_gui_app(FluxusRacketApp PRODUCT_NAME "FluxusRacketApp"
     MICROPHONE_PERMISSION_ENABLED TRUE
-    MICROPHONE_PERMISSION_TEXT "Fluxus uses the microphone for audio-reactive visuals.")
+    MICROPHONE_PERMISSION_TEXT "Fluxus uses the microphone for audio-reactive visuals."
+    CAMERA_PERMISSION_ENABLED TRUE
+    CAMERA_PERMISSION_TEXT "Fluxus uses the camera as a live video texture.")
 
   target_sources(FluxusRacketApp PRIVATE
       app/MainRacket.cpp
@@ -151,6 +169,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       app/TextureLoader.cpp
       app/FluxusCommands.cpp
       app/AudioHost.cpp
+      app/VideoHost.mm
       app/RacketScriptHost.cpp)
 
   target_include_directories(FluxusRacketApp PRIVATE "${RACKET_DIR}/include/racket")
@@ -173,6 +192,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       "${RACKET_DIR}/lib/libracketcs.a"
       "-liconv" "-lncurses"
       "-framework CoreFoundation"
+      ${FLUXUS_VIDEO_FRAMEWORKS}
       "-Wl,-export_dynamic"        # export flux_* for get-ffi-obj (dlsym)
       PUBLIC
       juce::juce_recommended_config_flags
@@ -180,7 +200,9 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
   # --- FluxusGLRacketApp: fluxus's own GLEditor + REAL Racket ---------------
   juce_add_gui_app(FluxusGLRacketApp PRODUCT_NAME "FluxusGLRacketApp"
     MICROPHONE_PERMISSION_ENABLED TRUE
-    MICROPHONE_PERMISSION_TEXT "Fluxus uses the microphone for audio-reactive visuals.")
+    MICROPHONE_PERMISSION_TEXT "Fluxus uses the microphone for audio-reactive visuals."
+    CAMERA_PERMISSION_ENABLED TRUE
+    CAMERA_PERMISSION_TEXT "Fluxus uses the camera as a live video texture.")
   target_sources(FluxusGLRacketApp PRIVATE
       app/MainGLRacket.cpp
       app/FluxusGLComponent.cpp
@@ -190,6 +212,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       app/TextureLoader.cpp
       app/FluxusCommands.cpp
       app/AudioHost.cpp
+      app/VideoHost.mm
       app/RacketScriptHost.cpp)
   target_include_directories(FluxusGLRacketApp PRIVATE "${RACKET_DIR}/include/racket")
   target_compile_definitions(FluxusGLRacketApp PRIVATE
@@ -211,6 +234,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       "${RACKET_DIR}/lib/libracketcs.a"
       "-liconv" "-lncurses"
       "-framework CoreFoundation"
+      ${FLUXUS_VIDEO_FRAMEWORKS}
       "-Wl,-export_dynamic"
       PUBLIC
       juce::juce_recommended_config_flags
