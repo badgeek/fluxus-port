@@ -1,3 +1,5 @@
+#include <cstdio>
+#include <vector>
 #include "FluxusComponent.h"
 #include "FluxusScene.h"
 #include "IScriptHost.h"
@@ -165,6 +167,70 @@ void FluxusComponent::setEditorVisible(bool v) {
 void FluxusComponent::setEditorFullWidth(bool f) {
   editorFullWidth = f;
   resized();
+}
+
+void FluxusComponent::setRecording(bool on) {
+  recording = on;
+  if (on) {
+    // fresh PNG sequence in ~/Movies/fluxus-frames (retina res, i.e. 1080x1920
+    // for a 540x960 window). Captures the GL scene only — the editor overlay is
+    // a JUCE child painted over GL and is NOT in the framebuffer.
+    recDir = juce::File::getSpecialLocation(juce::File::userMoviesDirectory)
+               .getChildFile("fluxus-frames");
+    recDir.createDirectory();
+    for (auto& f : recDir.findChildFiles(juce::File::findFiles, false, "*.png"))
+      f.deleteFile();
+    flux_set_recording(1, recDir.getFullPathName().toRawUTF8());
+    std::fprintf(stderr, "[rec] recording frames -> %s\n",
+                 recDir.getFullPathName().toRawUTF8());
+  } else {
+    flux_set_recording(0, nullptr);
+    std::fprintf(stderr,
+        "[rec] stopped. Encode to video with:\n"
+        "  ffmpeg -framerate 30 -i %s/f%%05d.png -c:v libx264 -crf 12 "
+        "-pix_fmt yuv420p deck.mp4\n",
+        recDir.getFullPathName().toRawUTF8());
+  }
+}
+
+void FluxusComponent::setExportAudioFile(const juce::File& f) {
+  expAudioFile = f;
+  std::fprintf(stderr, "[export] soundtrack = %s\n", f.getFullPathName().toRawUTF8());
+}
+
+void FluxusComponent::setExport(bool on) {
+  exporting = on;
+  const int fps = 60;
+  if (on) {
+    // Offline, frame-locked render at 60fps piped straight to ffmpeg. The app runs
+    // SLOWER than realtime while exporting (each frame waits for the grab+encode),
+    // but the output is perfectly smooth at 60fps. Toggle off to finalise the MP4.
+    expFile = juce::File::getSpecialLocation(juce::File::userMoviesDirectory)
+                .getChildFile("fluxus-export.mp4");
+    // freeze the live mic so the exported audio state is deterministic
+    if (audio) audio->stop();
+    // optional soundtrack: pre-analyse it into per-frame features (reactivity) and
+    // mux it into the output. Synced because feature[f] and audio-time f/fps match.
+    if (expAudioFile.existsAsFile()) {
+      std::vector<float> gains, bands; int nb = 0, nF = 0;
+      if (analyzeAudioFileToFrames(expAudioFile.getFullPathName().toRawUTF8(),
+                                   fps, gains, bands, nb, nF)) {
+        flux_export_audio_load(gains.data(), bands.data(), nF, nb);
+        flux_set_export_audio(expAudioFile.getFullPathName().toRawUTF8());
+        std::fprintf(stderr, "[export] audio-reactive: analysed %d frames of %s\n",
+                     nF, expAudioFile.getFileName().toRawUTF8());
+      }
+    }
+    flux_set_export(1, expFile.getFullPathName().toRawUTF8(), fps);
+    std::fprintf(stderr, "[export] rendering (frame-locked %dfps) -> %s\n",
+                 fps, expFile.getFullPathName().toRawUTF8());
+  } else {
+    flux_set_export(0, nullptr, 0);
+    flux_export_audio_clear();
+    if (audio) audio->start();          // live mic back
+    std::fprintf(stderr, "[export] stopped -> %s\n",
+                 expFile.getFullPathName().toRawUTF8());
+  }
 }
 
 void FluxusComponent::resized() {

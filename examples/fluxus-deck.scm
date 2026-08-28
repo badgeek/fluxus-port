@@ -52,8 +52,16 @@
          "2015; this project restores the engine for use on contemporary "
          "platforms.")
         "RESTORATION")
-  (list "04" "GITHUB" #f "OPEN SOURCE SOON")
-  (list "05" "" #f "")))          ; blank slide — just the full-width code editor
+  (list "04" "THE PORT"
+        (string-append
+         "This port was begun on 23 August 2026 by manticore of the Bauhouse "
+         "Consortium, who had long missed what live coding felt like in FLUXUS "
+         "- a directness that todays specialised visual tools rarely offer. It "
+         "revives a personal body of visuals first written seventeen years ago, "
+         "carrying that experience onto present-day machines.")
+        "A REVIVAL")
+  (list "05" "SOURCE CODE" #f "OPEN SOURCE SOON")
+  (list "06" "" #f "")))          ; blank slide — just the full-width code editor
 (define NS (length slides))
 
 (define D-TITLE 6.5)        ; title-card seconds
@@ -143,7 +151,7 @@
   (vector  3.0 4.50 10.0 10.0 3.0 4.50 10.0 10.0)  ; rounded cube
   (vector 10.0 0.22 1.5 1.5   5.0 0.30 0.6 2.0)))  ; twisty
 (define (supershape si cx cy sc audio)
-  (let* ((p  (list-ref supers (modulo si NS)))
+  (let* ((p  (list-ref supers (modulo si (length supers))))
          (m1 (vector-ref p 0)) (a1 (vector-ref p 1)) (b1 (vector-ref p 2)) (c1 (vector-ref p 3))
          (m2 (vector-ref p 4)) (a2 (vector-ref p 5)) (b2 (vector-ref p 6)) (c2 (vector-ref p 7))
          (prim (build-nurbs-sphere 18 28)))
@@ -173,7 +181,7 @@
 ;; ---- per-slide timing ------------------------------------------------------
 (define D-EDITOR 8.0)       ; blank editor-only slide: time to read the code
 (define (dur-of s)
-  (cond ((string=? (car s) "05") D-EDITOR)
+  (cond ((string=? (car s) "06") D-EDITOR)
         ((caddr s) D-TEXT)
         (else D-TITLE)))
 (define (total-dur) (let loop ((ls slides) (s 0.0)) (if (null? ls) s (loop (cdr ls) (+ s (dur-of (car ls)))))))
@@ -241,11 +249,11 @@ void main(){
     ; --- editor slide: the final blank slide (05) is JUST the full-width code
     ; overlay so the audience sees this very deck IS a running fluxus program —
     ; no deck furniture drawn on it. Every other slide hides the editor. ---
-    (if (string=? idx "05")
+    (if (string=? idx "06")
         (begin (editor-full-width #t) (show-editor))
         (hide-editor))
 
-    (when (not (string=? idx "05"))
+    (when (not (string=? idx "06"))
     ; --- frame furniture (every slide but the editor slide) ---
     (ltext idx (+ ml xo) (* 0.90 hh) (* 0.04 hh))
     (rtext cap mr (* 0.90 hh) (* 0.028 hh))
@@ -255,20 +263,21 @@ void main(){
     ; progress marks bottom-right
     (let loop ((k 0))
       (when (< k NS)
-        (if (= k si) (rect (- mr (* (- NS k 1) 0.06 hh)) (* -0.91 hh) (* 0.03 hh) (* 0.03 hh))
-            (circle (- mr (* (- NS k 1) 0.06 hh)) (* -0.91 hh) (* 0.014 hh) 0.008))
+        (if (= k si) (rect (- mr (* 0.014 hh) (* (- NS k 1) 0.055 hh)) (* -0.91 hh) (* 0.03 hh) (* 0.03 hh))
+            (circle (- mr (* 0.014 hh) (* (- NS k 1) 0.055 hh)) (* -0.91 hh) (* 0.014 hh) 0.008))
         (loop (+ k 1))))
 
     (if card
-        (if (string=? idx "04")
+        (if (string=? idx "05")
             (begin
-              ; --- GITHUB slide: repo call-to-action (the code editor gets its
+              ; --- SOURCE CODE slide: repo call-to-action (the code editor gets its
               ; own blank slide next). ---
               (ltext title (+ ml xo) (* 0.68 hh) (* 0.12 hh))
               (line ml (* 0.55 hh) (+ ml (* 0.55 (text-w title (* 0.12 hh)))) (* 0.55 hh) 0.012)
-              (ltext "MADE WITH FLUXUS" (+ ml xo) (* 0.42 hh) (* 0.05 hh))
-              (ltext "REPOSITORY COMING SOON" (+ ml xo) (* -0.42 hh) (* 0.05 hh))
-              (ltext "GITHUB / OPEN SOURCE" (+ ml xo) (* -0.51 hh) (* 0.028 hh)))
+              (ltext "THIS WHOLE VIDEO IS" (+ ml xo) (* 0.44 hh) (* 0.05 hh))
+              (ltext "MADE ENTIRELY IN FLUXUS" (+ ml xo) (* 0.35 hh) (* 0.05 hh))
+              (ltext "REPOSITORY COMING SOON" (+ ml xo) (* -0.40 hh) (* 0.05 hh))
+              (ltext "THIS IS BEYOND EXCITEMENT" (+ ml xo) (* -0.50 hh) (* 0.03 hh)))
             (begin
               ; --- slide 0: big title (stacked, one word per line) + supershape ---
               (let loop ((ws (split-words title)) (row 0))

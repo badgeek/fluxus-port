@@ -160,6 +160,24 @@ extern "C" {
   void   flux_set_editor_full_width(int full);       // 0 = left half, 1 = full width
   int    flux_get_editor(int* visible, int* full);   // message thread: 0 if never set
 
+  // frame recording: the View menu toggles it; while on, the scene writes every
+  // rendered frame to dir/fNNNNN.png (encode to video with ffmpeg afterwards).
+  void   flux_set_recording(int on, const char* dir); // message thread: start/stop
+  int    flux_recording_next(char* out, int cap);     // GL thread: next frame path?
+
+  // offline export: frame-locked render (deterministic time) piped to ffmpeg.
+  void   flux_set_export(int on, const char* path, int fps);   // message thread
+  int    flux_export_state(char* pathOut, int cap, int* fps);  // GL thread: 1 if desired
+  // audio-reactive export: an optional soundtrack muxed into the export AND
+  // pre-analysed into per-frame features that are fed as the frame's audio state,
+  // so the visuals react to the track deterministically (synced to each frame).
+  void   flux_set_export_audio(const char* wavPath);           // "" clears the mux track
+  int    flux_export_audio_path(char* out, int cap);           // GL thread: mux path? (0 if none)
+  void   flux_export_audio_load(const float* gains, const float* bands,
+                                int nFrames, int nBands);       // feature table
+  void   flux_export_audio_apply(long frame);                  // GL thread: set this frame's audio
+  void   flux_export_audio_clear(void);
+
   // one-shot screenshot: (screenshot "path") requests a grab; captured once per
   // path (calling it every frame is safe — repeats are ignored). The scene grabs
   // the GL framebuffer after Render and writes a PNG via flux_write_png.

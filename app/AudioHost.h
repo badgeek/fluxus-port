@@ -1,5 +1,6 @@
 #pragma once
 #include <memory>
+#include <vector>
 
 // Audio seam. JUCE audio (CoreAudio) today — no JACK. The host analyses mic input
 // into FFT bands + gain and pushes them to FluxusCommands (flux_set_audio), where
@@ -15,3 +16,12 @@ struct IAudioHost {
 };
 
 std::unique_ptr<IAudioHost> makeJuceAudioHost();
+
+// Offline analysis for the frame-locked exporter: decode an audio file and
+// compute per-frame (gain + nBands FFT bands) using the SAME analysis as the live
+// host, so an export reacts to the track deterministically, synced to each frame.
+// Analyses the whole file (nFramesOut = ceil(duration*fps)); fills gains[nFramesOut]
+// and bands[nFramesOut*nBandsOut]. Returns false on load error.
+bool analyzeAudioFileToFrames(const char* path, int fps,
+                              std::vector<float>& gains,
+                              std::vector<float>& bands, int& nBandsOut, int& nFramesOut);

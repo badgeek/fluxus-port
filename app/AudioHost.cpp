@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <vector>
 
 // JUCE (CoreAudio) mic OR a loaded audio file -> FFT -> bands + gain ->
 // flux_set_audio. When a file is loaded it is streamed to the output AND fed to
@@ -172,3 +173,71 @@ private:
 };
 
 std::unique_ptr<IAudioHost> makeJuceAudioHost() { return std::make_unique<JuceAudioHost>(); }
+
+// --- offline per-frame analysis (mirrors JuceAudioHost::processBlock) ---------
+bool analyzeAudioFileToFrames(const char* path, int fps,
+                              std::vector<float>& gains,
+                              std::vector<float>& bands, int& nBandsOut, int& nFramesOut) {
+  constexpr int fftOrder = 10, fftSize = 1 << fftOrder, nBands = 16;
+  nBandsOut = nBands; nFramesOut = 0;
+  if (fps <= 0) return false;
+  juce::File f { juce::String::fromUTF8(path) };
+  if (!f.existsAsFile()) return false;
+  juce::AudioFormatManager fm; fm.registerBasicFormats();
+  std::unique_ptr<juce::AudioFormatReader> r(fm.createReaderFor(f));
+  if (!r) return false;
+  const int len = (int) r->lengthInSamples;
+  const int chs = (int) juce::jmax(1u, r->numChannels);
+  if (len <= 0) return false;
+  juce::AudioBuffer<float> buf(chs, len);
+  r->read(&buf, 0, len, 0, true, true);
+  const double sr = r->sampleRate > 0 ? r->sampleRate : 44100.0;
+  const int nFrames = (int) std::ceil((double) len / sr * fps);
+  if (nFrames <= 0) return false;
+  nFramesOut = nFrames;
+
+  std::vector<float> mono((size_t) len);
+  for (int i = 0; i < len; ++i) {
+    float s = 0.0f; for (int c = 0; c < chs; ++c) s += buf.getSample(c, i);
+    mono[(size_t) i] = s / (float) chs;
+  }
+
+  juce::dsp::FFT fft { fftOrder };
+  juce::dsp::WindowingFunction<float> window { (size_t) fftSize,
+                                               juce::dsp::WindowingFunction<float>::hann };
+  std::array<float, fftSize>     fifo {}; int fifoIndex = 0;
+  std::array<float, fftSize * 2> fftData {};
+  std::array<float, nBands>      smoothBars {}; smoothBars.fill(0.0f);
+  const float usefulArea = fftSize / 2.0f, bias = 0.8f, gainC = 0.015f;
+  auto processBlock = [&]() {
+    std::copy(fifo.begin(), fifo.end(), fftData.begin());
+    std::fill(fftData.begin() + fftSize, fftData.end(), 0.0f);
+    window.multiplyWithWindowingTable(fftData.data(), (size_t) fftSize);
+    fft.performFrequencyOnlyForwardTransform(fftData.data());
+    for (int n = 0; n < nBands; ++n) {
+      float a = (float) n / nBands, b = (float) (n + 1) / nBands; a *= a; b *= b;
+      const int from = (int) (a * usefulArea), to = (int) (b * usefulArea);
+      float v = 0.0f;
+      for (int i = from; i <= to && i < fftSize; ++i) v += fftData[(size_t) i];
+      if (v < 0) v = -v; v *= gainC;
+      smoothBars[(size_t) n] = smoothBars[(size_t) n] * bias + v * (1.0f - bias);
+    }
+  };
+
+  gains.assign((size_t) nFrames, 0.0f);
+  bands.assign((size_t) nFrames * nBands, 0.0f);
+  int cursor = 0;
+  for (int fr = 0; fr < nFrames; ++fr) {
+    const int end = (int) std::llround((double) (fr + 1) / fps * sr);
+    double sumsq = 0.0; int cnt = 0;
+    for (; cursor < end && cursor < len; ++cursor) {
+      const float s = mono[(size_t) cursor];
+      sumsq += (double) s * s; ++cnt;
+      fifo[(size_t) fifoIndex++] = s;
+      if (fifoIndex == fftSize) { processBlock(); fifoIndex = 0; }
+    }
+    gains[(size_t) fr] = cnt > 0 ? (float) std::sqrt(sumsq / cnt) * 4.0f : 0.0f;
+    for (int n = 0; n < nBands; ++n) bands[(size_t) fr * nBands + n] = smoothBars[(size_t) n];
+  }
+  return true;
+}

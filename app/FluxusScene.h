@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdio>
 #include <memory>
 #include <string>
 #include <thread>
@@ -33,4 +34,16 @@ private:
   PostFX        postfx;       // optional full-screen post-processing pass
   float         prevVP[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};   // last frame view-proj
   long long     lastRenderMs = 0;
+
+  // offline export: frame-locked time (t = expFrame/expFps, NOT wall clock) piped
+  // as raw RGBA to a background ffmpeg process. Output is smooth at expFps no
+  // matter how slow the per-frame grab is — it's a render, not a realtime capture.
+  std::FILE*    expPipe = nullptr;
+  bool          expOn = false;
+  long          expFrame = 0;
+  int           expFps = 60, expW = 0, expH = 0;
+  std::string   expPathStr;
+  void          exportBegin(const char* path, int fps);   // GL thread: open ffmpeg pipe
+  void          exportWriteFrame();                        // GL thread: grab + pipe one frame
+  void          exportEnd();                               // GL thread: close pipe, finalise
 };

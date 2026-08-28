@@ -10,6 +10,8 @@
 #include <OpenGL/gl.h>
 
 #include <chrono>
+#include <cmath>
+#include <cstdio>
 #include <vector>
 
 using namespace Fluxus;
@@ -56,7 +58,52 @@ static bool invert4(float* o, const float* m) {
 
 FluxusScene::FluxusScene(SharedScript* s, std::unique_ptr<IScriptHost> h)
   : host(std::move(h)), shared(s) {}
-FluxusScene::~FluxusScene() = default;
+FluxusScene::~FluxusScene() { if (expPipe) pclose(expPipe); }
+
+// --- offline export (frame-locked render -> ffmpeg via a pipe) ---------------
+void FluxusScene::exportBegin(const char* path, int fps) {
+  if (expPipe || resW <= 0 || resH <= 0) return;
+  expW = resW; expH = resH; expFps = fps > 0 ? fps : 60; expFrame = 0;
+  // pad the (possibly retina) frame up to a clean 9:16 (invisible on the black bg)
+  int targetH = (int) std::lround(expW * 16.0 / 9.0);
+  if (targetH % 2) ++targetH;
+  char vf[256];
+  if (targetH > expH) std::snprintf(vf, sizeof vf, "vflip,pad=%d:%d:0:%d:color=black",
+                                    expW, targetH, (targetH - expH) / 2);
+  else                std::snprintf(vf, sizeof vf, "vflip");
+  // optional soundtrack: mux it as a second input (trim to the video with
+  // -shortest). The visuals already react to it via flux_export_audio_apply.
+  char aud[1200] = {0};
+  { char apath[1024];
+    if (flux_export_audio_path(apath, (int) sizeof apath))
+      std::snprintf(aud, sizeof aud, "-i \"%s\" -map 0:v -map 1:a -c:a aac -b:a 256k -shortest ", apath);
+    else
+      std::snprintf(aud, sizeof aud, "-map 0:v ");
+  }
+  // raw RGBA in, hardware H.264 out. glReadPixels is bottom-up, hence vflip.
+  char cmd[3072];
+  std::snprintf(cmd, sizeof cmd,
+    "ffmpeg -y -f rawvideo -pixel_format rgba -video_size %dx%d -framerate %d -i - "
+    "%s-vf \"%s\" -c:v h264_videotoolbox -b:v 25M -pix_fmt yuv420p -r %d \"%s\" "
+    "2>/tmp/fluxus-export.log",
+    expW, expH, expFps, aud, vf, expFps, path);
+  expPipe = popen(cmd, "w");
+  std::fprintf(stderr, "[export] %s @ %dfps -> %s\n",
+               expPipe ? "started" : "FAILED (popen)", expFps, path);
+}
+void FluxusScene::exportWriteFrame() {
+  if (!expPipe || expW <= 0 || expH <= 0) return;
+  static std::vector<unsigned char> px;
+  px.resize((size_t) expW * expH * 4);
+  glPixelStorei(GL_PACK_ALIGNMENT, 1);
+  glReadPixels(0, 0, expW, expH, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+  std::fwrite(px.data(), 1, px.size(), expPipe);
+  ++expFrame;
+}
+void FluxusScene::exportEnd() {
+  if (expPipe) { pclose(expPipe); expPipe = nullptr; }
+  std::fprintf(stderr, "[export] finished (%ld frames)\n", expFrame);
+}
 
 void FluxusScene::init() {
   renderer = std::make_unique<Renderer>();
@@ -80,7 +127,22 @@ void FluxusScene::renderFrame() {
   if (std::this_thread::get_id() != glThread) return;
 
   ++frameCount;
-  const double t = (nowMs() - startMs) / 1000.0;
+
+  // offline export toggle (message thread sets desired state; we own the pipe).
+  { char epath[1024]; int efps = 60;
+    const bool want = flux_export_state(epath, (int) sizeof epath, &efps);
+    if (want && !expOn) { expOn = true; expPathStr = epath; expFps = efps; }   // pipe opens lazily below
+    else if (!want && expOn) { expOn = false; exportEnd(); }
+  }
+
+  // Time source: wall clock normally, but frame-locked while exporting so motion
+  // advances exactly 1/fps per RENDERED frame — the output is smooth at expFps no
+  // matter how slow each grab is (a deterministic render, not a realtime capture).
+  const double t = expOn ? (double) expFrame / (double) expFps
+                         : (nowMs() - startMs) / 1000.0;
+  // audio-reactive export: feed THIS frame's pre-analysed features so (gain)/(gh)
+  // react to the soundtrack deterministically, synced to the frame-locked time.
+  if (expOn) flux_export_audio_apply(expFrame);
   host->setRenderer(renderer.get());
 
   // Paint the WHOLE window opaque-black first. With an aspect lock the camera
@@ -163,23 +225,34 @@ void FluxusScene::renderFrame() {
     mul4(vp, pr, mv);               // view-projection this frame
     if (!invert4(vpInv, vp)) for (int i=0;i<16;++i) vpInv[i] = (i%5==0)?1.0f:0.0f;
     const long long now = nowMs();
-    float dt = (lastRenderMs > 0) ? (float) ((now - lastRenderMs) / 1000.0) : 0.016f;
+    float dt = expOn ? (1.0f / (float) expFps)
+                     : ((lastRenderMs > 0) ? (float) ((now - lastRenderMs) / 1000.0) : 0.016f);
     lastRenderMs = now;
-
-    const double t = (now - startMs) / 1000.0;
-    postfx.draw(t, flux_audio_gain(), feedback, vpInv, prevVP, dt);
+    postfx.draw(t, flux_audio_gain(), feedback, vpInv, prevVP, dt);   // outer t = frame-locked in export
     for (int i = 0; i < 16; ++i) prevVP[i] = vp[i];   // remember for next frame
   } else {
     renderer->Render();
   }
 
-  // one-shot screenshot of the finished frame (reads the default framebuffer, so
-  // it captures exactly what's on screen including the post pass).
-  char shotPath[1024];
-  if (resW > 0 && resH > 0 && flux_take_screenshot(shotPath, (int) sizeof(shotPath))) {
-    std::vector<unsigned char> px((size_t) resW * resH * 4);
-    glPixelStorei(GL_PACK_ALIGNMENT, 1);
-    glReadPixels(0, 0, resW, resH, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
-    flux_write_png(shotPath, px.data(), resW, resH);
+  // grab the finished default framebuffer (post pass included, i.e. exactly what's
+  // on screen) to a PNG. Used by both the one-shot (screenshot …) and recording.
+  if (resW > 0 && resH > 0) {
+    auto grab = [&](const char* path) {
+      std::vector<unsigned char> px((size_t) resW * resH * 4);
+      glPixelStorei(GL_PACK_ALIGNMENT, 1);
+      glReadPixels(0, 0, resW, resH, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+      flux_write_png(path, px.data(), resW, resH);
+    };
+    char shotPath[1024];
+    if (flux_take_screenshot(shotPath, (int) sizeof(shotPath))) grab(shotPath);
+    char recPath[1024];
+    if (flux_recording_next(recPath, (int) sizeof(recPath))) grab(recPath);   // Record Frames
+
+    // offline export: open the pipe lazily (once the resolution is known), then
+    // stream this frame's pixels to ffmpeg.
+    if (expOn) {
+      if (!expPipe) exportBegin(expPathStr.c_str(), expFps);
+      if (expPipe)  exportWriteFrame();
+    }
   }
 }

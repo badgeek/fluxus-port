@@ -153,6 +153,24 @@ static bool g_winReqPending = false;
 static std::mutex g_edMutex;
 static bool g_edSet = false;
 static int  g_edVisible = 1, g_edFull = 0;
+// frame-recording state: while on, the scene grabs each rendered frame to
+// g_recDir/fNNNNN.png (g_recFrame auto-increments on the GL thread).
+static std::mutex g_recMutex;
+static bool g_recOn = false;
+static std::string g_recDir;
+static long g_recFrame = 0;
+// offline export desired-state (the scene owns the ffmpeg pipe on the GL thread)
+static std::mutex g_expMutex;
+static bool g_expOn = false;
+static std::string g_expPath;
+static int g_expFps = 60;
+// audio-reactive export: mux path + pre-analysed per-frame feature table
+static std::mutex g_expAudMutex;
+static std::string g_expAudPath;
+static std::vector<float> g_expAudGains;
+static std::vector<float> g_expAudBands;
+static int  g_expAudNBands = 0;
+static long g_expAudFrames = 0;
 // one-shot screenshot state
 static std::mutex g_shotMutex;
 static std::string g_shotPending;
@@ -744,6 +762,66 @@ int flux_get_editor(int* visible, int* full) {
   if (visible) *visible = g_edVisible;
   if (full)    *full    = g_edFull;
   return 1;
+}
+
+void flux_set_recording(int on, const char* dir) {
+  std::lock_guard<std::mutex> lk(g_recMutex);
+  if (on) { g_recDir = dir ? dir : "."; g_recFrame = 0; g_recOn = true; }
+  else    { g_recOn = false; }
+}
+int flux_recording_next(char* out, int cap) {
+  std::lock_guard<std::mutex> lk(g_recMutex);
+  if (!g_recOn || !out || cap <= 0) return 0;
+  std::snprintf(out, (size_t) cap, "%s/f%05ld.png", g_recDir.c_str(), g_recFrame++);
+  return 1;
+}
+
+void flux_set_export(int on, const char* path, int fps) {
+  std::lock_guard<std::mutex> lk(g_expMutex);
+  if (on) { g_expPath = path ? path : "export.mp4"; g_expFps = fps > 0 ? fps : 60; g_expOn = true; }
+  else    { g_expOn = false; }
+}
+int flux_export_state(char* pathOut, int cap, int* fps) {
+  std::lock_guard<std::mutex> lk(g_expMutex);
+  if (!g_expOn) return 0;
+  if (pathOut && cap > 0) std::snprintf(pathOut, (size_t) cap, "%s", g_expPath.c_str());
+  if (fps) *fps = g_expFps;
+  return 1;
+}
+
+void flux_set_export_audio(const char* wavPath) {
+  std::lock_guard<std::mutex> lk(g_expAudMutex);
+  g_expAudPath = wavPath ? wavPath : "";
+}
+int flux_export_audio_path(char* out, int cap) {
+  std::lock_guard<std::mutex> lk(g_expAudMutex);
+  if (g_expAudPath.empty() || !out || cap <= 0) return 0;
+  std::snprintf(out, (size_t) cap, "%s", g_expAudPath.c_str());
+  return 1;
+}
+void flux_export_audio_load(const float* gains, const float* bands, int nFrames, int nBands) {
+  std::lock_guard<std::mutex> lk(g_expAudMutex);
+  if (!gains || !bands || nFrames <= 0 || nBands <= 0) { g_expAudFrames = 0; return; }
+  g_expAudGains.assign(gains, gains + nFrames);
+  g_expAudBands.assign(bands, bands + (size_t) nFrames * nBands);
+  g_expAudNBands = nBands; g_expAudFrames = nFrames;
+}
+void flux_export_audio_apply(long frame) {
+  float gain; const float* bands; int n;
+  {
+    std::lock_guard<std::mutex> lk(g_expAudMutex);
+    if (g_expAudFrames <= 0) return;
+    long f = frame; if (f < 0) f = 0; if (f >= g_expAudFrames) f = g_expAudFrames - 1;  // clamp
+    gain = g_expAudGains[(size_t) f];
+    bands = &g_expAudBands[(size_t) f * g_expAudNBands];
+    n = g_expAudNBands;
+  }
+  flux_set_audio(bands, n, gain);   // overwrite this frame's audio state
+}
+void flux_export_audio_clear(void) {
+  std::lock_guard<std::mutex> lk(g_expAudMutex);
+  g_expAudGains.clear(); g_expAudBands.clear(); g_expAudFrames = 0; g_expAudNBands = 0;
+  g_expAudPath.clear();
 }
 
 // one-shot screenshot request. Captured once per unique path, so a script may

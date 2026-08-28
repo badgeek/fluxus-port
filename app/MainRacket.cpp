@@ -44,6 +44,15 @@ public:
           [comp](bool v) { comp->setEditorVisible(v); },
           [comp](bool f) { comp->setEditorFullWidth(f); },
           comp->isEditorVisible(), comp->isEditorFullWidth());
+      menu->setRecordCallback([comp](bool on) { comp->setRecording(on); },
+                              comp->isRecording());               // View -> Record Frames
+      menu->setExportCallback([comp](bool on) { comp->setExport(on); },
+                              comp->isExporting());               // View -> Export 60fps
+      menu->setExportAudioCallback([comp](const juce::File& f) { comp->setExportAudioFile(f); });
+      if (auto* ap = std::getenv("FLUXUS_EXPORT_AUDIO")) {        // preset soundtrack (automation)
+        juce::File af(juce::String::fromUTF8(ap));
+        if (af.existsAsFile()) comp->setExportAudioFile(af);
+      }
       menu->setAudioCallback([comp](const juce::File& f) { comp->loadAudio(f); });
       menu->attach(this);
       centreWithSize(1180, 720);

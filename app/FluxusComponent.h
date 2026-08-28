@@ -32,6 +32,11 @@ public:
   void setEditorFullWidth(bool f);            // View -> Editor Full Width
   bool isEditorVisible()  const { return editorVisible; }
   bool isEditorFullWidth() const { return editorFullWidth; }
+  void setRecording(bool on);                 // View -> Record Frames (PNG sequence)
+  bool isRecording() const { return recording; }
+  void setExport(bool on);                     // View -> Export 60fps (offline, frame-locked)
+  bool isExporting() const { return exporting; }
+  void setExportAudioFile(const juce::File& f);  // soundtrack the export reacts to + muxes
 
   void newOpenGLContextCreated() override;
   void renderOpenGL() override;
@@ -57,6 +62,11 @@ private:
   juce::Point<float> lastMouse;
   bool editorVisible   = true;
   bool editorFullWidth = false;   // false = left half, true = full width
+  bool recording       = false;
+  juce::File recDir;              // where Record Frames writes the PNG sequence
+  bool exporting       = false;
+  juce::File expFile;             // offline-export MP4 output path
+  juce::File expAudioFile;        // optional soundtrack (reactive + muxed)
   juce::TextEditor code;      // transparent overlay editor
   juce::TextEditor console;   // transparent status line
   juce::String lastShown { juce::String::charToString(0xffff) };

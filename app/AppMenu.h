@@ -30,6 +30,18 @@ public:
     hasView = true;
   }
 
+  // opt-in View -> Record Frames: dump the GL scene as a PNG sequence for video.
+  void setRecordCallback(ToggleFn onRec, bool init = false) {
+    onRecord = std::move(onRec); recording = init; hasView = true;
+  }
+
+  // opt-in View -> Export: offline frame-locked 60fps render straight to MP4.
+  void setExportCallback(ToggleFn onExp, bool init = false) {
+    onExport = std::move(onExp); exporting = init; hasView = true;
+  }
+  // opt-in View -> Set Export Audio…: pick a soundtrack the export reacts to + muxes.
+  void setExportAudioCallback(LoadFn onPick) { onSetExportAudio = std::move(onPick); hasView = true; }
+
   // --- aspect-ratio presets: label + the content pixel size to resize to.
   //     ratio<=0 (the first row) unlocks / restores free resizing. -------------
   struct Aspect { const char* name; int w, h; };
@@ -62,6 +74,14 @@ public:
     } else if (name == "View") {
       m.addItem(kShowEditor, "Show Editor",       true, editorVisible);
       m.addItem(kFullWidth,  "Editor Full Width", true, editorFull);
+      if (onRecord) {
+        m.addSeparator();
+        m.addItem(kRecord, recording ? "Stop Recording" : "Record Frames", true, recording);
+      }
+      if (onSetExportAudio) m.addItem(kSetExportAudio, "Set Export Audio…");
+      if (onExport) {
+        m.addItem(kExport, exporting ? "Stop Export" : "Export 60fps (offline)", true, exporting);
+      }
     }
     return m;
   }
@@ -75,6 +95,9 @@ public:
       case kLoadAudio: openAudio(); break;
       case kShowEditor: editorVisible = !editorVisible; if (onShowEditor) onShowEditor(editorVisible); break;
       case kFullWidth:  editorFull    = !editorFull;    if (onFullWidth)  onFullWidth(editorFull);     break;
+      case kRecord:     recording     = !recording;     if (onRecord)     onRecord(recording);         break;
+      case kExport:     exporting     = !exporting;     if (onExport)     onExport(exporting);         break;
+      case kSetExportAudio: pickExportAudio(); break;
       default: break;
     }
   }
@@ -95,7 +118,7 @@ public:
 
 private:
   enum { kOpen = 1, kSave, kSaveAs, kLoadAudio, kAspectBase = 100, kViewBase = 200,
-         kShowEditor = kViewBase, kFullWidth };
+         kShowEditor = kViewBase, kFullWidth, kRecord, kExport, kSetExportAudio };
 
   void openAudio() {
     chooser = std::make_unique<juce::FileChooser>(
@@ -105,6 +128,17 @@ private:
     chooser->launchAsync(flags, [this](const juce::FileChooser& fc) {
       const auto f = fc.getResult();
       if (audioLoad && f.existsAsFile()) audioLoad(f);
+    });
+  }
+
+  void pickExportAudio() {
+    chooser = std::make_unique<juce::FileChooser>(
+        "Soundtrack the export reacts to", juce::File(), "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg");
+    const auto flags = juce::FileBrowserComponent::openMode
+                     | juce::FileBrowserComponent::canSelectFiles;
+    chooser->launchAsync(flags, [this](const juce::FileChooser& fc) {
+      const auto f = fc.getResult();
+      if (onSetExportAudio && f.existsAsFile()) onSetExportAudio(f);
     });
   }
 
@@ -158,8 +192,9 @@ private:
   LoadFn load;
   TextFn text;
   LoadFn audioLoad;
-  ToggleFn onShowEditor, onFullWidth;
-  bool hasView = false, editorVisible = true, editorFull = false;
+  ToggleFn onShowEditor, onFullWidth, onRecord, onExport;
+  LoadFn   onSetExportAudio;
+  bool hasView = false, editorVisible = true, editorFull = false, recording = false, exporting = false;
   juce::File currentFile;
   juce::DocumentWindow* win = nullptr;
   int currentAspect = 0;               // index into kAspects (0 = Free)
