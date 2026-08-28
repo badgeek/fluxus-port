@@ -26,7 +26,7 @@
 
 ; per slide: (index title body-or-#f caption)  body #f = title card
 (define slides (list
-  (list "00" "FLUXUS LIVES" #f "LIVE CODING / 2005 - 2025")
+  (list "00" "FLUXUS RESURRECTED" #f "LIVE CODING / 2005 - 2025")
   (list "01" "FLUXUS"
         (string-append
          "FLUXUS is a live-coding environment for 3D graphics created by Dave "
@@ -37,8 +37,9 @@
   (list "02" "TOPLAP"
         (string-append
          "The system developed in parallel with TOPLAP, a collective founded in "
-         "2004, the Temporary Organisation for the Promotion of Live Algorithm "
-         "Programming, that established live coding as an artistic practice, with "
+         "2004, the Terrestrial Organisation for the Permanence of Live "
+         "AudioVisual Programming, that established live coding as an artistic "
+         "practice, with "
          "a manifesto calling for performers screens to be projected so audiences "
          "could watch the code being written. FLUXUS was among the earlier tools "
          "built for this practice, treating the running program as the instrument.")
@@ -50,7 +51,9 @@
          "from algorithms written live on stage. Development concluded around "
          "2015; this project restores the engine for use on contemporary "
          "platforms.")
-        "RESTORATION")))
+        "RESTORATION")
+  (list "04" "GITHUB" #f "OPEN SOURCE SOON")
+  (list "05" "" #f "")))          ; blank slide — just the full-width code editor
 (define NS (length slides))
 
 (define D-TITLE 6.5)        ; title-card seconds
@@ -62,17 +65,22 @@
 (define (ease x) (let ((u (clamp01 x))) (- 1.0 (* (- 1.0 u) (- 1.0 u) (- 1.0 u)))))
 (define (v* v s) (vector (* (vx v) s) (* (vy v) s) (* (vz v) s)))
 
+;; FADE: a global 0..1 the white marks multiply by, so the whole composition can
+;; ease in on a slide change. Set once per frame before drawing.
+(define FADE (box 1.0))
+(define (fc) (v* WHITE (unbox FADE)))
+
 (define (line ax ay bx by th)
   (let ((rb (build-ribbon 2)))
-    (with-primitive rb (identity) (hint-unlit) (colour WHITE)
+    (with-primitive rb (identity) (hint-unlit) (colour (fc))
       (pdata-index-map! (lambda (i v) (if (= i 0) (vector ax ay 0) (vector bx by 0))) "p")
       (pdata-index-map! (lambda (i w) (vector th th th)) "w"))))
 (define (rect cx cy w h)
   (with-state (translate (vector cx cy 0)) (scale (vector w h 0.01))
-    (hint-unlit) (colour WHITE) (build-cube)))
+    (hint-unlit) (colour (fc)) (build-cube)))
 (define (circle cx cy r th)
   (let ((rb (build-ribbon 65)))
-    (with-primitive rb (identity) (hint-unlit) (colour WHITE)
+    (with-primitive rb (identity) (hint-unlit) (colour (fc))
       (pdata-index-map! (lambda (i v) (let ((a (* TWO-PI (/ i 64.0))))
                           (vector (+ cx (* r (cos a))) (+ cy (* r (sin a))) 0))) "p")
       (pdata-index-map! (lambda (i w) (vector th th th)) "w"))))
@@ -81,7 +89,7 @@
   (when (> (string-length str) 0)
     (let ((tp (build-text str)) (sc (/ h 0.9)))
       (with-primitive tp (identity) (hint-unlit)
-        (translate (vector x (- y (* 0.5 h)) 0)) (scale (vector sc sc sc)) (colour WHITE)))))
+        (translate (vector x (- y (* 0.5 h)) 0)) (scale (vector sc sc sc)) (colour (fc))))))
 (define (text-w str h) (* CW (string-length str) (/ h 0.9)))
 ; right-anchored text: xr = right edge (so shorter captions still align right)
 (define (rtext str xr y h) (ltext str (- xr (text-w str h)) y h))
@@ -163,7 +171,11 @@
         "p"))))
 
 ;; ---- per-slide timing ------------------------------------------------------
-(define (dur-of s) (if (caddr s) D-TEXT D-TITLE))
+(define D-EDITOR 8.0)       ; blank editor-only slide: time to read the code
+(define (dur-of s)
+  (cond ((string=? (car s) "05") D-EDITOR)
+        ((caddr s) D-TEXT)
+        (else D-TITLE)))
 (define (total-dur) (let loop ((ls slides) (s 0.0)) (if (null? ls) s (loop (cdr ls) (+ s (dur-of (car ls)))))))
 ; which slide + phase at wrapped time tt
 (define (locate tt)
@@ -218,12 +230,26 @@ void main(){
          (surge (clamp01 (- 1.0 (/ ph TRANS))))
          (out (clamp01 (/ (- dur ph) 0.7)))
          (tfade (* (clamp01 (ease (/ (- ph (* 0.5 TRANS)) 0.7))) out))
-         (n (inexact->exact (floor (* (max 0.0 (- ph (* 0.7 TRANS))) CPS)))))
+         (n (inexact->exact (floor (* (max 0.0 (- ph (* 0.7 TRANS))) CPS))))
+         ; slide-change tween: fade + slight slide-in over the first 0.55s, and
+         ; fade back out at the very end so the swap reads as a crossfade.
+         (intro (ease (clamp01 (/ ph 0.55))))
+         (xo    (* (- 1.0 intro) (* 0.10 hw)))       ; elements settle in from the right
+         (fade  (* intro (clamp01 (/ (- dur ph) 0.5)))))
+    (set-box! FADE fade)
 
-    ; --- frame furniture (all slides) ---
-    (ltext idx ml (* 0.90 hh) (* 0.04 hh))
+    ; --- editor slide: the final blank slide (05) is JUST the full-width code
+    ; overlay so the audience sees this very deck IS a running fluxus program —
+    ; no deck furniture drawn on it. Every other slide hides the editor. ---
+    (if (string=? idx "05")
+        (begin (editor-full-width #t) (show-editor))
+        (hide-editor))
+
+    (when (not (string=? idx "05"))
+    ; --- frame furniture (every slide but the editor slide) ---
+    (ltext idx (+ ml xo) (* 0.90 hh) (* 0.04 hh))
     (rtext cap mr (* 0.90 hh) (* 0.028 hh))
-    (line ml (* 0.84 hh) mr (* 0.84 hh) 0.03)
+    (line ml (* 0.84 hh) (+ ml (* intro (- mr ml))) (* 0.84 hh) 0.03)   ; wipe L->R
     (line ml (* -0.86 hh) mr (* -0.86 hh) 0.018)
     (ltext "LIVE CODED / SCHEME" ml (* -0.91 hh) (* 0.028 hh))
     ; progress marks bottom-right
@@ -234,13 +260,25 @@ void main(){
         (loop (+ k 1))))
 
     (if card
-        (begin
-          ; --- slide 0: big title + big generative supershape ---
-          (ltext title ml (* 0.60 hh) (* 0.15 hh))
-          (supershape si 0.0 (* -0.18 hh) (* 0.34 hh) (gain)))
+        (if (string=? idx "04")
+            (begin
+              ; --- GITHUB slide: repo call-to-action (the code editor gets its
+              ; own blank slide next). ---
+              (ltext title (+ ml xo) (* 0.68 hh) (* 0.12 hh))
+              (line ml (* 0.55 hh) (+ ml (* 0.55 (text-w title (* 0.12 hh)))) (* 0.55 hh) 0.012)
+              (ltext "MADE WITH FLUXUS" (+ ml xo) (* 0.42 hh) (* 0.05 hh))
+              (ltext "REPOSITORY COMING SOON" (+ ml xo) (* -0.42 hh) (* 0.05 hh))
+              (ltext "GITHUB / OPEN SOURCE" (+ ml xo) (* -0.51 hh) (* 0.028 hh)))
+            (begin
+              ; --- slide 0: big title (stacked, one word per line) + supershape ---
+              (let loop ((ws (split-words title)) (row 0))
+                (when (pair? ws)
+                  (ltext (car ws) (+ ml xo) (- (* 0.66 hh) (* row 0.17 hh)) (* 0.15 hh))
+                  (loop (cdr ws) (+ row 1))))
+              (supershape si 0.0 (* -0.28 hh) (* 0.30 hh) (gain))))
         (begin
           ; --- text slides: title + typed paragraph + terrain band ---
-          (ltext title ml (* 0.68 hh) (* 0.12 hh))
+          (ltext title (+ ml xo) (* 0.68 hh) (* 0.12 hh))
           (line ml (* 0.55 hh) (+ ml (* 0.55 (text-w title (* 0.12 hh)))) (* 0.55 hh) 0.012)
           (if (= si 2)
               (begin   ; TOPLAP: longest paragraph, wider column + more height
@@ -248,4 +286,4 @@ void main(){
                 (supershape si 0.0 (* -0.55 hh) (* 0.045 hh) (gain)))
               (begin   ; other text slides: original layout
                 (body-block "body" (wrap body WRAP-B) n ml (* 0.46 hh) (* 1.55 hw) (* 0.66 hh) 0.6)
-                (supershape si 0.0 (* -0.44 hh) (* 0.14 hh) (gain))))))))
+                (supershape si 0.0 (* -0.44 hh) (* 0.14 hh) (gain)))))))))

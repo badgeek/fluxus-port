@@ -103,6 +103,16 @@ s7_pointer f_set_window_size(s7_scheme* sc, s7_pointer a) {
                              (int) s7_number_to_real(sc, s7_cadr(a)));
   return s7_nil(sc);
 }
+// audio is auto-started by the JUCE AudioHost, so (start-audio ...) is a no-op
+// here (matches the racket lib's stub). Present so scripts written for real
+// fluxus load unchanged.
+s7_pointer f_start_audio(s7_scheme* sc, s7_pointer a)    { (void) a; return s7_nil(sc); }
+s7_pointer f_show_editor(s7_scheme* sc, s7_pointer a)    { (void) a; flux_set_editor_visible(1); return s7_nil(sc); }
+s7_pointer f_hide_editor(s7_scheme* sc, s7_pointer a)    { (void) a; flux_set_editor_visible(0); return s7_nil(sc); }
+s7_pointer f_editor_full_width(s7_scheme* sc, s7_pointer a) {
+  flux_set_editor_full_width(s7_is_pair(a) ? (s7_boolean(sc, s7_car(a)) ? 1 : 0) : 1);
+  return s7_nil(sc);
+}
 s7_pointer f_screenshot(s7_scheme* sc, s7_pointer a) {
   if (s7_is_pair(a) && s7_is_string(s7_car(a))) flux_screenshot(s7_string(s7_car(a)));
   return s7_nil(sc);
@@ -410,6 +420,10 @@ void S7ScriptHost::init() {
   def("set-fov",              f_set_fov,              1, 0, false);
   def("set-aspect",           f_set_aspect,           1, 0, false);
   def("set-window-size",      f_set_window_size,      2, 0, false);
+  def("start-audio",          f_start_audio,          0, 0, true);
+  def("show-editor",          f_show_editor,          0, 0, false);
+  def("hide-editor",          f_hide_editor,          0, 0, false);
+  def("editor-full-width",    f_editor_full_width,    0, 1, false);
   def("screenshot",           f_screenshot,           1, 0, false);
   def("set-ortho",            f_set_ortho,            0, 0, true);
   def("set-ortho-zoom",       f_set_ortho_zoom,       1, 0, false);

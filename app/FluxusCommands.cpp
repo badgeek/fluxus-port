@@ -146,6 +146,13 @@ int     g_screenW = 720, g_screenH = 576;
 static std::mutex g_winMutex;
 static int  g_winReqW = 0, g_winReqH = 0;
 static bool g_winReqPending = false;
+// script-requested code-editor visibility ((show-editor)/(hide-editor)/(editor-
+// full-width b)). The message-thread component polls flux_get_editor and toggles
+// the overlay editor. g_edSet stays false until a script speaks, so sketches that
+// never call these keep the default (editor shown, left half).
+static std::mutex g_edMutex;
+static bool g_edSet = false;
+static int  g_edVisible = 1, g_edFull = 0;
 // one-shot screenshot state
 static std::mutex g_shotMutex;
 static std::string g_shotPending;
@@ -718,6 +725,25 @@ int flux_take_window_request(int* w, int* h) {
   if (!g_winReqPending) return 0;
   if (w) *w = g_winReqW; if (h) *h = g_winReqH;
   g_winReqPending = false; return 1;
+}
+
+// editor visibility: the script sets a desired state; the component reads it every
+// tick and only re-lays-out when it actually changed (so calling this every frame
+// in an every-frame thunk is cheap).
+void flux_set_editor_visible(int visible) {
+  std::lock_guard<std::mutex> lk(g_edMutex);
+  g_edVisible = visible ? 1 : 0; g_edSet = true;
+}
+void flux_set_editor_full_width(int full) {
+  std::lock_guard<std::mutex> lk(g_edMutex);
+  g_edFull = full ? 1 : 0; g_edSet = true;
+}
+int flux_get_editor(int* visible, int* full) {
+  std::lock_guard<std::mutex> lk(g_edMutex);
+  if (!g_edSet) return 0;
+  if (visible) *visible = g_edVisible;
+  if (full)    *full    = g_edFull;
+  return 1;
 }
 
 // one-shot screenshot request. Captured once per unique path, so a script may

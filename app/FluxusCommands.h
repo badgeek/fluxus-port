@@ -155,6 +155,11 @@ extern "C" {
   void   flux_request_window_size(int w, int h);     // (set-window-size w h)
   int    flux_take_window_request(int* w, int* h);   // message thread: pending resize?
 
+  // code-editor overlay visibility ((show-editor)/(hide-editor)/(editor-full-width b)).
+  void   flux_set_editor_visible(int visible);       // 0 = hide overlay, 1 = show
+  void   flux_set_editor_full_width(int full);       // 0 = left half, 1 = full width
+  int    flux_get_editor(int* visible, int* full);   // message thread: 0 if never set
+
   // one-shot screenshot: (screenshot "path") requests a grab; captured once per
   // path (calling it every frame is safe — repeats are ignored). The scene grabs
   // the GL framebuffer after Render and writes a PNG via flux_write_png.

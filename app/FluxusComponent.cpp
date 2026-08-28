@@ -127,6 +127,14 @@ void FluxusComponent::timerCallback() {
     if (auto* win = findParentComponentOfClass<juce::ResizableWindow>())
       win->setContentComponentSize(rw, rh);
 
+  // script-driven editor visibility ((show-editor)/(hide-editor)/(editor-full-width)).
+  // Only re-layout when the desired state actually changed.
+  int ev = 0, ef = 0;
+  if (flux_get_editor(&ev, &ef)) {
+    if ((bool) ev != editorVisible)   setEditorVisible(ev != 0);
+    if ((bool) ef != editorFullWidth) setEditorFullWidth(ef != 0);
+  }
+
   juce::String err;
   { std::lock_guard<std::mutex> lk(shared.m); err = juce::String(shared.lastError); }
   if (err != lastShown) {
