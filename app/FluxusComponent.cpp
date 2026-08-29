@@ -36,6 +36,11 @@ FluxusComponent::FluxusComponent(ScriptHostFactory mh, juce::String starter)
   code.addKeyListener(this);   // Ctrl+E / Shift+Enter commits; edits alone don't run
   addAndMakeVisible(code);
 
+  // Also accept keyboard focus at the component level: when a sketch calls
+  // (hide-editor), the editor can't receive keys, so the component itself does
+  // (feeds script hotkeys via Component::keyPressed -> flux_set_key).
+  setWantsKeyboardFocus(true);
+
   console.setMultiLine(false);
   console.setReadOnly(true);
   console.setFont(monoFont(13.0f));
@@ -130,10 +135,22 @@ bool FluxusComponent::isEvalKey(const juce::KeyPress& key) const {
   return ctrlE || shiftEnter;
 }
 
-bool FluxusComponent::keyPressed(const juce::KeyPress& key, juce::Component*) {
+bool FluxusComponent::handleKey(const juce::KeyPress& key) {
   if (isEvalKey(key)) { pushScript(); return true; }   // consume, don't type it
-  if (auto c = key.getTextCharacter()) flux_set_key((int) c);  // expose to scripts
+  if (auto c = key.getTextCharacter()) flux_set_key((int) c);  // expose to scripts (key-poll)
   return false;                                        // everything else = normal editing
+}
+
+// KeyListener path: the editor `code` has keyboard focus and forwards its keys here.
+bool FluxusComponent::keyPressed(const juce::KeyPress& key, juce::Component*) {
+  return handleKey(key);
+}
+
+// Component path: when the editor is hidden ((hide-editor)) it can't hold keyboard
+// focus, so the component grabs focus itself (see setEditorVisible) and receives
+// keys here — otherwise script hotkeys like V/R would go nowhere.
+bool FluxusComponent::keyPressed(const juce::KeyPress& key) {
+  return handleKey(key);
 }
 
 void FluxusComponent::timerCallback() {
@@ -179,6 +196,11 @@ void FluxusComponent::mouseWheelMove(const juce::MouseEvent&, const juce::MouseW
 void FluxusComponent::setEditorVisible(bool v) {
   editorVisible = v;
   code.setVisible(v);
+  // Keyboard focus follows visibility: a hidden editor can't hold focus, so the
+  // component takes it (its Component::keyPressed then feeds script hotkeys). When
+  // shown again, hand focus back to the editor for normal typing.
+  if (v) code.grabKeyboardFocus();
+  else   grabKeyboardFocus();
   resized();
 }
 void FluxusComponent::setEditorFullWidth(bool f) {

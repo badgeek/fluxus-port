@@ -50,7 +50,9 @@ public:
 
 private:
   void timerCallback() override;
-  bool keyPressed(const juce::KeyPress& key, juce::Component* origin) override;  // Ctrl+E / Shift+Enter = eval
+  bool keyPressed(const juce::KeyPress& key, juce::Component* origin) override;  // KeyListener: fires when `code` has focus
+  bool keyPressed(const juce::KeyPress& key) override;  // Component: fires when the editor is hidden (component holds focus)
+  bool handleKey(const juce::KeyPress& key);  // shared: eval keys + push char to scripts
   bool isEvalKey(const juce::KeyPress& key) const;
   void pushScript();
 
