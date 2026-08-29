@@ -140,6 +140,9 @@
 ;; retained sketch's per-frame thunk so it can rebuild without re-parsing.
 (define _scene-clear (cfun "flux_scene_clear" (_fun -> _void) (lambda () (void))))
 (define (clear) (_scene-clear))
+;; (destroy id): remove one primitive by id — retained mode keeps static geometry
+;; alive and destroys+rebuilds only animated prims each frame (persistent scene).
+(define destroy (cfun "flux_destroy" (_fun _int -> _void) (lambda (x) (void))))
 
 ;; every-frame: registers the body as a thunk AND runs it once. In immediate mode
 ;; the whole buffer re-evals each frame, so this runs the body every frame (as

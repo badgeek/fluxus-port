@@ -234,6 +234,17 @@ void flux_set_renderer(void* renderer) { g_ctx.r = static_cast<Renderer*>(render
 // the whole program), which is far cheaper than immediate mode.
 void flux_scene_clear(void) { if (g_ctx.r) g_ctx.r->Clear(); }
 
+// (destroy id): remove one primitive by id. Lets a RETAINED sketch keep static
+// geometry alive across frames while destroying + rebuilding only its animated
+// prims each frame (persistent scene) — far cheaper than clearing + rebuilding
+// everything. Resets our build-context grab if it pointed at the removed prim
+// (the renderer clears its own m_Grabbed inside RemovePrimitive).
+void flux_destroy(int id) {
+  if (!g_ctx.r) return;
+  if (g_ctx.grabbed && g_ctx.r->GetPrimitive(id) == g_ctx.grabbed) g_ctx.grabbed = nullptr;
+  g_ctx.r->RemovePrimitive(id);
+}
+
 void flux_frame_begin(double t, int frame) {
   g_ctx.time  = t;
   g_ctx.frame = frame;

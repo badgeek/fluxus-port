@@ -152,6 +152,8 @@ s7_pointer f_clear_state(s7_scheme* sc, s7_pointer) { flux_state_clear(); return
 // (clear): wipe the scene graph (see flux_scene_clear). Harmless/redundant in
 // immediate mode; needed at the top of a retained sketch's per-frame thunk.
 s7_pointer f_clear(s7_scheme* sc, s7_pointer) { flux_scene_clear(); return s7_nil(sc); }
+// (destroy id): remove one primitive by id (retained persistent scene).
+s7_pointer f_destroy(s7_scheme* sc, s7_pointer a) { if (s7_is_pair(a)) flux_destroy((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
 
 // ---- GLSL shaders ----------------------------------------------------------
 s7_pointer f_shader_source(s7_scheme* sc, s7_pointer a) {   // (shader-source vert frag)
@@ -461,6 +463,7 @@ void S7ScriptHost::init() {
   def("persist!",             f_persist_bang,         2, 0, false);
   def("clear-state",          f_clear_state,          0, 0, false);
   def("clear",                f_clear,                0, 0, false);
+  def("destroy",              f_destroy,              0, 0, true);
   def("shader-source",        f_shader_source,        2, 0, false);
   def("shader-off",           f_shader_off,           0, 0, false);
   def("shader-set-float!",    f_shader_set_float,     2, 0, false);
