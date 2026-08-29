@@ -131,18 +131,27 @@
 ;; hidden-line primitives: near-black occluding fill + bright unlit wire edges.
 ;; NB: wire-colour/wire-opacity only act on a GRABBED prim (build context
 ;; ignores them) — so build first, then grab to style.
-(define (hl-style b wire lw)
+(define (hl-style b wire lw)               ; used by the powerline pylons (kept)
   (with-primitive b
     (hint-solid) (hint-wire) (hint-unlit)
     (line-width lw)
     (colour C-BLACK)
     (wire-colour wire) (wire-opacity 1.0)))
+;; buildings: bold SEE-THROUGH wireframe — no solid fill, backface cull off so
+;; every edge (front + back) draws. Line uses the wire colour directly.
+(define BLD-LW 3.0)                         ; building wireframe line width
+(define (hl-wire b wire lw)
+  (with-primitive b
+    (hint-solid #f) (hint-wire) (hint-unlit)   ; solid OFF — true see-through wire
+    (backfacecull #f)
+    (line-width lw)
+    (wire-colour wire) (wire-opacity 1.0)))
 (define (hl-box cx cz y0 w h d wire)
-  (hl-style (with-state
-              (translate (vector cx (+ y0 (* 0.5 h)) cz))
-              (scale (vector w h d))
-              (build-cube))
-            wire 1.6))
+  (hl-wire (with-state
+             (translate (vector cx (+ y0 (* 0.5 h)) cz))
+             (scale (vector w h d))
+             (build-cube))
+           wire BLD-LW))
 (define (hl-cyl cx cz y0 h r wire rs)      ; cylinder base at y0, axis +Y
   (hl-style (with-state
               (translate (vector cx y0 cz))
@@ -216,29 +225,33 @@
           (wire-colour C-SMOKE) (wire-opacity op)))
       (loop (+ k 1)))))
 
-;; ---- industrial structure builders -----------------------------------------
-;; cooling tower: stacked cylinders approximate the hyperboloid; steam on top
+;; ---- industrial structure builders (blocky / voxel — all cube geometry) -----
+;; cooling tower: a tapered stack of boxes (wide base, pinched waist, flared top)
 (define (cooling-tower cx cz h wire id)
-  (let* ((r1 (* BW 0.46)) (r2 (* BW 0.30)) (r3 (* BW 0.35))
-         (h1 (* h 0.45)) (h2 (* h 0.30)) (h3 (* h 0.20)))
-    (hl-cyl cx cz 0 h1 r1 wire 12)
-    (hl-cyl cx cz h1 h2 r2 wire 12)
-    (hl-cyl cx cz (+ h1 h2) h3 r3 wire 12)))
-;; reactor: containment drum + dome + service box (static geometry only)
+  (let* ((h1 (* h 0.45)) (h2 (* h 0.30)) (h3 (* h 0.20)))
+    (hl-box cx cz 0          (* BW 0.92) h1 (* BW 0.92) wire)  ; wide base
+    (hl-box cx cz h1         (* BW 0.60) h2 (* BW 0.60) wire)  ; waist
+    (hl-box cx cz (+ h1 h2)  (* BW 0.72) h3 (* BW 0.72) wire)  ; flared rim
+    ;; corner buttresses on the base for a chunkier silhouette
+    (let ((o (* BW 0.36)) (bw (* BW 0.16)))
+      (hl-box (- cx o) (- cz o) 0 bw (* h1 0.7) bw wire)
+      (hl-box (+ cx o) (+ cz o) 0 bw (* h1 0.7) bw wire))))
+;; reactor: containment drum + stepped (ziggurat) dome + service box
 (define (reactor cx cz h wire id)
-  (let* ((r (* BW 0.36)) (dh (* h 0.5)))
-    (hl-cyl cx cz 0 dh r wire 14)
-    (hl-sphere cx dh cz (* r 0.98) wire)
+  (let* ((dh (* h 0.5)))
+    (hl-box cx cz 0  (* BW 0.72) dh (* BW 0.72) wire)                        ; drum
+    (hl-box cx cz dh (* BW 0.56) (* BW 0.20) (* BW 0.56) wire)               ; dome tier 1
+    (hl-box cx cz (+ dh (* BW 0.20)) (* BW 0.34) (* BW 0.16) (* BW 0.34) wire) ; dome tier 2
     (hl-box (+ cx (* BW 0.32)) (+ cz (* BW 0.30)) 0
-            (* BW 0.3) (* dh 0.45) (* BW 0.3) wire)))
-;; smokestack chamber: low hall + 2 striped stacks + painted warning bands
+            (* BW 0.3) (* dh 0.45) (* BW 0.3) wire)))                        ; service block
+;; smokestack chamber: low hall + 2 square stacks + painted warning bands
 (define (stack-hall cx cz h wire id)
-  (let* ((sh (* h 1.05)) (sr (* BW 0.075))
+  (let* ((sh (* h 1.05)) (sw (* BW 0.15))
          (x1 (- cx (* BW 0.22))) (x2 (+ cx (* BW 0.22)))
          (zz (- cz (* BW 0.1))))
     (hl-box cx (+ cz (* BW 0.22)) 0 (* BW 0.9) (* h 0.22) (* BW 0.45) wire)
-    (hl-cyl x1 zz 0 sh sr wire 8)
-    (hl-cyl x2 zz 0 (* sh 0.82) sr wire 8)
+    (hl-box x1 zz 0 sw sh sw wire)
+    (hl-box x2 zz 0 sw (* sh 0.82) sw wire)
     ;; painted warning band near each stack top
     (glow-box (vector x1 (* sh 0.9) zz) (vector 0.16 0.05 0.16) C-RED 0.85)
     (glow-box (vector x2 (* sh 0.74) zz) (vector 0.16 0.05 0.16) C-RED 0.85)))
@@ -257,22 +270,21 @@
          (zz (- cz (* BW 0.1))))
     (smoke x1 zz sh (+ id 5) 5 0.22 1.3)
     (smoke x2 zz (* sh 0.82) (+ id 9) 4 0.20 1.1)))
-;; tank farm: 2x2 cryo cylinders + one spherical pressure tank
+;; tank farm: 2x2 cubic cryo tanks + one taller cubic pressure tank
 (define (tank-farm cx cz h wire id)
-  (let* ((r (* BW 0.17)) (th (* h 0.3)) (g (* BW 0.24)))
-    (hl-cyl (- cx g) (- cz g) 0 th r wire 10)
-    (hl-cyl (+ cx g) (- cz g) 0 (* th 0.8) r wire 10)
-    (hl-cyl (- cx g) (+ cz g) 0 (* th 0.9) r wire 10)
-    (hl-sphere (+ cx g) (+ r 0.02) (+ cz g) r wire)
+  (let* ((tw (* BW 0.34)) (th (* h 0.3)) (g (* BW 0.24)))
+    (hl-box (- cx g) (- cz g) 0 tw th tw wire)
+    (hl-box (+ cx g) (- cz g) 0 tw (* th 0.8) tw wire)
+    (hl-box (- cx g) (+ cz g) 0 tw (* th 0.9) tw wire)
+    (hl-box (+ cx g) (+ cz g) 0 tw (* tw 1.0) tw wire)   ; pressure cube
     ;; manifold pipe connecting the row
     (glow-box (vector cx (* th 0.5) (- cz g))
               (vector (* g 2.2) 0.018 0.018) (vmul wire 0.6) 0.9)))
-;; gas holder: big half-sunk sphere on a shallow ring
+;; gas holder: telescoping cubic drum (wide base + narrower upper lift)
 (define (gas-holder cx cz wire id)
-  (let ((r (* BW 0.40)))
-    (hl-cyl cx cz 0 (* r 0.25) (* r 1.05) wire 14)
-    (hl-sphere cx (* r 0.95) cz r wire)))
-;; turbine hall: long shed + roof monitor + intake pipe
+  (hl-box cx cz 0             (* BW 0.84) (* BW 0.30) (* BW 0.84) wire)   ; base drum
+  (hl-box cx cz (* BW 0.30)   (* BW 0.66) (* BW 0.48) (* BW 0.66) wire))  ; upper lift
+;; turbine hall: long shed + roof monitor + square intake tower
 (define (turbine-hall cx cz h wire id)
   (let ((long (> (hsh (+ id 41)) 0.5)))
     (if long
@@ -282,8 +294,8 @@
         (begin
           (hl-box cx cz 0 (* BW 0.55) (* h 0.32) (* BW 1.0) wire)
           (hl-box cx cz (* h 0.32) (* BW 0.28) (* h 0.06) (* BW 0.6) wire)))
-    (hl-cyl (+ cx (* BW 0.3)) (- cz (* BW 0.3)) 0 (* h 0.38)
-            (* BW 0.06) wire 8)))
+    (hl-box (+ cx (* BW 0.3)) (- cz (* BW 0.3)) 0
+            (* BW 0.12) (* h 0.38) (* BW 0.12) wire)))
 ;; switchyard: transformer boxes + bus poles + short bus-bar wires
 (define (switchyard cx cz wire id)
   (hl-box (- cx (* BW 0.22)) cz 0 (* BW 0.3) 0.28 (* BW 0.3) wire)
