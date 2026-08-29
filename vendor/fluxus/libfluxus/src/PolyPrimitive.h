@@ -99,7 +99,24 @@ public:
 protected:
 
 	virtual void PDataDirty();
-	
+
+#ifdef FLUXUS_ENABLE_VBO
+	// fluxus->JUCE port: cached GPU vertex buffers. (Re)uploaded only when the
+	// pdata version changes, so static geometry uploads once and its SOLID pass is
+	// drawn from GPU memory every frame — avoids Apple's per-draw client-array
+	// copy. (Wire/points stay on client arrays: drawing lines from a VBO is a net
+	// loss on Metal-emulated GL.) Ids are unsigned (GLuint) to keep GL out of this
+	// header. Gated by the FLUXUS_ENABLE_VBO build option.
+	void UpdateVBO();
+	unsigned int m_VBOPos = 0, m_VBONrm = 0, m_VBOTex = 0, m_VBOCol = 0;
+	unsigned int m_VBOVersion = 0;
+	bool m_VBOReady = false;
+	// Only prims that survive several frames are worth a VBO — one-frame dynamic
+	// prims (rebuilt every frame) would just churn glGenBuffers/glDeleteBuffers, so
+	// they stay on the client-array path until they've been drawn a few times.
+	unsigned int m_RenderCount = 0;
+#endif
+
 	// Topology generation commands
 	void GenerateTopology();
 	void CalculateConnected();

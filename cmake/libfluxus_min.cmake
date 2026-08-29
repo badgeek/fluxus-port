@@ -95,6 +95,20 @@ target_compile_definitions(libfluxus_min PRIVATE
     GLSL                       # enable GLSLShader (macOS GL 2.1 has glCreateProgram etc.)
 )
 
+# Optional: cache static geometry in GPU vertex buffers (VBO) for the SOLID draw
+# pass — build once, drawn from GPU memory each frame. ON by default; turn OFF to
+# fall back to the original client-array path (e.g. to A/B the effect):
+#   cmake -S . -B build -DFLUXUS_ENABLE_VBO=OFF …
+# Note: on Apple's Metal-emulated GL the win is marginal (the per-frame cost is
+# draw-call state dispatch, not vertex upload).
+option(FLUXUS_ENABLE_VBO "Cache static geometry in GPU vertex buffers (solid pass)" ON)
+if(FLUXUS_ENABLE_VBO)
+    target_compile_definitions(libfluxus_min PUBLIC FLUXUS_ENABLE_VBO)
+    message(STATUS "fluxus: VBO geometry caching ENABLED")
+else()
+    message(STATUS "fluxus: VBO geometry caching disabled (client arrays)")
+endif()
+
 # Silence the (many) legacy warnings.
 target_compile_options(libfluxus_min PRIVATE -w)
 

@@ -101,6 +101,13 @@ public:
 	/// Returns the size of pdata for this object
 	unsigned int Size() const;
 
+	/// fluxus->JUCE port: monotonic counter bumped on every pdata mutation
+	/// (SetData / SetDataRaw / Resize / structural change). Lets a primitive cache
+	/// GPU vertex buffers and re-upload only when the data actually changed —
+	/// static geometry never bumps, so its VBO is uploaded once.
+	unsigned int GetPDataVersion() const { return m_PDataVersion; }
+	void BumpPDataVersion() { ++m_PDataVersion; }
+
 	/// Returns a vector of names of PData that this container contains
 	void GetDataNames(vector<string> &names) const;
 
@@ -113,12 +120,16 @@ protected:
 	///\todo replace with a hashmap?
 	mutable map<string,PData*> m_PData;
 
+	// fluxus->JUCE port: bumped on any pdata mutation (see GetPDataVersion).
+	unsigned int m_PDataVersion = 0;
+
 };
 
-template<class T> 
-void PDataContainer::SetData(const string &name, unsigned int index, T s)	
+template<class T>
+void PDataContainer::SetData(const string &name, unsigned int index, T s)
 {
 	static_cast<TypedPData<T>*>(m_PData[name])->m_Data[index]=s;
+	++m_PDataVersion;   // fluxus->JUCE port: invalidate cached GPU buffers
 }
 
 ///Todo: no const [] for m_PData[name] so m_PData has to be mutable???

@@ -53,7 +53,55 @@ m_Type(other.m_Type)
 
 PolyPrimitive::~PolyPrimitive()
 {
+#ifdef FLUXUS_ENABLE_VBO
+	// fluxus->JUCE port: free cached GPU buffers. Primitives are destroyed on the
+	// GL thread (scene clear / (destroy) / ImmediateMode::Clear) with the context
+	// current, so these calls are safe.
+	if (m_VBOPos) glDeleteBuffers(1, &m_VBOPos);
+	if (m_VBONrm) glDeleteBuffers(1, &m_VBONrm);
+	if (m_VBOTex) glDeleteBuffers(1, &m_VBOTex);
+	if (m_VBOCol) glDeleteBuffers(1, &m_VBOCol);
+#endif
 }
+
+#ifdef FLUXUS_ENABLE_VBO
+// fluxus->JUCE port: (re)upload the vertex arrays into GPU buffers, but only when
+// the pdata version has advanced since the last upload. Static geometry keeps a
+// stable version, so this runs once for it; per-frame-mutated prims re-upload.
+void PolyPrimitive::UpdateVBO()
+{
+	// Skip young prims: a prim rebuilt every frame is drawn once then destroyed, so
+	// giving it a VBO only churns buffers. Wait until it has survived a few frames
+	// (i.e. it's persistent static geometry) before caching.
+	if (m_RenderCount < 3) return;
+	const unsigned int ver = GetPDataVersion();
+	if (m_VBOReady && ver == m_VBOVersion) return;
+
+	const int n = (int) m_VertData->size();
+	if (n <= 0) return;
+	const int vbytes = n * (int) sizeof(dVector);
+
+	if (!m_VBOPos) glGenBuffers(1, &m_VBOPos);
+	glBindBuffer(GL_ARRAY_BUFFER, m_VBOPos);
+	glBufferData(GL_ARRAY_BUFFER, vbytes, m_VertData->begin()->arr(), GL_STATIC_DRAW);
+
+	if (!m_VBONrm) glGenBuffers(1, &m_VBONrm);
+	glBindBuffer(GL_ARRAY_BUFFER, m_VBONrm);
+	glBufferData(GL_ARRAY_BUFFER, vbytes, m_NormData->begin()->arr(), GL_STATIC_DRAW);
+
+	if (!m_VBOTex) glGenBuffers(1, &m_VBOTex);
+	glBindBuffer(GL_ARRAY_BUFFER, m_VBOTex);
+	glBufferData(GL_ARRAY_BUFFER, vbytes, m_TexData->begin()->arr(), GL_STATIC_DRAW);
+
+	if (!m_VBOCol) glGenBuffers(1, &m_VBOCol);
+	glBindBuffer(GL_ARRAY_BUFFER, m_VBOCol);
+	glBufferData(GL_ARRAY_BUFFER, n * (int) sizeof(dColour), m_ColData->begin()->arr(), GL_STATIC_DRAW);
+
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	m_VBOVersion = ver;
+	m_VBOReady = true;
+}
+#endif
 
 PolyPrimitive *PolyPrimitive::Clone() const
 {
@@ -91,6 +139,9 @@ void PolyPrimitive::AddVertex(const dVertex &Vert)
 
 void PolyPrimitive::Render()
 {
+#ifdef FLUXUS_ENABLE_VBO
+	m_RenderCount++;   // fluxus->JUCE port: gates VBO caching (see UpdateVBO)
+#endif
 	// some drivers crash if they don't get enough data for a primitive...
 	if (m_VertData->size()<3) return;
 	if (m_IndexMode && m_IndexData.size()<3) return;
@@ -135,6 +186,13 @@ void PolyPrimitive::Render()
 	}
 	if (m_State.Hints & HINT_UNLIT) glDisable(GL_LIGHTING);
 
+#ifdef FLUXUS_ENABLE_VBO
+	// fluxus->JUCE port: only the SOLID pass draws from a VBO (below, via the
+	// backend). The raw wire/points passes stay on client arrays — drawing lines
+	// from a VBO forces expensive Metal draw-state revalidation on Apple's GL, a
+	// net loss. UpdateVBO() (re)uploads the buffers used by the solid pass.
+	UpdateVBO();
+#endif
 	glVertexPointer(3,GL_FLOAT,sizeof(dVector),(void*)m_VertData->begin()->arr());
 	glNormalPointer(GL_FLOAT,sizeof(dVector),(void*)m_NormData->begin()->arr());
 	glTexCoordPointer(3,GL_FLOAT,sizeof(dVector),(void*)m_TexData->begin()->arr());
@@ -205,10 +263,23 @@ void PolyPrimitive::Render()
 		va.tex = m_TexData->begin()->arr();
 		va.col = (m_State.Hints & HINT_VERTCOLS) ? m_ColData->begin()->arr() : 0;
 		va.stride = sizeof(dVector);
+#ifdef FLUXUS_ENABLE_VBO
+		// fluxus->JUCE port: draw from cached GPU buffers (0 => client pointer).
+		va.posVBO = m_VBOPos; va.nrmVBO = m_VBONrm; va.texVBO = m_VBOTex;
+		va.colVBO = (m_State.Hints & HINT_VERTCOLS) ? m_VBOCol : 0;
+#endif
 		if (m_IndexMode)
 			Backend()->drawArrays(rp, va, 0, &(m_IndexData[0]), (int)m_IndexData.size());
 		else
 			Backend()->drawArrays(rp, va, (int)m_VertData->size(), 0, 0);
+
+#ifdef FLUXUS_ENABLE_VBO
+		// fluxus->JUCE port: the backend bound the vertex array to the VBO; restore
+		// the client pointer so the wire/points passes below stay on client arrays
+		// (drawing lines from a VBO is a net loss on Apple's Metal-emulated GL).
+		if (m_VBOReady)
+			glVertexPointer(3,GL_FLOAT,sizeof(dVector),(void*)m_VertData->begin()->arr());
+#endif
 	}
 
 	if (m_State.Hints & HINT_WIRE)
@@ -318,6 +389,7 @@ void PolyPrimitive::RecalculateNormals(bool smooth)
 			SetDataRaw("n", newnorms);
 		}
 	}
+	BumpPDataVersion();   // fluxus->JUCE port: normals changed in place → re-upload
 }
 
 void PolyPrimitive::ConvertToIndexed()
@@ -615,6 +687,7 @@ void PolyPrimitive::ApplyTransform(bool ScaleRotOnly)
 	}
 	
 	GetState()->Transform.init();
+	BumpPDataVersion();   // fluxus->JUCE port: verts baked in place → re-upload
 }
 
 

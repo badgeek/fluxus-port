@@ -51,6 +51,7 @@ void PDataContainer::Resize(unsigned int size)
 	{
 		i->second->Resize(size);
 	}
+	++m_PDataVersion;   // fluxus->JUCE port: invalidate cached GPU buffers
 }
 
 	
@@ -125,7 +126,8 @@ void PDataContainer::CopyData(const string &name, string newname)
 	}
 	
 	m_PData[newname]=i->second->Copy();
-	
+
+	++m_PDataVersion;
 	PDataDirty();
 }
 
@@ -174,6 +176,7 @@ void PDataContainer::SetDataRaw(const string &name, PData* pd)
 	}
 	delete i->second;
 	i->second = pd;
+	++m_PDataVersion;
 	PDataDirty();
 }
 

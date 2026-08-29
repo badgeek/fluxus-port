@@ -19,6 +19,12 @@ struct RVertexArrays {
   const float* tex = nullptr;   // 3 floats
   const float* col = nullptr;   // rgba (nullptr => disabled)
   int          stride = 0;
+#ifdef FLUXUS_ENABLE_VBO
+  // fluxus->JUCE port: optional per-attribute VBO ids (0 => use client pointer).
+  // When set, the backend draws from GPU buffers, skipping the per-call upload of
+  // client arrays (a big cost on Apple's Metal-emulated GL for static geometry).
+  unsigned int posVBO = 0, nrmVBO = 0, texVBO = 0, colVBO = 0;
+#endif
 };
 
 struct IRenderBackend {
