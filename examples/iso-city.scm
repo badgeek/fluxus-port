@@ -57,6 +57,24 @@
 (define (dyn! id) (set! *dyn* (cons id *dyn*)) id)
 (define (clear-dyn!) (for-each destroy *dyn*) (set! *dyn* '()))
 
+;; ---- persistent smoke-sphere pool -------------------------------------------
+;; Smoke is ~144 puffs; rebuilding them every frame was the #1 per-frame cost
+;; (build_sphere). Instead build each sphere ONCE and per frame just grab it and
+;; re-set its transform + opacity. Cells iterate in a fixed order every frame, so
+;; the cursor maps a stable pool sphere to each puff. Pool is NOT in *dyn* — it
+;; persists like the static site (freed only on reload, when *pool-n* re-inits).
+(define *pool* (make-vector 1024 -1))
+(define *pool-n* 0)                        ; spheres built so far (grows on frame 1)
+(define *pool-cur* 0)                      ; per-frame cursor
+(define (pool-frame-begin!) (set! *pool-cur* 0))
+(define (pool-sphere!)                     ; next pooled sphere id (build once)
+  (let ((i *pool-cur*))
+    (set! *pool-cur* (+ i 1))
+    (when (>= i *pool-n*)
+      (vector-set! *pool* i (build-sphere 8 5))
+      (set! *pool-n* (+ i 1)))
+    (vector-ref *pool* i)))
+
 ;; ---- iso camera: ~35 deg elevation, slow spin, target tweens to caption ----
 (define (look-at eye target up)
   (let* ((f (vnormalise (vsub target eye)))
@@ -173,8 +191,9 @@
              (r (+ 0.055 (* prog spread)))
              (op (* (- 1.0 prog) (min 1.0 (* prog 6.0)) 0.55))
              (wob (* 0.08 prog (sin (+ (* 1.7 (time)) (* 4 k) seed))))
-             (s (dyn! (build-sphere 8 5))))
+             (s (pool-sphere!)))              ; persistent: built once, reused
         (with-primitive s
+          (identity)                          ; reset last frame's transform
           (translate (vector (+ cx wob) y (+ cz (* 0.5 wob))))
           (scale (vector r r r))
           (hint-solid #f) (hint-wire) (hint-unlit)
@@ -590,6 +609,7 @@ void main() {
 (every-frame
   (begin
     (clear-dyn!)                           ; remove last frame's animated prims
+    (pool-frame-begin!)                    ; reset persistent smoke-pool cursor
     (iso-camera)
     (site-dynamic)                         ; smoke, core lights, site beacons
     (powerline-dynamic)                    ; pylon beacons + energy pulses
