@@ -51,6 +51,7 @@ juce_add_gui_app(FluxusApp PRODUCT_NAME "FluxusApp"
 target_sources(FluxusApp PRIVATE
     app/Main.cpp
     app/FluxusComponent.cpp
+    app/ControlServer.cpp
     app/FluxusScene.cpp
     app/PostFX.cpp
     app/TextureLoader.cpp
@@ -164,6 +165,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
   target_sources(FluxusRacketApp PRIVATE
       app/MainRacket.cpp
       app/FluxusComponent.cpp
+      app/ControlServer.cpp
       app/FluxusScene.cpp
       app/PostFX.cpp
       app/TextureLoader.cpp

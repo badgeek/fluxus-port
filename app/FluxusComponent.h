@@ -9,6 +9,7 @@
 class FluxusScene;
 class IScriptHost;
 struct IAudioHost;
+class ControlServer;
 using ScriptHostFactory = std::function<std::unique_ptr<IScriptHost>()>;
 
 // fluxus-style host: the code floats as a TRANSPARENT overlay directly on top of
@@ -70,6 +71,10 @@ private:
   juce::TextEditor code;      // transparent overlay editor
   juce::TextEditor console;   // transparent status line
   juce::String lastShown { juce::String::charToString(0xffff) };
+
+  // declared LAST so it is destroyed FIRST — its worker thread touches `shared`
+  // and the editor, which must still be alive while the thread is joined.
+  std::unique_ptr<ControlServer> control;   // localhost remote/MCP live-coding
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FluxusComponent)
 };

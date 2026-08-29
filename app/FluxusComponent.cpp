@@ -1,9 +1,11 @@
 #include <cstdio>
+#include <cstdlib>
 #include <vector>
 #include "FluxusComponent.h"
 #include "FluxusScene.h"
 #include "IScriptHost.h"
 #include "AudioHost.h"
+#include "ControlServer.h"
 #include "FluxusCommands.h"   // mouse/camera
 
 namespace {
@@ -58,6 +60,20 @@ FluxusComponent::FluxusComponent(ScriptHostFactory mh, juce::String starter)
 
   audio = makeJuceAudioHost();   // CoreAudio mic -> FFT bands for (gh n)/(gain)
   audio->start();
+
+  // localhost control server (remote/MCP live-coding). Off unless a port is set:
+  // export FLUXUS_CONTROL_PORT=8020 before launch, then point the MCP server at it.
+  if (const char* e = std::getenv("FLUXUS_CONTROL_PORT")) {
+    const int port = std::atoi(e);
+    if (port > 0)
+      control = std::make_unique<ControlServer>(
+        &shared,
+        [this](std::string src) {                       // load+run on the UI thread
+          juce::MessageManager::callAsync(
+            [this, src] { loadScript(juce::String::fromUTF8(src.c_str())); });
+        },
+        port);
+  }
 }
 
 FluxusComponent::~FluxusComponent() {
