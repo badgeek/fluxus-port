@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "fluxus-live": {
+      "command": "./mcp/fluxus-mcp",
+      "env": { "FLUXUS_CONTROL_PORT": "8020" }
+    }
+  }
+}

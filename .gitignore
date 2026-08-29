@@ -19,3 +19,7 @@ assets/
 # Racket precompiled bytecode (regenerate with: make precompile)
 racket-lib/compiled/
 **/compiled/*.zo
+
+# Go control binaries (build with: go build -o <name> .)
+mcp/fluxus-mcp
+cli/fluxus
