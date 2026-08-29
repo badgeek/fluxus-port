@@ -57,6 +57,38 @@
 (define (dyn! id) (set! *dyn* (cons id *dyn*)) id)
 (define (clear-dyn!) (for-each destroy *dyn*) (set! *dyn* '()))
 
+;; ---- generative growth: the factory reclaims the forest --------------------
+;; A growth front expands as a SQUARE out of the grid centre. Cells inside it are
+;; factory (industrial structures); cells outside are forest (low-poly cube
+;; trees). As the front grows, trees are razed and replaced by factory — env
+;; destruction, looped. The static scene (trees + factory) is rebuilt ONLY when
+;; the front crosses a cell (a forest→factory flip), tracked via *site-ids* so we
+;; can destroy the previous state; between flips it persists like before.
+(define CENTER (* 0.5 (- GRID 1)))         ; grid centre index (4.0 for GRID 9)
+(define GROW-PERIOD 55.0)                   ; seconds: bare centre -> full -> reset
+(define GROW-MAX (+ CENTER 1.3))
+(define (cell-metric gx gz)                ; Chebyshev (square) dist + per-cell jitter
+  (let ((dx (- gx CENTER)) (dz (- gz CENTER)))
+    (+ (max (abs dx) (abs dz))
+       (* 0.9 (hsh (+ gx (* gz GRID) 3))))))  ; jitter so cells pop individually
+(define (growth-front)                     ; 0 -> GROW-MAX over 80% of the period, holds
+  (* GROW-MAX (min 1.0 (/ (fract (/ (time) GROW-PERIOD)) 0.8))))
+(define (cell-factory? gx gz) (< (cell-metric gx gz) (growth-front)))
+(define (factory-count)                    ; # cells inside the front (rebuild trigger)
+  (let ((f (growth-front)) (n 0))
+    (let ly ((gz 0)) (when (< gz GRID)
+      (let lx ((gx 0)) (when (< gx GRID)
+        (when (< (cell-metric gx gz) f) (set! n (+ n 1)))
+        (lx (+ gx 1)))) (ly (+ gz 1))))
+    n))
+
+;; static-scene rebuild registry: prims built while *in-site* is true are recorded
+;; so a growth-flip can destroy + rebuild them. (streets/powerline are built once
+;; outside this and persist untouched.)
+(define *site-ids* '())
+(define *in-site* #f)
+(define (site-track! id) (when *in-site* (set! *site-ids* (cons id *site-ids*))) id)
+
 ;; ---- persistent smoke-sphere pool -------------------------------------------
 ;; Smoke is ~144 puffs; rebuilding them every frame was the #1 per-frame cost
 ;; (build_sphere). Instead build each sphere ONCE and per frame just grab it and
@@ -123,11 +155,12 @@
 
 ;; ---- small unlit helpers ---------------------------------------------------
 (define (glow-box pos scl col op)
-  (with-state
-    (translate pos) (scale scl)
-    (hint-solid) (hint-unlit)
-    (colour col) (opacity op)
-    (build-cube)))
+  (site-track!
+    (with-state
+      (translate pos) (scale scl)
+      (hint-solid) (hint-unlit)
+      (colour col) (opacity op)
+      (build-cube))))
 ;; hidden-line primitives: near-black occluding fill + bright unlit wire edges.
 ;; NB: wire-colour/wire-opacity only act on a GRABBED prim (build context
 ;; ignores them) — so build first, then grab to style.
@@ -147,11 +180,12 @@
     (line-width lw)
     (wire-colour wire) (wire-opacity 1.0)))
 (define (hl-box cx cz y0 w h d wire)
-  (hl-wire (with-state
+  (let ((b (with-state
              (translate (vector cx (+ y0 (* 0.5 h)) cz))
              (scale (vector w h d))
-             (build-cube))
-           wire BLD-LW))
+             (build-cube))))
+    (hl-wire b wire BLD-LW)
+    (site-track! b)))
 (define (hl-cyl cx cz y0 h r wire rs)      ; cylinder base at y0, axis +Y
   (hl-style (with-state
               (translate (vector cx y0 cz))
@@ -329,33 +363,72 @@
                 (proc gx gz id cx cz h sty wire))))
           (lx (+ gx 1))))
       (ly (+ gz 1)))))
-;; static structure geometry — built once, persists across frames
-(define (site-static)
-  (for-each-cell
-    (lambda (gx gz id cx cz h sty wire)
-      (cond
-        ((< sty 0.13) (cooling-tower cx cz h wire id))
-        ((< sty 0.25) (reactor cx cz h wire id))
-        ((< sty 0.42) (stack-hall cx cz h wire id))
-        ((< sty 0.58) (tank-farm cx cz h wire id))
-        ((< sty 0.70) (gas-holder cx cz wire id))
-        ((< sty 0.88) (turbine-hall cx cz h wire id))
-        (else         (switchyard cx cz wire id))))))
-;; animated site prims — smoke, reactor core light, and the tall-structure
-;; beacons — destroyed + rebuilt each frame
+(define (build-structure cx cz h sty wire id)
+  (cond
+    ((< sty 0.13) (cooling-tower cx cz h wire id))
+    ((< sty 0.25) (reactor cx cz h wire id))
+    ((< sty 0.42) (stack-hall cx cz h wire id))
+    ((< sty 0.58) (tank-farm cx cz h wire id))
+    ((< sty 0.70) (gas-holder cx cz wire id))
+    ((< sty 0.88) (turbine-hall cx cz h wire id))
+    (else         (switchyard cx cz wire id))))
+
+;; ---- forest: low-poly cube trees (razed as the factory front reaches them) --
+(define C-TREE (vector 0.28 0.85 0.34))    ; forest green wire
+(define (forest-cell? id) (> (hsh (+ id 0.5)) 0.06))   ; dense trees, a few gaps
+(define (tree cx cz id)
+  (let* ((s  (+ 0.55 (* 0.7 (hsh (+ id 11)))))          ; per-tree size
+         (th (* s 0.45)))                                ; trunk height
+    (hl-box cx cz 0 (* s 0.10) th (* s 0.10) C-TREE)     ; trunk
+    ;; stacked shrinking canopy cubes — a chunky low-poly conifer
+    (hl-box cx cz th               (* s 0.52) (* s 0.34) (* s 0.52) C-TREE)
+    (hl-box cx cz (+ th (* s 0.30)) (* s 0.36) (* s 0.28) (* s 0.36) C-TREE)
+    (hl-box cx cz (+ th (* s 0.52)) (* s 0.20) (* s 0.22) (* s 0.20) C-TREE)))
+
+;; build the whole static scene for the CURRENT growth front: factory inside,
+;; forest outside. Called only on a growth flip (see maybe-rebuild-site!).
+(define (build-site)
+  (let ly ((gz 0))
+    (when (< gz GRID)
+      (let lx ((gx 0))
+        (when (< gx GRID)
+          (let* ((id (+ gx (* gz GRID)))
+                 (cx (+ (- HALF) (* (+ gx 0.5) CELL)))
+                 (cz (+ (- HALF) (* (+ gz 0.5) CELL))))
+            (if (cell-factory? gx gz)
+                (when (cell-occ? id)          ; factory (empty pads stay bare)
+                  (build-structure cx cz (cell-base-h gx gz) (cell-sty id)
+                                   (wire-col (hsh (+ id 23))) id))
+                (when (forest-cell? id)        ; forest ring, not yet razed
+                  (tree cx cz id))))
+          (lx (+ gx 1))))
+      (ly (+ gz 1)))))
+;; rebuild only when the front crosses a cell (factory count changes)
+(define *built-count* -1)
+(define (maybe-rebuild-site!)
+  (let ((c (factory-count)))
+    (unless (= c *built-count*)
+      (for-each destroy *site-ids*)
+      (set! *site-ids* '())
+      (set! *in-site* #t)
+      (build-site)
+      (set! *in-site* #f)
+      (set! *built-count* c))))
+;; animated site prims — smoke / core lights / beacons for CURRENT factory cells
 (define (site-dynamic)
   (for-each-cell
     (lambda (gx gz id cx cz h sty wire)
-      (cond ((< sty 0.13) (cooling-smoke cx cz h id))
-            ((< sty 0.25) (reactor-light cx cz h id))
-            ((< sty 0.42) (stack-smoke cx cz h id))
-            (else         (void)))
-      ;; site beacon on the tallest structures
-      (when (> (cell-top-h id h) 2.2)
-        (dyn! (glow-box (vector cx (+ (cell-top-h id h) 0.16) cz)
-                        (vector 0.05 0.05 0.05) C-RED
-                        (+ 0.25 (* 0.75 (abs (sin (+ (* 2.2 (time))
-                                                     id)))))))))))
+      (when (cell-factory? gx gz)
+        (cond ((< sty 0.13) (cooling-smoke cx cz h id))
+              ((< sty 0.25) (reactor-light cx cz h id))
+              ((< sty 0.42) (stack-smoke cx cz h id))
+              (else         (void)))
+        ;; site beacon on the tallest structures
+        (when (> (cell-top-h id h) 2.2)
+          (dyn! (glow-box (vector cx (+ (cell-top-h id h) 0.16) cz)
+                          (vector 0.05 0.05 0.05) C-RED
+                          (+ 0.25 (* 0.75 (abs (sin (+ (* 2.2 (time))
+                                                       id))))))))))))
 
 ;; ---- high-voltage line: lattice pylons + sagging catenary conductors -------
 (define PYL-X (+ (- HALF) (* 3 CELL)))     ; runs along the i=3 avenue
@@ -478,7 +551,7 @@
            (gz (modulo (inexact->exact
                          (floor (* (hsh (+ (* slot 1.7) (* 0.31 k) 0.7))
                                    GRID))) GRID)))
-      (if (or (cell-occ? (+ gx (* gz GRID))) (> k 20))
+      (if (or (and (cell-occ? (+ gx (* gz GRID))) (cell-factory? gx gz)) (> k 30))
           (vector gx gz 0) (loop (+ k 1))))))
 ;; world-space focus point of a slot's picked structure (for the camera tween)
 (define (cap-focus slot)
@@ -624,21 +697,19 @@ void main() {
   gl_FragColor = vec4(col, 1.0);
 }")
 
-;; Retained + persistent scene. The buffer compiles ONCE (no per-frame re-parse
-;; of every define/string-append). The static geometry — streets, all buildings,
-;; pylons + conductors — is built ONCE here and persists across frames. The
-;; every-frame thunk then destroys only LAST frame's animated prims (smoke,
-;; beacons, core lights, traffic, powerline pulse, caption) and rebuilds them —
-;; so the ~400 static prims are never rebuilt. (Racket host only; on the s7 host
-;; retained is a no-op, so it falls back to immediate re-eval each frame.)
+;; Retained + persistent scene. streets + powerline are built ONCE and persist.
+;; The site (forest + factory) is GENERATIVE: it rebuilds only when the growth
+;; front crosses a cell (maybe-rebuild-site!), not every frame — so it stays cheap
+;; while the factory slowly reclaims the forest. The thunk otherwise destroys +
+;; rebuilds only the animated prims (smoke, beacons, traffic, caption).
 (retained)
-(streets)                                  ; static ground grid  \
-(site-static)                              ; static structures    } built once
-(powerline-static)                         ; static HV line      /
+(streets)                                  ; static ground grid   \  built once
+(powerline-static)                         ; static HV line       /
 (every-frame
   (begin
     (clear-dyn!)                           ; remove last frame's animated prims
     (pool-frame-begin!)                    ; reset persistent smoke-pool cursor
+    (maybe-rebuild-site!)                  ; regrow factory / raze forest on a flip
     (iso-camera)
     (site-dynamic)                         ; smoke, core lights, site beacons
     (powerline-dynamic)                    ; pylon beacons + energy pulses
