@@ -676,6 +676,12 @@ void flux_set_mouse(double x, double y, int button) { g_mouseX = x; g_mouseY = y
 double flux_mouse_x(void)     { return g_mouseX; }
 double flux_mouse_y(void)     { return g_mouseY; }
 int    flux_mouse_button(void){ return g_mouseButton; }
+
+// key channel: the app pushes the last-pressed char; a script polls it once
+// ((key-poll) consumes it, returning 0 when nothing new). Feeds simple hotkeys.
+static std::atomic<int> g_key{0};
+void flux_set_key(int c) { g_key = c; }
+int  flux_get_key(void)  { return g_key.exchange(0); }
 void flux_camera_drag(double dx, double dy) {
   g_cam.yaw   += dx * 0.5;
   g_cam.pitch += dy * 0.5;

@@ -132,6 +132,7 @@ bool FluxusComponent::isEvalKey(const juce::KeyPress& key) const {
 
 bool FluxusComponent::keyPressed(const juce::KeyPress& key, juce::Component*) {
   if (isEvalKey(key)) { pushScript(); return true; }   // consume, don't type it
+  if (auto c = key.getTextCharacter()) flux_set_key((int) c);  // expose to scripts
   return false;                                        // everything else = normal editing
 }
 
