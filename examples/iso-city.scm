@@ -75,6 +75,21 @@
       (set! *pool-n* (+ i 1)))
     (vector-ref *pool* i)))
 
+;; ---- persistent caption text -----------------------------------------------
+;; The caption title is rebuilt (build-text = a glyph-quad mesh) every frame even
+;; though the string only changes as the typewriter reveals a char (~a few times
+;; a second) or the picked structure flips (every CAPD). Keep one text prim and
+;; rebuild it ONLY when the shown string changes; the per-frame transform/colour
+;; is applied by grabbing it. Not in *dyn* — cap-text! owns its lifecycle.
+(define *cap-id* -1)
+(define *cap-str* "")
+(define (cap-text! shown)                  ; returns the text prim id (-1 if empty)
+  (unless (string=? shown *cap-str*)
+    (when (>= *cap-id* 0) (destroy *cap-id*) (set! *cap-id* -1))
+    (when (> (string-length shown) 0) (set! *cap-id* (build-text shown)))
+    (set! *cap-str* shown))
+  *cap-id*)
+
 ;; ---- iso camera: ~35 deg elevation, slow spin, target tweens to caption ----
 (define (look-at eye target up)
   (let* ((f (vnormalise (vsub target eye)))
@@ -528,12 +543,14 @@
     (leader-ribbon anchor elbow tip ccol 0.022)
     ;; anchor tick: small blinking marker at the roof
     (dyn! (glow-box anchor (vector 0.07 0.07 0.07) ccol blink))
-    ;; caption title: camera-facing (yaw only), sitting on the horizontal bar
-    (when (> (string-length shown) 0)
-      (let ((tp (dyn! (build-text shown)))
-            (start (if (> side 0)
-                       (vadd elbow (vmul s 0.08))
-                       (vadd tip   (vmul s 0.08)))))
+    ;; caption title: camera-facing (yaw only), sitting on the horizontal bar.
+    ;; Persistent text prim (rebuilt only when the string changes); position it
+    ;; each frame by grabbing it.
+    (let ((tp (cap-text! shown))
+          (start (if (> side 0)
+                     (vadd elbow (vmul s 0.08))
+                     (vadd tip   (vmul s 0.08)))))
+      (when (>= tp 0)
         (with-primitive tp
           (identity) (hint-unlit)
           (translate (vadd start (vector 0 0.07 0)))
