@@ -40,7 +40,7 @@
 (define C-GREEN  (vector 0.45 1.00 0.25))     ; MAGI acid green
 (define C-RED    (vector 1.00 0.12 0.10))     ; ALERT red
 (define C-PURPLE (vector 0.62 0.35 1.00))     ; Eva-01 purple
-(define C-SMOKE  (vector 0.55 0.58 0.62))     ; steam/smoke gray
+(define C-SMOKE  (vector 1.00 1.00 1.00))     ; steam/smoke white
 ;; wire colour per structure: mostly orange, some green, rare red/purple
 (define (wire-col r)
   (cond ((< r 0.55) C-EDGE)
@@ -57,30 +57,42 @@
 (define (dyn! id) (set! *dyn* (cons id *dyn*)) id)
 (define (clear-dyn!) (for-each destroy *dyn*) (set! *dyn* '()))
 
-;; ---- generative growth: the factory reclaims the forest --------------------
-;; A growth front expands as a SQUARE out of the grid centre. Cells inside it are
-;; factory (industrial structures); cells outside are forest (low-poly cube
-;; trees). As the front grows, trees are razed and replaced by factory — env
-;; destruction, looped. The static scene (trees + factory) is rebuilt ONLY when
-;; the front crosses a cell (a forest→factory flip), tracked via *site-ids* so we
-;; can destroy the previous state; between flips it persists like before.
+;; ---- generative EVOLUTION: the factory over-industrialises (one-way) --------
+;; evo rises 0 -> 1 over GROW-TOTAL seconds then HOLDS (never loops).
+;;   phase 1 (evo 0..0.5): a square growth front expands from the centre, razing
+;;     forest into factory.
+;;   phase 2 (evo 0.5..1): densification (indus) — empty lots fill in, structures
+;;     grow taller + gain annex clutter, the comm network thickens — until the
+;;     whole grid is a maxed-out over-industrialised complex.
+;; The static scene rebuilds each time the quantised evolution step advances.
 (define CENTER (* 0.5 (- GRID 1)))         ; grid centre index (4.0 for GRID 9)
-(define GROW-PERIOD 55.0)                   ; seconds: bare centre -> full -> reset
 (define GROW-MAX (+ CENTER 1.3))
+;; AUDIO-REACTIVE growth: evolution advances by accumulated audio ENERGY, not raw
+;; time — so buildings appear in sync with the music (loud passages / beats build
+;; fast, quiet passages creep). Monotonic + one-way (energy only accumulates).
+(define GROW-ENERGY 46.0)                   ; energy to reach fully over-industrialised
+(define AUDIO-DRIVE 2.4)                    ; how hard audio accelerates the build
+(define *energy* 0.0)
+(define *lt* -1.0)                          ; last frame time (for delta)
+(define (evo-advance!)                     ; call once per frame (top of the thunk)
+  (let* ((t (time))
+         (dt (if (< *lt* 0) 0.0 (min 0.1 (- t *lt*))))
+         (g (gain)))                        ; live audio level 0..~1
+    (set! *lt* t)
+    ;; steady creep + audio acceleration (g^2 emphasises loud passages / beats)
+    (set! *energy* (+ *energy* (* dt (+ 0.10 (* AUDIO-DRIVE g g)))))))
+(define (evo) (min 1.0 (/ *energy* GROW-ENERGY)))   ; 0 -> 1, holds at 1
+(define (reset-anim!)                      ; press R: back to bare forest
+  (set! *energy* 0.0) (set! *lt* -1.0) (set! *built-step* -999))
+(define (evo-step) (inexact->exact (floor (* (evo) 52))))  ; rebuild trigger
+(define (indus) (max 0.0 (min 1.0 (/ (- (evo) 0.45) 0.55)))) ; densification 0..1
 (define (cell-metric gx gz)                ; Chebyshev (square) dist + per-cell jitter
   (let ((dx (- gx CENTER)) (dz (- gz CENTER)))
     (+ (max (abs dx) (abs dz))
-       (* 0.9 (hsh (+ gx (* gz GRID) 3))))))  ; jitter so cells pop individually
-(define (growth-front)                     ; 0 -> GROW-MAX over 80% of the period, holds
-  (* GROW-MAX (min 1.0 (/ (fract (/ (time) GROW-PERIOD)) 0.8))))
+       (* 0.9 (hsh (+ gx (* gz GRID) 3))))))
+(define (growth-front)                     ; reaches full coverage at evo 0.5, holds
+  (* GROW-MAX (min 1.0 (/ (evo) 0.5))))
 (define (cell-factory? gx gz) (< (cell-metric gx gz) (growth-front)))
-(define (factory-count)                    ; # cells inside the front (rebuild trigger)
-  (let ((f (growth-front)) (n 0))
-    (let ly ((gz 0)) (when (< gz GRID)
-      (let lx ((gx 0)) (when (< gx GRID)
-        (when (< (cell-metric gx gz) f) (set! n (+ n 1)))
-        (lx (+ gx 1)))) (ly (+ gz 1))))
-    n))
 
 ;; static-scene rebuild registry: prims built while *in-site* is true are recorded
 ;; so a growth-flip can destroy + rebuild them. (streets/powerline are built once
@@ -98,7 +110,13 @@
 (define *pool* (make-vector 1024 -1))
 (define *pool-n* 0)                        ; spheres built so far (grows on frame 1)
 (define *pool-cur* 0)                      ; per-frame cursor
-(define (pool-frame-begin!) (set! *pool-cur* 0))
+(define (pool-frame-begin!)                ; reset cursor + park all puffs off-screen;
+  (set! *pool-cur* 0)                       ; smoke() repositions only the ones emitted
+  (let loop ((i 0))
+    (when (< i *pool-n*)
+      (with-primitive (vector-ref *pool* i)
+        (identity) (translate (vector 0 -9999 0)) (wire-opacity 0.0))
+      (loop (+ i 1)))))
 (define (pool-sphere!)                     ; next pooled sphere id (build once)
   (let ((i *pool-cur*))
     (set! *pool-cur* (+ i 1))
@@ -141,7 +159,16 @@
          (prog (fract (/ (time) CAPD)))
          (k    (smoothstep (/ prog 0.4)))         ; ease across slot change
          (f    (vmix (cap-focus (- slot 1)) (cap-focus slot) k)))
-    (vmix (vector 0 0.55 0) f 0.4)))
+    ;; COMPOSE-Y raises the aim point so the grid sits lower in the 9:16 frame,
+    ;; clearing the HUD readout at the top.
+    (vadd (vmix (vector 0 0.55 0) f 0.4) (vector 0 COMPOSE-Y 0))))
+(define COMPOSE-Y 2.6)
+;; camera basis, captured each frame so the HUD can pin text to the screen
+(define *cam-eye* (vector 0 0 0))
+(define *cam-right* (vector 1 0 0))
+(define *cam-up* (vector 0 1 0))
+(define *cam-fwd* (vector 0 0 -1))
+(define *cam-az* 0.0)
 (define (iso-camera)
   (set-fov 12)
   (let* ((el (+ 0.6155 (* 0.045 (sin (* (time) 0.11)))))  ; gentle breathe
@@ -151,6 +178,11 @@
          (tgt (camera-target))
          (eye (vadd tgt
                 (vector (* d ce (sin az)) (* d se) (* d ce (cos az))))))
+    (let* ((f (vnormalise (vsub tgt eye)))
+           (s (vnormalise (vcross f (vector 0 1 0))))
+           (u (vcross s f)))
+      (set! *cam-eye* eye) (set! *cam-right* s) (set! *cam-up* u)
+      (set! *cam-fwd* f)   (set! *cam-az* az))
     (set-camera-transform (look-at eye tgt (vector 0 1 0)))))
 
 ;; ---- small unlit helpers ---------------------------------------------------
@@ -211,17 +243,28 @@
       (let* ((x (+ (- HALF) (* i CELL)))
              (ave (or (= i 0) (= i GRID) (= 0 (modulo i 3))))
              (col (if ave C-AVENUE C-STREET))
-             (w   (if ave 0.030 0.014))
+             (w   (if ave 0.014 0.006))
              (op  (if ave 0.95 0.75)))
         (glow-box (vector x 0.004 0) (vector w 0.006 SPAN) col op)
         (glow-box (vector 0 0.004 x) (vector SPAN 0.006 w) col op)
         (when ave
           (glow-box (vector x 0.002 0) (vector 0.16 0.004 SPAN) col 0.10)
           (glow-box (vector 0 0.002 x) (vector SPAN 0.004 0.16) col 0.10)))
-      (loop (+ i 1)))))
+      (loop (+ i 1))))
+  ;; fine sub-grid: faint thin lines subdividing each cell (SUB per cell)
+  (let ((SUB 4))
+    (let loop ((i 0))
+      (when (<= i (* GRID SUB))
+        (when (not (= 0 (modulo i SUB)))       ; skip where main lines already are
+          (let ((x (+ (- HALF) (* i (/ CELL SUB)))))
+            (glow-box (vector x 0.0025 0) (vector 0.003 0.004 SPAN) C-STREET 0.28)
+            (glow-box (vector 0 0.0025 x) (vector SPAN 0.004 0.003) C-STREET 0.28)))
+        (loop (+ i 1))))))
 
 ;; ---- per-cell derived values (shared by site + caption + camera) -----------
-(define (cell-occ? id) (> (hsh (+ id 0.5)) 0.15))
+;; occupancy tightens as the zone industrialises: empty lots fill in (threshold
+;; 0.15 -> 0, so every cell ends up built at full over-industrialisation).
+(define (cell-occ? id) (> (hsh (+ id 0.5)) (* 0.15 (- 1.0 (indus)))))
 (define (cell-base-h gx gz)
   (let* ((id (+ gx (* gz GRID)))
          (dx (- gx (* 0.5 (- GRID 1))))
@@ -256,6 +299,7 @@
           (scale (vector r r r))
           (hint-solid #f) (hint-wire) (hint-unlit)
           (line-width 1.0)
+          (colour C-SMOKE) (opacity op)
           (wire-colour C-SMOKE) (wire-opacity op)))
       (loop (+ k 1)))))
 
@@ -385,35 +429,107 @@
     (hl-box cx cz (+ th (* s 0.30)) (* s 0.36) (* s 0.28) (* s 0.36) C-TREE)
     (hl-box cx cz (+ th (* s 0.52)) (* s 0.20) (* s 0.22) (* s 0.20) C-TREE)))
 
+;; ---- comm links: dashed semicircular arcs between nearby factory rooftops ---
+(define C-COMM (vector 0.30 0.95 0.95))    ; cyan data link
+(define (vdist a b)
+  (let ((d (vsub a b)))
+    (sqrt (+ (* (vx d) (vx d)) (* (vy d) (vy d)) (* (vz d) (vz d))))))
+(define (arc-pt p0 p1 arcH s)              ; point on a vertical semicircular arc
+  (vadd (vmix p0 p1 s) (vector 0 (* (sin (* 3.14159 s)) arcH) 0)))
+(define COMM-ARCN 11)                      ; arc ribbon resolution
+(define COMM-SPD 0.33)                      ; packet travel speed (loops/sec)
+(define *comm-links* '())                   ; list of (cons p0 p1) — set on rebuild
+(define (comm-arc p0 p1)                    ; faint continuous arc + register the pair
+  (let ((arcH (* (vdist p0 p1) 0.42)))
+    (let ((rb (site-track! (build-ribbon COMM-ARCN))))
+      (with-primitive rb
+        (identity) (hint-unlit) (colour C-COMM) (opacity 0.16)
+        (pdata-index-map!
+          (lambda (k v) (arc-pt p0 p1 arcH (/ k (- COMM-ARCN 1.0)))) "p")
+        (pdata-index-map! (lambda (k v) (vector 0.008 0.008 0.008)) "w")))
+    (set! *comm-links* (cons (cons p0 p1) *comm-links*))))
+;; sparse network: each rooftop links to its nearest neighbour within range
+(define (comm-links tops)
+  (set! *comm-links* '())
+  (let* ((v (list->vector tops)) (n (vector-length v)))
+    (let loop ((i 0))
+      (when (< i n)
+        (let ((pi (vector-ref v i)))
+          (let find ((j 0) (best -1) (bd 1e9))
+            (cond ((>= j n)
+                   (when (and (>= best 0) (< i best)
+                              (< bd (* (+ 2.2 (* 1.6 (indus))) CELL))   ; longer links
+                              (> (hsh (+ i 2)) (* 0.42 (- 1.0 (indus))))) ; denser net
+                     (comm-arc pi (vector-ref v best))))
+                  ((= j i) (find (+ j 1) best bd))
+                  (else (let ((d (vdist pi (vector-ref v j))))
+                          (if (< d bd) (find (+ j 1) j d)
+                              (find (+ j 1) best bd)))))))
+        (loop (+ i 1))))))
+;; dynamic: a bright circular packet + a fading trail travelling each link
+(define COMM-TN 9)                         ; trail sample count
+(define COMM-DT 0.04)                      ; trail sample spacing (in arc param s)
+(define (comm-packet p0 p1 arcH s)
+  ;; bright head only (trail hidden)
+  (dyn! (glow-box (arc-pt p0 p1 arcH s) (vector 0.055 0.055 0.055) C-COMM 0.95)))
+(define (comm-dots)
+  (let loop ((ls *comm-links*) (i 0))
+    (unless (null? ls)
+      (let* ((p0 (caar ls)) (p1 (cdar ls))
+             (arcH (* (vdist p0 p1) 0.42))
+             (s   (fract (+ (* (time) COMM-SPD) (* 0.37 i)))))
+        (comm-packet p0 p1 arcH s))
+      (loop (cdr ls) (+ i 1)))))
+
+;; over-industrialisation clutter: a ring of small pipe/tank cubes around a
+;; structure, growing in number with the densification intensity.
+(define (industrial-annex cx cz id)
+  (let ((n (inexact->exact (floor (* 5 (indus)))))
+        (wire (wire-col (hsh (+ id 23)))))
+    (let loop ((k 0))
+      (when (< k n)
+        (let* ((a  (* 6.2831853 (hsh (+ id (* k 7) 50))))
+               (rr (* BW (+ 0.34 (* 0.16 (hsh (+ id k 60))))))
+               (ax (+ cx (* rr (cos a)))) (az (+ cz (* rr (sin a))))
+               (ah (* BW (+ 0.12 (* 0.34 (hsh (+ id k 70)))))))
+          (hl-box ax az 0 (* BW 0.14) ah (* BW 0.14) wire))
+        (loop (+ k 1))))))
+
 ;; build the whole static scene for the CURRENT growth front: factory inside,
 ;; forest outside. Called only on a growth flip (see maybe-rebuild-site!).
 (define (build-site)
-  (let ly ((gz 0))
-    (when (< gz GRID)
-      (let lx ((gx 0))
-        (when (< gx GRID)
-          (let* ((id (+ gx (* gz GRID)))
-                 (cx (+ (- HALF) (* (+ gx 0.5) CELL)))
-                 (cz (+ (- HALF) (* (+ gz 0.5) CELL))))
-            (if (cell-factory? gx gz)
-                (when (cell-occ? id)          ; factory (empty pads stay bare)
-                  (build-structure cx cz (cell-base-h gx gz) (cell-sty id)
-                                   (wire-col (hsh (+ id 23))) id))
-                (when (forest-cell? id)        ; forest ring, not yet razed
-                  (tree cx cz id))))
-          (lx (+ gx 1))))
-      (ly (+ gz 1)))))
-;; rebuild only when the front crosses a cell (factory count changes)
-(define *built-count* -1)
+  (let ((tops '()))
+    (let ly ((gz 0))
+      (when (< gz GRID)
+        (let lx ((gx 0))
+          (when (< gx GRID)
+            (let* ((id (+ gx (* gz GRID)))
+                   (cx (+ (- HALF) (* (+ gx 0.5) CELL)))
+                   (cz (+ (- HALF) (* (+ gz 0.5) CELL))))
+              (if (cell-factory? gx gz)
+                  (when (cell-occ? id)          ; factory (empty pads stay bare)
+                    ;; structures grow taller as the zone over-industrialises
+                    (let ((h (* (cell-base-h gx gz) (+ 1.0 (* 0.6 (indus))))))
+                      (build-structure cx cz h (cell-sty id)
+                                       (wire-col (hsh (+ id 23))) id)
+                      (when (> (indus) 0.3) (industrial-annex cx cz id))
+                      (set! tops (cons (vector cx (cell-top-h id h) cz) tops))))
+                  (when (forest-cell? id)        ; forest ring, not yet razed
+                    (tree cx cz id))))
+            (lx (+ gx 1))))
+        (ly (+ gz 1))))
+    (comm-links tops)))
+;; rebuild when the evolution step advances (front expands OR density rises)
+(define *built-step* -1)
 (define (maybe-rebuild-site!)
-  (let ((c (factory-count)))
-    (unless (= c *built-count*)
+  (let ((s (evo-step)))
+    (unless (= s *built-step*)
       (for-each destroy *site-ids*)
       (set! *site-ids* '())
       (set! *in-site* #t)
       (build-site)
       (set! *in-site* #f)
-      (set! *built-count* c))))
+      (set! *built-step* s))))
 ;; animated site prims — smoke / core lights / beacons for CURRENT factory cells
 (define (site-dynamic)
   (for-each-cell
@@ -526,15 +642,22 @@
         (lambda (k w)
           (let ((tp (* w-core (- 1.0 (/ k (- T 1.0)))))) (vector tp tp tp)))
         "w"))))
+;; traffic only runs on roads INSIDE the built factory zone — no cars out on the
+;; forest. A car shows only while its head is within the industrialised square.
+(define (in-factory? pos)
+  (< (max (abs (vx pos)) (abs (vz pos))) (* (max 0.0 (- (growth-front) 0.5)) CELL)))
 (define (traffic)
   (let ((t (time)))
     (let loop ((i 0))
       (when (< i NCARS)
-        (trail i t (even? i) (car-col i) 16 0.05 0.05 0.12)
+        (when (in-factory? (car-pos i t (even? i)))
+          (trail i t (even? i) (car-col i) 16 0.05 0.05 0.12))
         (loop (+ i 1))))
     ;; two slow heavy haulers, extra-long acid-green trails
-    (trail 101 (* t 0.45) #t (vector 0.7 1.0 0.4) 26 0.09 0.07 0.18)
-    (trail 202 (* t 0.45) #f (vector 0.7 1.0 0.4) 26 0.09 0.07 0.18)))
+    (when (in-factory? (car-pos 101 (* t 0.45) #t))
+      (trail 101 (* t 0.45) #t (vector 0.7 1.0 0.4) 26 0.09 0.07 0.18))
+    (when (in-factory? (car-pos 202 (* t 0.45) #f))
+      (trail 202 (* t 0.45) #f (vector 0.7 1.0 0.4) 26 0.09 0.07 0.18))))
 
 ;; ---- technical caption: kinked leader + typewriter title on a random -------
 ;; structure; the pick evolves every few seconds (hash of the time slot)
@@ -643,6 +766,68 @@
           (scale (vector (/ sc 0.9) (/ sc 0.9) (/ sc 0.9)))
           (colour ccol))))))
 
+;; ---- HUD infographic: screen-pinned readout of forest vs industrial --------
+;; Pinned to the camera (position built from the camera basis, so it stays put
+;; on screen as the view orbits) — a live biome monitor of the environmental
+;; cost: trees remaining vs cells industrialised, and % razed.
+;; NB: fov is ~12deg (telephoto) so the visible extent at HUD-D is small — offsets
+;; and scale are correspondingly tiny (visible ~+/-0.18 wide, +/-0.32 tall @ D=3).
+(define HUD-D  3.0)                         ; distance in front of the eye
+(define HUD-X -0.150)                       ; screen-left offset
+(define HUD-Y0 0.250)                       ; top line offset
+(define HUD-LH 0.055)                       ; line spacing
+(define HUD-SC 0.050)                       ; text size
+(define (hud-line row col s)
+  (when (> (string-length s) 0)
+    ;; subtle CRT-terminal character: a gentle brightness breathe, per line — just
+    ;; enough to feel alive without flickering.
+    (let* ((flk (+ 0.93 (* 0.07 (sin (+ (* (time) 2.2) (* row 0.9))))))
+           (pos (vadd *cam-eye*
+                  (vadd (vmul *cam-fwd* HUD-D)
+                    (vadd (vmul *cam-right* HUD-X)
+                          (vmul *cam-up* (- HUD-Y0 (* row HUD-LH)))))))
+           (tp (dyn! (build-text s))))
+      (with-primitive tp
+        (identity) (hint-unlit)
+        (translate pos)
+        (rotate (vector 0 (* *cam-az* 57.2958) 0))   ; yaw-billboard to the camera
+        (scale (vector HUD-SC HUD-SC HUD-SC))
+        (colour (vmul col flk))))))
+;; bottom-right credit, right-aligned + dim
+(define (hud-credit)
+  (let* ((s "made with FLUXUS")
+         (sc 0.030)
+         (w  (* (string-length s) CW (/ sc 0.9)))     ; approx text width
+         (pos (vadd *cam-eye*
+                (vadd (vmul *cam-fwd* HUD-D)
+                  (vadd (vmul *cam-right* (- 0.165 w))  ; right edge minus width
+                        (vmul *cam-up* -0.225)))))      ; bottom
+         (tp (dyn! (build-text s))))
+    (with-primitive tp
+      (identity) (hint-unlit)
+      (translate pos)
+      (rotate (vector 0 (* *cam-az* 57.2958) 0))
+      (scale (vector sc sc sc))
+      (colour (vmul C-SMOKE 0.5)))))
+(define (hud-infographic)
+  (let ((trees 0) (fac 0))
+    (let ly ((gz 0)) (when (< gz GRID)
+      (let lx ((gx 0)) (when (< gx GRID)
+        (let ((id (+ gx (* gz GRID))))
+          (if (cell-factory? gx gz)
+              (when (cell-occ? id)    (set! fac   (+ fac 1)))
+              (when (forest-cell? id) (set! trees (+ trees 1)))))
+        (lx (+ gx 1)))) (ly (+ gz 1))))
+    ;; CO2 as absolute mass (kt): per-cell emission grows with densification, so
+    ;; it keeps climbing after full coverage as the zone over-industrialises.
+    (let ((co2 (inexact->exact (floor (* fac (+ 12 (* 62 (indus))))))))
+      (hud-line 0 C-GREEN "BIOSPHERE")
+      (hud-line 1 C-TREE  (string-append "FOREST " (number->string trees)))
+      (hud-line 2 C-EDGE  (string-append "INDUS  " (number->string fac)))
+      (hud-line 3 C-RED   (string-append "CO2 " (number->string co2) "kt")))
+    ;; (hud-credit)                          ; "made with FLUXUS" (hidden)
+    ))
+
 ;; ---- glowing CRT post shader: bloom + scanlines + grille + curvature -------
 (define crt "
 uniform sampler2D tex;
@@ -664,8 +849,8 @@ void main() {
   col.r = texture2D(tex, u + vec2(ca, 0.0)).r;
   col.g = texture2D(tex, u).g;
   col.b = texture2D(tex, u - vec2(ca, 0.0)).b;
-  // cheap wide bloom: 8-tap ring + 4-tap far ring, keep only bright energy
-  vec2 px = 2.5 / resolution;
+  // wide bloom: 8-tap near ring + 4-tap far ring (bigger radius = softer glow)
+  vec2 px = 3.6 / resolution;
   vec3 bl = vec3(0.0);
   bl += texture2D(tex, u + vec2( px.x, 0.0)).rgb;
   bl += texture2D(tex, u + vec2(-px.x, 0.0)).rgb;
@@ -675,13 +860,14 @@ void main() {
   bl += texture2D(tex, u + vec2(-px.x,  px.y)).rgb;
   bl += texture2D(tex, u + vec2( px.x, -px.y)).rgb;
   bl += texture2D(tex, u + vec2(-px.x, -px.y)).rgb;
-  vec2 fx = 7.0 / resolution;
+  vec2 fx = 12.0 / resolution;
   bl += texture2D(tex, u + vec2( fx.x, 0.0)).rgb;
   bl += texture2D(tex, u + vec2(-fx.x, 0.0)).rgb;
   bl += texture2D(tex, u + vec2(0.0,  fx.y)).rgb;
   bl += texture2D(tex, u + vec2(0.0, -fx.y)).rgb;
   bl /= 12.0;
-  col += max(bl - 0.18, 0.0) * 1.5;           // phosphor glow
+  col = mix(col, bl, 0.20);                    // soft blur (dreamy haze)
+  col += max(bl - 0.10, 0.0) * 2.4;            // phosphor glow (brighter, wider)
   col *= 0.86 + 0.14 * sin(u.y * resolution.y * 3.14159);   // scanlines
   float m = mod(gl_FragCoord.x, 3.0);         // aperture grille
   col *= vec3(m < 1.0 ? 1.12 : 0.82,
@@ -709,10 +895,15 @@ void main() {
   (begin
     (clear-dyn!)                           ; remove last frame's animated prims
     (pool-frame-begin!)                    ; reset persistent smoke-pool cursor
+    (let ((k (key-poll)))                  ; press R -> restart the animation
+      (when (or (= k 114) (= k 82)) (reset-anim!)))
+    (evo-advance!)                         ; accumulate audio energy -> growth
     (maybe-rebuild-site!)                  ; regrow factory / raze forest on a flip
     (iso-camera)
     (site-dynamic)                         ; smoke, core lights, site beacons
+    (comm-dots)                            ; packets travelling the comm arcs
     (powerline-dynamic)                    ; pylon beacons + energy pulses
-    (traffic)                              ; vehicle light-trails
+    (traffic)                              ; vehicle trails (factory roads only)
     (caption)                              ; bracket + leader + typewriter title
+    (hud-infographic)                      ; screen-pinned forest/industrial readout
     (post-shader crt)))
