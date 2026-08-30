@@ -199,7 +199,42 @@
   (_deformc name (->fl band-scale) (->fl wobble) (->fl freq) (->fl speed) (if recalc 1 0)))
 (define-syntax-rule (with-primitive id body ...)
   (begin (grab id) (let ((r (begin body ...))) (ungrab) r)))
-(stub-void pdata-op)
+;; ---- pdata-op / poly-index / scene-graph / primitive-io (real engine, FFI) --
+(define (vec->f64 v) (list->f64vector (map ->fl (vector->list v))))
+(define (f64->vec v) (list->vector (f64vector->list v)))
+(define _pop-num (cfun "flux_pdata_op_num"   (_fun _string _string _double _f64vector -> _int) (lambda a 0)))
+(define _pop-vec (cfun "flux_pdata_op_vec"   (_fun _string _string _f64vector _int _f64vector -> _int) (lambda a 0)))
+(define _pop-pd  (cfun "flux_pdata_op_pdata" (_fun _string _string _string _f64vector -> _int) (lambda a 0)))
+(define (pdata-op op name operand)
+  (let ((out (make-f64vector 3 0.0)))
+    (let ((n (cond ((string? operand) (_pop-pd op name operand out))
+                   ((vector? operand) (_pop-vec op name (vec->f64 operand) (vector-length operand) out))
+                   (else (_pop-num op name (->fl operand) out)))))
+      (if (= n 3) (f64->vec out) (void)))))
+(define _ptype (cfun "flux_poly_type"    (_fun -> _int) (lambda () -1)))
+(define _pidxd (cfun "flux_poly_indexed" (_fun -> _int) (lambda () 0)))
+(define _picnt (cfun "flux_poly_index_count" (_fun -> _int) (lambda () 0)))
+(define _pidcs (cfun "flux_poly_indices" (_fun _u32vector _int -> _void) (lambda (a b) (void))))
+(define _psidx (cfun "flux_poly_set_index" (_fun _u32vector _int -> _void) (lambda (a b) (void))))
+(define _pc2i  (cfun "flux_poly_convert_to_indexed" (_fun -> _void) (lambda () (void))))
+(define (poly-type-enum) (_ptype))
+(define (poly-indexed?) (not (zero? (_pidxd))))
+(define (poly-indices) (let ((n (_picnt))) (if (<= n 0) '() (let ((v (make-u32vector n 0))) (_pidcs v n) (u32vector->list v)))))
+(define (poly-set-index lst) (let ((v (list->u32vector (map (lambda (x) (inexact->exact (floor x))) lst)))) (_psidx v (length lst))))
+(define (poly-convert-to-indexed) (_pc2i))
+(define _getbb (cfun "flux_get_bb" (_fun _f64vector _f64vector -> _int) (lambda (a b) 0)))
+(define _getpar (cfun "flux_get_parent" (_fun -> _int) (lambda () -1)))
+(define _getcc  (cfun "flux_get_children_count" (_fun -> _int) (lambda () 0)))
+(define _getch  (cfun "flux_get_children" (_fun _s32vector _int -> _void) (lambda (a b) (void))))
+(define _rcbb   (cfun "flux_recalc_bb" (_fun -> _void) (lambda () (void))))
+(define (get-bb) (let ((mn (make-f64vector 3 0.0)) (mx (make-f64vector 3 0.0))) (if (= 1 (_getbb mn mx)) (list (f64->vec mx) (f64->vec mn)) '())))
+(define (get-parent) (_getpar))
+(define (get-children) (let ((n (_getcc))) (if (<= n 0) '() (let ((v (make-s32vector n 0))) (_getch v n) (s32vector->list v)))))
+(define (recalc-bb) (_rcbb))
+(define _loadp (cfun "flux_load_primitive" (_fun _string -> _int) (lambda (p) -1)))
+(define _savep (cfun "flux_save_primitive" (_fun _string -> _void) (lambda (p) (void))))
+(define (load-primitive path) (_loadp path))
+(define (save-primitive path) (_savep path))
 
 ;; ---- matrices: flat length-16, row-major, point as ROW vector (v' = v·M);
 ;; translation lives in the last row (indices 12 13 14), matching the engine's
@@ -253,12 +288,8 @@
 (define (madd2 . _) (void))
 (define (msub2 . _) (void))
 (define (mdiv2 . _) (void))
-(define (poly-type-enum . _) (void)) ;; auto-stub
-(define (poly-indexed? . _) (void)) ;; auto-stub
-(define (poly-indices . _) (void)) ;; auto-stub
 (define (pdata-names . _) (void)) ;; auto-stub
 (define (maim . _) (mident)) ;; simple stub (rare)
-(define (poly-set-index . _) (void)) ;; auto-stub
 
 ;; ---- quaternions (x y z w), consistent with the row-vector matrices above ---
 (define (qaxisangle axis angle)

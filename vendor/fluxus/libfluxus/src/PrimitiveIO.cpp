@@ -18,10 +18,9 @@
 // fluxus->JUCE minimal port: geometry file IO excluded.
 //  * OBJPrimitiveIO drags in LocatorPrimitive (dynamic_cast typeinfo).
 //  * PixelPrimitiveIO pulls in PixelPrimitive -> ODE physics.
-// GetFromExtension() below therefore always returns NULL (no obj/png geometry
-// loading in this build). The Read/Write/Dump machinery still links so
-// Renderer::PrintInfo() works.
-//#include "OBJPrimitiveIO.h"
+// fluxus->JUCE port: OBJ geometry IO IS enabled (OBJPrimitiveIO + LocatorPrimitive
+// compiled). PixelPrimitiveIO stays out — it pulls in PixelPrimitive -> ODE.
+#include "OBJPrimitiveIO.h"
 //#include "PixelPrimitiveIO.h"
 #include "SceneGraph.h"
 
@@ -77,10 +76,9 @@ bool PrimitiveIO::Write(const std::string &filename, const Primitive *ob, unsign
 
 PrimitiveIO *PrimitiveIO::GetFromExtension(const string &extension)
 {
-	// fluxus->JUCE minimal port: obj/png geometry loaders excluded (see top).
-	//if (extension=="obj") return new OBJPrimitiveIO;
+	// fluxus->JUCE port: OBJ enabled; PNG/Pixel loader excluded (pulls ODE).
+	if (extension=="obj") return new OBJPrimitiveIO;
 	//else if (extension=="png") return new PixelPrimitiveIO;
-	(void)extension;
 	return NULL;
 }
 

@@ -299,6 +299,32 @@ extern "C" {
                          double sx, double sy, double sz);
   int  flux_blobby_to_poly(int id);
 
+  // ---- pdata-op: pdata operations ("+","*","closest","sin","cos") on grabbed
+  // Operand is a scalar, a vector/colour/matrix, or another pdata array's name.
+  // Returns 3 and fills out[3] for ops that yield a value ("closest"); else 0.
+  int  flux_pdata_op_num(const char* op, const char* name, double val, double out[3]);
+  int  flux_pdata_op_vec(const char* op, const char* name, const double* v, int n, double out[3]);
+  int  flux_pdata_op_pdata(const char* op, const char* name, const char* other, double out[3]);
+
+  // ---- poly indexing (on grabbed PolyPrimitive) -----------------------------
+  int  flux_poly_type(void);              // 0..4 (TRISTRIP..POLYGON), -1 if not poly
+  int  flux_poly_indexed(void);           // 1 if in indexed mode
+  int  flux_poly_index_count(void);
+  void flux_poly_indices(unsigned int* out, int n);      // copy up to n indices
+  void flux_poly_set_index(const unsigned int* idx, int n);
+  void flux_poly_convert_to_indexed(void);
+
+  // ---- scene-graph queries (on grabbed prim) --------------------------------
+  int  flux_get_bb(double outmin[3], double outmax[3]);  // 1 if grabbed, else 0
+  int  flux_get_parent(void);             // parent id, -1 if none/root
+  int  flux_get_children_count(void);     // children of grabbed (or root if none)
+  void flux_get_children(int* out, int n);
+  void flux_recalc_bb(void);
+
+  // ---- primitive IO (OBJ meshes) --------------------------------------------
+  int  flux_load_primitive(const char* path);   // read a mesh -> new prim id (-1 fail)
+  void flux_save_primitive(const char* path);   // write the grabbed prim to path
+
   // scripts report an error string back to the host (or "" to clear)
   void flux_report_error(const char* msg);
 }

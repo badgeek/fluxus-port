@@ -72,6 +72,7 @@ set(FLUXUS_MIN_SOURCES
     # --- misc support ------------------------------------------------------
     ${FLUXUS_MIN_SRC_DIR}/Renderer.cpp
     ${FLUXUS_MIN_SRC_DIR}/PrimitiveIO.cpp
+    ${FLUXUS_MIN_SRC_DIR}/OBJPrimitiveIO.cpp       # OBJ mesh load/save (stdio only)
     ${FLUXUS_MIN_SRC_DIR}/SearchPaths.cpp
     ${FLUXUS_MIN_SRC_DIR}/Trace.cpp
     ${FLUXUS_MIN_SRC_DIR}/DebugGL.cpp

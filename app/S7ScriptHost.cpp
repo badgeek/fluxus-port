@@ -8,6 +8,7 @@ extern "C" {
 
 #include <string>
 #include <cstring>
+#include <vector>
 
 // s7 bindings are thin: parse args, call the shared flux_* commands. Both s7 and
 // Racket drive the SAME FluxusCommands layer, so a primitive added there is
@@ -140,6 +141,36 @@ static s7_pointer f_voxels_to_blobby(s7_scheme* sc, s7_pointer a){ return s7_mak
 static s7_pointer f_voxels_to_poly(s7_scheme* sc, s7_pointer a){ double iso = s7_is_pair(s7_cdr(a))?argReal(sc,a,1):1.0; return s7_make_integer(sc, flux_voxels_to_poly(argInt(sc,a,0,-1), iso)); }
 static s7_pointer f_build_blobby(s7_scheme* sc, s7_pointer a){ double d[3],s[3]; readVecN(sc,s7_cdr(a),d,3); readVecN(sc,s7_cddr(a),s,3); return s7_make_integer(sc, flux_build_blobby(argInt(sc,a,0,1),d[0],d[1],d[2],s[0],s[1],s[2])); }
 static s7_pointer f_blobby_to_poly(s7_scheme* sc, s7_pointer a){ return s7_make_integer(sc, flux_blobby_to_poly(argInt(sc,a,0,-1))); }
+// pdata-op / poly-indexing / scene-graph / primitive-io
+static s7_pointer f_pdata_op(s7_scheme* sc, s7_pointer a){
+  const char* op = s7_is_string(s7_car(a))?s7_string(s7_car(a)):"";
+  const char* nm = s7_is_string(s7_cadr(a))?s7_string(s7_cadr(a)):"";
+  s7_pointer operand = s7_caddr(a);
+  double out[3]; int n = 0;
+  if (s7_is_string(operand)) n = flux_pdata_op_pdata(op, nm, s7_string(operand), out);
+  else if (s7_is_vector(operand)) { int len=(int)s7_vector_length(operand); double v[16];
+    for(int i=0;i<len&&i<16;++i) v[i]=s7_number_to_real(sc,s7_vector_ref(sc,operand,i));
+    n = flux_pdata_op_vec(op, nm, v, len, out); }
+  else n = flux_pdata_op_num(op, nm, s7_number_to_real(sc,operand), out);
+  return n==3 ? makeVecN(sc,out,3) : s7_nil(sc); }
+static s7_pointer f_poly_type(s7_scheme* sc, s7_pointer){ return s7_make_integer(sc, flux_poly_type()); }
+static s7_pointer f_poly_indexed(s7_scheme* sc, s7_pointer){ return s7_make_boolean(sc, flux_poly_indexed()!=0); }
+static s7_pointer f_poly_indices(s7_scheme* sc, s7_pointer){ int n=flux_poly_index_count(); if(n<=0) return s7_nil(sc);
+  std::vector<unsigned int> idx(n); flux_poly_indices(idx.data(),n);
+  s7_pointer lst=s7_nil(sc); for(int i=n-1;i>=0;--i) lst=s7_cons(sc,s7_make_integer(sc,idx[i]),lst); return lst; }
+static s7_pointer f_poly_set_index(s7_scheme* sc, s7_pointer a){ s7_pointer l=s7_car(a); int n=(int)s7_list_length(sc,l);
+  std::vector<unsigned int> idx(n>0?n:0); for(int i=0;i<n;++i){ idx[i]=(unsigned int)s7_number_to_real(sc,s7_car(l)); l=s7_cdr(l);}
+  flux_poly_set_index(idx.data(),n); return s7_nil(sc); }
+static s7_pointer f_poly_convert_to_indexed(s7_scheme* sc, s7_pointer){ flux_poly_convert_to_indexed(); return s7_nil(sc); }
+static s7_pointer f_get_bb(s7_scheme* sc, s7_pointer){ double mn[3],mx[3]; if(!flux_get_bb(mn,mx)) return s7_nil(sc);
+  return s7_list(sc,2,makeVecN(sc,mx,3),makeVecN(sc,mn,3)); }
+static s7_pointer f_get_parent(s7_scheme* sc, s7_pointer){ return s7_make_integer(sc, flux_get_parent()); }
+static s7_pointer f_get_children(s7_scheme* sc, s7_pointer){ int n=flux_get_children_count(); if(n<=0) return s7_nil(sc);
+  std::vector<int> c(n); flux_get_children(c.data(),n);
+  s7_pointer lst=s7_nil(sc); for(int i=n-1;i>=0;--i) lst=s7_cons(sc,s7_make_integer(sc,c[i]),lst); return lst; }
+static s7_pointer f_recalc_bb(s7_scheme* sc, s7_pointer){ flux_recalc_bb(); return s7_nil(sc); }
+static s7_pointer f_load_primitive(s7_scheme* sc, s7_pointer a){ return s7_make_integer(sc, flux_load_primitive(s7_is_string(s7_car(a))?s7_string(s7_car(a)):"")); }
+static s7_pointer f_save_primitive(s7_scheme* sc, s7_pointer a){ if(s7_is_string(s7_car(a))) flux_save_primitive(s7_string(s7_car(a))); return s7_nil(sc); }
 
 s7_pointer f_colour(s7_scheme* sc, s7_pointer a)     { double x,y,z; if (vec3(sc,a,x,y,z)) flux_colour(x,y,z);     return s7_nil(sc); }
 s7_pointer f_background(s7_scheme* sc, s7_pointer a)  { double x,y,z; if (vec3(sc,a,x,y,z)) flux_background(x,y,z); return s7_nil(sc); }
@@ -674,6 +705,18 @@ void S7ScriptHost::init() {
   def("voxels->poly",            f_voxels_to_poly,          1, 1, false);
   def("build-blobby",            f_build_blobby,            3, 0, false);
   def("blobby->poly",            f_blobby_to_poly,          1, 0, false);
+  def("pdata-op",               f_pdata_op,               3, 0, false);
+  def("poly-type-enum",         f_poly_type,              0, 0, false);
+  def("poly-indexed?",          f_poly_indexed,           0, 0, false);
+  def("poly-indices",           f_poly_indices,           0, 0, false);
+  def("poly-set-index",         f_poly_set_index,         1, 0, false);
+  def("poly-convert-to-indexed",f_poly_convert_to_indexed,0, 0, false);
+  def("get-bb",                 f_get_bb,                 0, 0, false);
+  def("get-parent",             f_get_parent,             0, 0, false);
+  def("get-children",           f_get_children,           0, 0, false);
+  def("recalc-bb",              f_recalc_bb,              0, 0, false);
+  def("load-primitive",         f_load_primitive,         1, 0, false);
+  def("save-primitive",         f_save_primitive,         1, 0, false);
 
   s7_eval_c_string(sc,
     "(define-macro (with-state . body)"

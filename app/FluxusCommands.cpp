@@ -20,6 +20,8 @@
 #include "SimplexNoise.h"
 #include "VoxelPrimitive.h"
 #include "BlobbyPrimitive.h"
+#include "PrimitiveIO.h"
+#include "Tree.h"
 
 #include <vector>
 #include <deque>
@@ -44,6 +46,7 @@ struct BuildCtx {
   int       hints = 0;      // extra State hints OR'd onto built prims
   float     lineWidth = 2.0f;
   Primitive* grabbed = nullptr;   // current pdata target
+  int        grabbedId = -1;      // its scene-graph id (for scene-graph queries / save)
   GLSLShader* shader = nullptr;   // current shader for newly built prims (not owned)
   int         parent = -1;        // parent id for newly built prims (-1 = root)
   unsigned    texture = 0;        // GL texture id for newly built prims (0 = none)
@@ -523,8 +526,8 @@ void flux_texture(int id) {
 }
 
 // ---- pdata (grabbed primitive) --------------------------------------------
-void flux_grab(int id)   { g_ctx.grabbed = g_ctx.r ? g_ctx.r->GetPrimitive(id) : nullptr; }
-void flux_ungrab(void)   { g_ctx.grabbed = nullptr; }
+void flux_grab(int id)   { g_ctx.grabbed = g_ctx.r ? g_ctx.r->GetPrimitive(id) : nullptr; g_ctx.grabbedId = g_ctx.grabbed ? id : -1; }
+void flux_ungrab(void)   { g_ctx.grabbed = nullptr; g_ctx.grabbedId = -1; }
 
 int flux_pdata_size(void) {
   if (!g_ctx.grabbed) return 0;
@@ -1189,4 +1192,106 @@ int flux_blobby_to_poly(int id) {
   PolyPrimitive* np = new PolyPrimitive(PolyPrimitive::TRILIST);
   bp->ConvertToPoly(*np);
   return addPrim(np);
+}
+
+// ---- pdata-op ---------------------------------------------------------------
+namespace {
+  int pdataOpResult(PData* ret, double out[3]) {   // read a "closest"-style result, own+free it
+    if (!ret) return 0;
+    int n = 0;
+    if (TypedPData<dVector>* v = dynamic_cast<TypedPData<dVector>*>(ret))
+      if (!v->m_Data.empty()) { out[0] = v->m_Data[0].x; out[1] = v->m_Data[0].y; out[2] = v->m_Data[0].z; n = 3; }
+    delete ret;
+    return n;
+  }
+}
+int flux_pdata_op_num(const char* op, const char* name, double val, double out[3]) {
+  if (!g_ctx.grabbed) return 0;
+  PData* ret = g_ctx.grabbed->DataOp<float>(op, name, (float) val);
+  g_ctx.grabbed->BumpPDataVersion();
+  return pdataOpResult(ret, out);
+}
+int flux_pdata_op_vec(const char* op, const char* name, const double* v, int n, double out[3]) {
+  if (!g_ctx.grabbed) return 0;
+  PData* ret = nullptr;
+  if (n == 3)  ret = g_ctx.grabbed->DataOp<dVector>(op, name, dVector((float) v[0], (float) v[1], (float) v[2]));
+  else if (n == 4)  ret = g_ctx.grabbed->DataOp<dColour>(op, name, dColour((float) v[0], (float) v[1], (float) v[2], (float) v[3]));
+  else if (n == 16) { dMatrix m; float* a = m.arr(); for (int i = 0; i < 16; ++i) a[i] = (float) v[i];
+                      ret = g_ctx.grabbed->DataOp<dMatrix>(op, name, m); }
+  g_ctx.grabbed->BumpPDataVersion();
+  return pdataOpResult(ret, out);
+}
+int flux_pdata_op_pdata(const char* op, const char* name, const char* other, double out[3]) {
+  if (!g_ctx.grabbed) return 0;
+  PData* pd = g_ctx.grabbed->GetDataRaw(other);
+  PData* ret = nullptr;
+  if (TypedPData<dVector>* v = dynamic_cast<TypedPData<dVector>*>(pd))
+    ret = g_ctx.grabbed->DataOp<TypedPData<dVector>*>(op, name, v);
+  else if (TypedPData<dColour>* c = dynamic_cast<TypedPData<dColour>*>(pd))
+    ret = g_ctx.grabbed->DataOp<TypedPData<dColour>*>(op, name, c);
+  else if (TypedPData<float>* f = dynamic_cast<TypedPData<float>*>(pd))
+    ret = g_ctx.grabbed->DataOp<TypedPData<float>*>(op, name, f);
+  g_ctx.grabbed->BumpPDataVersion();
+  return pdataOpResult(ret, out);
+}
+
+// ---- poly indexing ----------------------------------------------------------
+namespace { inline PolyPrimitive* grabbedPoly() { return dynamic_cast<PolyPrimitive*>(g_ctx.grabbed); } }
+int flux_poly_type(void)    { PolyPrimitive* p = grabbedPoly(); return p ? (int) p->GetType() : -1; }
+int flux_poly_indexed(void) { PolyPrimitive* p = grabbedPoly(); return (p && p->IsIndexed()) ? 1 : 0; }
+int flux_poly_index_count(void) { PolyPrimitive* p = grabbedPoly(); return p ? (int) p->GetIndex().size() : 0; }
+void flux_poly_indices(unsigned int* out, int n) {
+  PolyPrimitive* p = grabbedPoly(); if (!p) return;
+  std::vector<unsigned int>& idx = p->GetIndex();
+  for (int i = 0; i < n && i < (int) idx.size(); ++i) out[i] = idx[i];
+}
+void flux_poly_set_index(const unsigned int* idx, int n) {
+  PolyPrimitive* p = grabbedPoly(); if (!p) return;
+  std::vector<unsigned int>& v = p->GetIndex();
+  v.resize(n); for (int i = 0; i < n; ++i) v[i] = idx[i];
+  p->SetIndexMode(true); p->BumpPDataVersion();
+}
+void flux_poly_convert_to_indexed(void) { if (PolyPrimitive* p = grabbedPoly()) p->ConvertToIndexed(); }
+
+// ---- scene-graph queries ----------------------------------------------------
+int flux_get_bb(double outmin[3], double outmax[3]) {
+  if (!g_ctx.grabbed) return 0;
+  dMatrix space; space.init();
+  dBoundingBox bb = g_ctx.grabbed->GetBoundingBox(space);
+  outmin[0] = bb.min.x; outmin[1] = bb.min.y; outmin[2] = bb.min.z;
+  outmax[0] = bb.max.x; outmax[1] = bb.max.y; outmax[2] = bb.max.z;
+  return 1;
+}
+int flux_get_parent(void) {
+  if (!g_ctx.r || g_ctx.grabbedId < 0) return -1;
+  Node* n = g_ctx.r->GetSceneGraph().FindNode(g_ctx.grabbedId);
+  return (n && n->Parent) ? n->Parent->ID : -1;
+}
+namespace {
+  Node* grabbedOrRoot() {
+    if (!g_ctx.r) return nullptr;
+    if (g_ctx.grabbedId < 0) return g_ctx.r->GetSceneGraph().Root();
+    return g_ctx.r->GetSceneGraph().FindNode(g_ctx.grabbedId);
+  }
+}
+int flux_get_children_count(void) { Node* n = grabbedOrRoot(); return n ? (int) n->Children.size() : 0; }
+void flux_get_children(int* out, int n) {
+  Node* node = grabbedOrRoot(); if (!node) return;
+  for (int i = 0; i < n && i < (int) node->Children.size(); ++i) out[i] = node->Children[i]->ID;
+}
+void flux_recalc_bb(void) {
+  if (!g_ctx.r || g_ctx.grabbedId < 0) return;
+  SceneNode* n = (SceneNode*) g_ctx.r->GetSceneGraph().FindNode(g_ctx.grabbedId);
+  if (n) g_ctx.r->GetSceneGraph().RecalcAABB(n);
+}
+
+// ---- primitive IO (OBJ) -----------------------------------------------------
+int flux_load_primitive(const char* path) {
+  if (!g_ctx.r || !path) return -1;
+  Primitive* p = PrimitiveIO::Read(path);
+  return p ? g_ctx.r->AddPrimitive(p) : -1;
+}
+void flux_save_primitive(const char* path) {
+  if (!g_ctx.r || !g_ctx.grabbed || g_ctx.grabbedId < 0 || !path) return;
+  PrimitiveIO::Write(path, g_ctx.grabbed, (unsigned) g_ctx.grabbedId, g_ctx.r->GetSceneGraph());
 }
