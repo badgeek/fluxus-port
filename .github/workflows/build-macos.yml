@@ -40,9 +40,12 @@ jobs:
           restore-keys: deps-${{ runner.os }}-
 
       - name: Configure
+        # CMAKE_POLICY_VERSION_MINIMUM=3.5: the fetched FreeType still declares
+        # cmake_minimum_required(<3.5), which newer CMake on the runner rejects.
         run: >
           cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5
           -DRACKET_DIR="${{ steps.racket.outputs.prefix }}"
 
       - name: Build Racket apps
