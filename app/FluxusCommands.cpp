@@ -57,6 +57,7 @@ struct BuildCtx {
   unsigned    texture = 0;        // GL texture id for newly built prims (0 = none)
   int         srcBlend = GL_SRC_ALPHA;           // blend factors for newly built prims
   int         dstBlend = GL_ONE_MINUS_SRC_ALPHA;
+  COLOUR_MODE colourMode = MODE_RGB;             // (colour-mode): interpret rgb vs hsv
 };
 BuildCtx g_ctx;
 
@@ -291,9 +292,29 @@ static void applyOp(const dMatrix& op) {
   else                           g_ctx.tx = g_ctx.tx * op;
 }
 
+namespace {
+  // build a colour honouring the active colour-mode (grabbed prim's, else build
+  // ctx). dColour's mode ctor converts HSV->RGB for us.
+  dColour makeCol(double r, double g, double b) {
+    COLOUR_MODE m = g_ctx.grabbed ? g_ctx.grabbed->GetState()->ColourMode : g_ctx.colourMode;
+    return dColour((float) r, (float) g, (float) b, 1, m);
+  }
+}
 void flux_colour(double r, double g, double b) {
-  const dColour c((float) r, (float) g, (float) b, 1);
+  const dColour c = makeCol(r, g, b);
   if (State* s = grabbedState()) s->Colour = c; else g_ctx.col = c;
+}
+void flux_colour_mode(int mode) {
+  COLOUR_MODE m = (mode == 1) ? MODE_HSV : MODE_RGB;
+  if (State* s = grabbedState()) s->ColourMode = m; else g_ctx.colourMode = m;
+}
+void flux_hsv_to_rgb(const double hsv[3], double rgb[3]) {
+  float out[3]; dColour::HSVtoRGB((float) hsv[0], (float) hsv[1], (float) hsv[2], out);
+  rgb[0] = out[0]; rgb[1] = out[1]; rgb[2] = out[2];
+}
+void flux_rgb_to_hsv(const double rgb[3], double hsv[3]) {
+  float out[3]; dColour::RGBtoHSV((float) rgb[0], (float) rgb[1], (float) rgb[2], out);
+  hsv[0] = out[0]; hsv[1] = out[1]; hsv[2] = out[2];
 }
 
 void flux_translate(double x, double y, double z) { dMatrix m; m.translate((float) x, (float) y, (float) z); applyOp(m); }
@@ -361,7 +382,7 @@ void flux_line_width(double w) {
 }
 void flux_opacity(double o)      { if (State* s = grabbedState()) s->Opacity = (float) o; }
 void flux_wire_opacity(double o) { if (State* s = grabbedState()) s->WireOpacity = (float) o; }
-void flux_wire_colour(double r, double g, double b) { if (State* s = grabbedState()) s->WireColour = dColour((float) r, (float) g, (float) b, 1); }
+void flux_wire_colour(double r, double g, double b) { if (State* s = grabbedState()) s->WireColour = makeCol(r, g, b); }
 void flux_backfacecull(int on)   { if (State* s = grabbedState()) s->Cull = on != 0; }
 
 // ---- more builders ---------------------------------------------------------
@@ -513,6 +534,8 @@ void flux_light_ambient(int id, double r, double g, double b)  { if (Light* l = 
 void flux_light_specular(int id, double r, double g, double b) { if (Light* l = light(id)) l->SetSpecular(dColour((float) r, (float) g, (float) b, 1)); }
 void flux_light_direction(int id, double x, double y, double z){ if (Light* l = light(id)) l->SetDirection(dVector((float) x, (float) y, (float) z)); }
 void flux_light_spot_angle(int id, double a)                   { if (Light* l = light(id)) l->SetSpotAngle((float) a); }
+void flux_light_spot_exponent(int id, double e)                { if (Light* l = light(id)) l->SetSpotExponent((float) e); }
+void flux_light_attenuation(int id, int type, double v)        { if (Light* l = light(id)) l->SetAttenuation(type, (float) v); } // 0 const,1 linear,2 quad
 
 // ---- fog / parent / select / shadows ---------------------------------------
 void flux_fog(double r, double g, double b, double d, double s, double e) {

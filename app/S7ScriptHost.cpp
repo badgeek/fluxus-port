@@ -190,6 +190,12 @@ static s7_pointer f_pfunc_set(s7_scheme* sc, s7_pointer a){
     l = s7_cddr(l); }
   return s7_nil(sc); }
 static s7_pointer f_pfunc_run(s7_scheme* sc, s7_pointer a){ flux_pfunc_run((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+// light attenuation/spot-exponent + colour-mode + hsv/rgb
+static s7_pointer f_light_spot_exponent(s7_scheme* sc, s7_pointer a){ flux_light_spot_exponent(argInt(sc,a,0,0), argReal(sc,a,1)); return s7_nil(sc); }
+static s7_pointer f_light_attenuation(s7_scheme* sc, s7_pointer a){ const char* t=symOrStr(sc,s7_cadr(a)); int ty = !strcmp(t,"linear")?1 : (!strcmp(t,"quadratic")?2 : 0); flux_light_attenuation(argInt(sc,a,0,0), ty, argReal(sc,a,2)); return s7_nil(sc); }
+static s7_pointer f_colour_mode(s7_scheme* sc, s7_pointer a){ const char* m=symOrStr(sc,s7_car(a)); flux_colour_mode(!strcmp(m,"hsv")?1:0); return s7_nil(sc); }
+static s7_pointer f_hsv_to_rgb(s7_scheme* sc, s7_pointer a){ double h[3],o[3]; readVecN(sc,a,h,3); flux_hsv_to_rgb(h,o); return makeVecN(sc,o,3); }
+static s7_pointer f_rgb_to_hsv(s7_scheme* sc, s7_pointer a){ double r[3],o[3]; readVecN(sc,a,r,3); flux_rgb_to_hsv(r,o); return makeVecN(sc,o,3); }
 
 s7_pointer f_colour(s7_scheme* sc, s7_pointer a)     { double x,y,z; if (vec3(sc,a,x,y,z)) flux_colour(x,y,z);     return s7_nil(sc); }
 s7_pointer f_background(s7_scheme* sc, s7_pointer a)  { double x,y,z; if (vec3(sc,a,x,y,z)) flux_background(x,y,z); return s7_nil(sc); }
@@ -741,6 +747,12 @@ void S7ScriptHost::init() {
   def("make-pfunc",             f_make_pfunc,             1, 0, false);
   def("pfunc-set!",             f_pfunc_set,              2, 0, false);
   def("pfunc-run",              f_pfunc_run,              1, 0, false);
+  def("light-spot-exponent",    f_light_spot_exponent,    2, 0, false);
+  def("light-attenuation",      f_light_attenuation,      3, 0, false);
+  def("colour-mode",            f_colour_mode,            1, 0, false);
+  def("color-mode",             f_colour_mode,            1, 0, false);
+  def("hsv->rgb",               f_hsv_to_rgb,             1, 0, false);
+  def("rgb->hsv",               f_rgb_to_hsv,             1, 0, false);
 
   s7_eval_c_string(sc,
     "(define-macro (with-state . body)"

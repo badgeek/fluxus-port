@@ -530,6 +530,19 @@
 (define (light-specular id v)  (_lspc id (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
 (define (light-direction id v) (_ldir id (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
 (define (light-spot-angle id a) (_lspa id (->fl a)))
+(define _lspe (cfun "flux_light_spot_exponent" (_fun _int _double -> _void) (lambda (a b) (void))))
+(define _latt (cfun "flux_light_attenuation" (_fun _int _int _double -> _void) (lambda (a b c) (void))))
+(define (light-spot-exponent id e) (_lspe id (->fl e)))
+(define (light-attenuation id type v)
+  (_latt id (cond ((eq? type 'linear) 1) ((eq? type 'quadratic) 2) (else 0)) (->fl v)))
+;; colour mode + hsv/rgb
+(define _cmode (cfun "flux_colour_mode" (_fun _int -> _void) (lambda (m) (void))))
+(define _h2r   (cfun "flux_hsv_to_rgb"  (_fun _f64vector _f64vector -> _void) (lambda (a b) (void))))
+(define _r2h   (cfun "flux_rgb_to_hsv"  (_fun _f64vector _f64vector -> _void) (lambda (a b) (void))))
+(define (colour-mode m) (_cmode (if (eq? m 'hsv) 1 0)))
+(define (color-mode m) (colour-mode m))
+(define (hsv->rgb v) (let ((o (make-f64vector 3 0.0))) (_h2r (vec->f64 v) o) (f64->vec o)))
+(define (rgb->hsv v) (let ((o (make-f64vector 3 0.0))) (_r2h (vec->f64 v) o) (f64->vec o)))
 
 ;; ---- fog / parent / select / shadows ---------------------------------------
 (define _fog (cfun "flux_fog" (_fun _double _double _double _double _double _double -> _void) (lambda (a b c d e f) (void))))

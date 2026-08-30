@@ -73,6 +73,8 @@ extern "C" {
   void flux_light_specular(int id, double r, double g, double b);
   void flux_light_direction(int id, double x, double y, double z);
   void flux_light_spot_angle(int id, double a);
+  void flux_light_spot_exponent(int id, double e);
+  void flux_light_attenuation(int id, int type, double v);   // type 0 const,1 linear,2 quadratic
 
   void flux_fog(double r, double g, double b, double density, double start, double end);
   void flux_parent(int id);                            // parent subsequently-built prims to id
@@ -337,6 +339,11 @@ extern "C" {
   void flux_pfunc_set_col(int id, const char* key, double r, double g, double b, double a);
   void flux_pfunc_run(int id);             // apply pfunc to the grabbed primitive
   void flux_pfunc_clear(void);             // free all pfuncs
+
+  // ---- colour mode + hsv/rgb -----------------------------------------------
+  void flux_colour_mode(int mode);         // 0 rgb, 1 hsv (colour / wire-colour)
+  void flux_hsv_to_rgb(const double hsv[3], double rgb[3]);
+  void flux_rgb_to_hsv(const double rgb[3], double hsv[3]);
 
   // scripts report an error string back to the host (or "" to clear)
   void flux_report_error(const char* msg);
