@@ -105,5 +105,31 @@ real fluxus `maths.ss` / `shapes.ss` / `building-blocks.ss` running on the engin
 **mouse-orbit camera** (drag to orbit, wheel to dolly) + `(mouse-x)`/`(mouse-y)`/
 `(mouse-button)` in scripts.
 
-Not done: MIDI/OSC (JUCE-provided, no new deps), physics (needs ODE),
-textures, more `.ss` library files. See `ROADMAP.md`.
+Not done: physics (needs ODE), extruded 3D type (FreeType), FFGL, hi-res tiled
+export. See `ROADMAP.md`.
+
+## License
+
+This project is licensed under the **GNU Affero General Public License v3.0 or
+later** (AGPL-3.0-or-later) — see [`LICENSE`](LICENSE). The choice is dictated by
+the copyleft dependencies it builds on:
+
+- **[fluxus](https://github.com/nebogeo/fluxus)** (`vendor/fluxus/`, © Dave
+  Griffiths) — **GPL-2.0-or-later**. The engine is vendored, modified, and linked,
+  so its copyleft covers the combined work. `vendor/fluxus/COPYING` and
+  `vendor/fluxus/LICENCE` are kept intact.
+- **[JUCE](https://juce.com)** (fetched at build time) — dual-licensed
+  **AGPL-3.0** or a commercial JUCE licence. Built here under its free AGPLv3
+  terms.
+- **[s7 Scheme](https://ccrma.stanford.edu/software/snd/snd/s7.html)** — BSD-style
+  (permissive).
+- **Racket** — bundled runtime (LGPL/MIT/Apache); the `.ss` library files under
+  `racket-lib/` are GPL, derived from fluxus.
+
+AGPLv3 is the only license compatible with all of the above for the distributed
+binary (GPL-2-or-later relicenses upward to be combinable with AGPLv3). To ship a
+non-AGPL build you would need a commercial JUCE licence — the work would still be
+GPLv3 because of fluxus.
+
+Port sources under `app/` carry an `SPDX-License-Identifier: AGPL-3.0-or-later`
+header.

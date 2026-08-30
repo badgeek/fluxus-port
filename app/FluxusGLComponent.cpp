@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #include "FluxusGLComponent.h"
 #include "FluxusScene.h"
 #include "EditorOverlay.h"

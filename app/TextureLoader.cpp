@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // JUCE-based texture loader. FluxusCommands is JUCE-free, so image decoding +
 // GL upload live here: images via juce::ImageFileFormat, plus a generated font
 // atlas for build-text. Raw GL texture ids are returned (the engine binds

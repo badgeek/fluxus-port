@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "FluxusComponent.h"
 #include "AppMenu.h"

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #include "S7ScriptHost.h"
 #include "FluxusCommands.h"     // shared engine command layer (same as the Racket host)
 #include "VideoHost.h"          // AVFoundation video texture

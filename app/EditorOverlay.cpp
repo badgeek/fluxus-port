@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #include "EditorOverlay.h"
 
 // fluxus editor + system GL only in this TU (no juce_opengl)

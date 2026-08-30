@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #include "ControlServer.h"
 #include "SharedScript.h"
 #include "FluxusCommands.h"      // flux_screenshot (thread-safe request)

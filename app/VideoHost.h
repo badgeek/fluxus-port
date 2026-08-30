@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #pragma once
 // Video texture seam. AVFoundation decodes a movie file; each rendered frame the
 // GL thread pulls the current CVPixelBuffer and uploads it to a GL texture that
