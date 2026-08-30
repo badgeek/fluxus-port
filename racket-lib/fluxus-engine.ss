@@ -32,8 +32,12 @@
           (- (* (vx a) (vy b)) (* (vy a) (vx b)))))
 (define (vnormalise v) (let ((m (vmag v))) (if (zero? m) v (list->vector (map (lambda (x) (/ x m)) (vector->list v))))))
 (define vnormalize vnormalise)
-(define (mmul . _) (vector 1 0 0 0  0 1 0 0  0 0 1 0  0 0 0 1))
-(define (madd . _) (mmul)) (define (msub . _) (mmul)) (define (mdiv . _) (mmul))
+(define (vreflect a n) (let ((d (* 2.0 (vdot a n)))) (vector (- (vx a) (* d (vx n))) (- (vy a) (* d (vy n))) (- (vz a) (* d (vz n))))))
+(define (vdist-sq a b) (let ((d (vsub a b))) (vdot d d)))
+;; componentwise matrix ops (rarely used; building-blocks has the list variants)
+(define (madd a b) (build-vector 16 (lambda (n) (+ (vector-ref a n) (vector-ref b n)))))
+(define (msub a b) (build-vector 16 (lambda (n) (- (vector-ref a n) (vector-ref b n)))))
+(define (mdiv a s) (build-vector 16 (lambda (n) (/ (vector-ref a n) s))))
 
 ;; ---- real engine commands (FFI, vector-shaped like fluxus) -----------------
 (define _cube  (cfun "flux_build_cube"   (_fun -> _int) (lambda () 0)))
@@ -197,18 +201,53 @@
   (begin (grab id) (let ((r (begin body ...))) (ungrab) r)))
 (stub-void pdata-op)
 
+;; ---- matrices: flat length-16, row-major, point as ROW vector (v' = v·M);
+;; translation lives in the last row (indices 12 13 14), matching the engine's
+;; dMatrix::transform. Replaces the old always-identity stubs.
 (define (mident) (vector 1 0 0 0  0 1 0 0  0 0 1 0  0 0 0 1))
+(define (m@ m i j) (vector-ref m (+ (* i 4) j)))
+(define (deg->rad d) (* d 0.017453292519943295))
+(define (mmul a b)
+  (build-vector 16 (lambda (n)
+    (let ((i (quotient n 4)) (j (remainder n 4)))
+      (+ (* (m@ a i 0) (m@ b 0 j)) (* (m@ a i 1) (m@ b 1 j))
+         (* (m@ a i 2) (m@ b 2 j)) (* (m@ a i 3) (m@ b 3 j)))))))
+(define (mtranslate v)
+  (vector 1 0 0 0  0 1 0 0  0 0 1 0  (->fl (vx v)) (->fl (vy v)) (->fl (vz v)) 1))
+(define (mscale v)
+  (vector (->fl (vx v)) 0 0 0  0 (->fl (vy v)) 0 0  0 0 (->fl (vz v)) 0  0 0 0 1))
+(define (mrotate v)
+  (let ((rx (deg->rad (vx v))) (ry (deg->rad (vy v))) (rz (deg->rad (vz v))))
+    (let ((Rx (vector 1 0 0 0  0 (cos rx) (sin rx) 0  0 (- (sin rx)) (cos rx) 0  0 0 0 1))
+          (Ry (vector (cos ry) 0 (- (sin ry)) 0  0 1 0 0  (sin ry) 0 (cos ry) 0  0 0 0 1))
+          (Rz (vector (cos rz) (sin rz) 0 0  (- (sin rz)) (cos rz) 0 0  0 0 1 0  0 0 0 1)))
+      (mmul (mmul Rx Ry) Rz))))
+(define (mtranspose m) (build-vector 16 (lambda (n) (m@ m (remainder n 4) (quotient n 4)))))
+;; affine/rigid inverse (transpose the 3x3, invert the translation) — exact for
+;; the rotation+translation matrices sketches build (e.g. the camera transform).
+(define (minverse m)
+  (let ((tx (m@ m 3 0)) (ty (m@ m 3 1)) (tz (m@ m 3 2)))
+    (let ((nx (- (+ (* tx (m@ m 0 0)) (* ty (m@ m 0 1)) (* tz (m@ m 0 2)))))
+          (ny (- (+ (* tx (m@ m 1 0)) (* ty (m@ m 1 1)) (* tz (m@ m 1 2)))))
+          (nz (- (+ (* tx (m@ m 2 0)) (* ty (m@ m 2 1)) (* tz (m@ m 2 2))))))
+      (vector (m@ m 0 0) (m@ m 1 0) (m@ m 2 0) 0
+              (m@ m 0 1) (m@ m 1 1) (m@ m 2 1) 0
+              (m@ m 0 2) (m@ m 1 2) (m@ m 2 2) 0
+              nx ny nz 1))))
+(define (vtransform v m)
+  (let ((x (->fl (vx v))) (y (->fl (vy v))) (z (->fl (vz v))))
+    (vector (+ (* x (m@ m 0 0)) (* y (m@ m 1 0)) (* z (m@ m 2 0)) (m@ m 3 0))
+            (+ (* x (m@ m 0 1)) (* y (m@ m 1 1)) (* z (m@ m 2 1)) (m@ m 3 1))
+            (+ (* x (m@ m 0 2)) (* y (m@ m 1 2)) (* z (m@ m 2 2)) (m@ m 3 2)))))
+(define (vtransform-rot v m)
+  (let ((x (->fl (vx v))) (y (->fl (vy v))) (z (->fl (vz v))))
+    (vector (+ (* x (m@ m 0 0)) (* y (m@ m 1 0)) (* z (m@ m 2 0)))
+            (+ (* x (m@ m 0 1)) (* y (m@ m 1 1)) (* z (m@ m 2 1)))
+            (+ (* x (m@ m 0 2)) (* y (m@ m 1 2)) (* z (m@ m 2 2))))))
 (define (get-global-transform . _) (mident))
 (define (get-transform . _) (mident))
 ;; get-camera-transform is wired to the engine via FFI (see camera section above)
 (define (get-inv-camera-transform . _) (minverse (get-camera-transform)))
-(define (vtransform v . _) v)
-(define (vtransform-rot v . _) v)
-(define (mtranslate . _) (mident))
-(define (mrotate . _) (mident))
-(define (mscale . _) (mident))
-(define (minverse m) m)
-(define (mtranspose m) m)
 (define (flxtime) 0.0)
 (define (mmul2 . _) (void))
 (define (madd2 . _) (void))
@@ -218,15 +257,40 @@
 (define (poly-indexed? . _) (void)) ;; auto-stub
 (define (poly-indices . _) (void)) ;; auto-stub
 (define (pdata-names . _) (void)) ;; auto-stub
-(define (maim . _) (void)) ;; auto-stub
+(define (maim . _) (mident)) ;; simple stub (rare)
 (define (poly-set-index . _) (void)) ;; auto-stub
 
-;; ---- stubs for engine prims used by the loaded .ss libs (not wired to libfluxus)
-;; camera.ss quaternion helpers (engine prims)
-(define (qmul . _) (vector 0 0 0 1))
-(define (qnormalise q) q)
-(define (qconjugate q) q)
-(define (qtomatrix . _) (mident))
+;; ---- quaternions (x y z w), consistent with the row-vector matrices above ---
+(define (qaxisangle axis angle)
+  (let ((a (deg->rad angle)) (n (vnormalise axis)))
+    (let ((s (sin (/ a 2.0))))
+      (vector (* (vx n) s) (* (vy n) s) (* (vz n) s) (cos (/ a 2.0))))))
+(define (qmul a b)
+  (let ((ax (vx a)) (ay (vy a)) (az (vz a)) (aw (vw a))
+        (bx (vx b)) (by (vy b)) (bz (vz b)) (bw (vw b)))
+    (vector (+ (* aw bx) (* ax bw) (* ay bz) (- (* az by)))
+            (+ (* aw by) (- (* ax bz)) (* ay bw) (* az bx))
+            (+ (* aw bz) (* ax by) (- (* ay bx)) (* az bw))
+            (- (* aw bw) (* ax bx) (* ay by) (* az bz)))))
+(define (qnormalise q)
+  (let ((m (sqrt (+ (* (vx q) (vx q)) (* (vy q) (vy q)) (* (vz q) (vz q)) (* (vw q) (vw q))))))
+    (if (zero? m) q (vector (/ (vx q) m) (/ (vy q) m) (/ (vz q) m) (/ (vw q) m)))))
+(define (qconjugate q) (vector (- (vx q)) (- (vy q)) (- (vz q)) (vw q)))
+(define (qtomatrix q)
+  (let* ((n (qnormalise q)) (x (vx n)) (y (vy n)) (z (vz n)) (w (vw n)))
+    (vector (- 1 (* 2 (+ (* y y) (* z z)))) (* 2 (+ (* x y) (* w z)))     (* 2 (- (* x z) (* w y)))     0
+            (* 2 (- (* x y) (* w z)))     (- 1 (* 2 (+ (* x x) (* z z)))) (* 2 (+ (* y z) (* w x)))     0
+            (* 2 (+ (* x z) (* w y)))     (* 2 (- (* y z) (* w x)))     (- 1 (* 2 (+ (* x x) (* y y)))) 0
+            0 0 0 1)))
+;; noise: real Perlin/simplex via the engine (FFI); harmless 0.0 on the bare CLI
+(define _noise   (cfun "flux_noise"        (_fun _double _double _double -> _double) (lambda (x y z) 0.0)))
+(define _snoise  (cfun "flux_snoise"       (_fun _double _double _double -> _double) (lambda (x y z) 0.0)))
+(define _nseed   (cfun "flux_noise_seed"   (_fun _int -> _void) (lambda (s) (void))))
+(define _ndetail (cfun "flux_noise_detail" (_fun _int _double -> _void) (lambda (o f) (void))))
+(define (noise x (y 0.0) (z 0.0))  (_noise  (->fl x) (->fl y) (->fl z)))
+(define (snoise x (y 0.0) (z 0.0)) (_snoise (->fl x) (->fl y) (->fl z)))
+(define (noise-seed s) (_nseed s))
+(define (noise-detail o (f 0.0)) (_ndetail o (->fl f)))
 ;; ---- script-driven camera (FFI, real engine) -------------------------------
 ;; matrices marshalled as 16-double f64vectors (column-major, fluxus order)
 (define _set-cam-tx (cfun "flux_set_camera_transform" (_fun _f64vector -> _void) (lambda (m) (void))))
@@ -462,7 +526,6 @@
 ;; building-blocks.ss with-pixels-renderer macro (engine prims)
 (define (renderer-grab . _) (void))
 (define (renderer-ungrab . _) (void))
-(define (vdist-sq a b) (let ((d (vsub a b))) (vdot d d)))
 ;; voxels-tools.ss engine prims
 (define (voxels-width) 0)
 (define (voxels-height) 0)

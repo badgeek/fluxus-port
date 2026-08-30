@@ -29,6 +29,69 @@ bool vec3(s7_scheme* sc, s7_pointer a, double& x, double& y, double& z) {
   return true;
 }
 
+// ---- maths marshalling: read a length-n s7 vector, build one ----------------
+static bool readVecN(s7_scheme* sc, s7_pointer a, double* out, int n) {
+  if (!s7_is_pair(a)) return false;
+  s7_pointer v = s7_car(a);
+  if (!s7_is_vector(v)) return false;
+  int len = (int) s7_vector_length(v);
+  for (int i = 0; i < n; ++i)
+    out[i] = (i < len) ? s7_number_to_real(sc, s7_vector_ref(sc, v, i)) : 0.0;
+  return true;
+}
+static s7_pointer makeVecN(s7_scheme* sc, const double* v, int n) {
+  s7_pointer r = s7_make_vector(sc, n);
+  for (int i = 0; i < n; ++i) s7_vector_set(sc, r, i, s7_make_real(sc, v[i]));
+  return r;
+}
+// two vec3 in -> vec3 out / -> scalar out
+#define S7_VV_V(fn, cfn) static s7_pointer fn(s7_scheme* sc, s7_pointer a){ double x[3],y[3],o[3]; readVecN(sc,a,x,3); readVecN(sc,s7_cdr(a),y,3); cfn(x,y,o); return makeVecN(sc,o,3); }
+#define S7_VV_S(fn, cfn) static s7_pointer fn(s7_scheme* sc, s7_pointer a){ double x[3],y[3]; readVecN(sc,a,x,3); readVecN(sc,s7_cdr(a),y,3); return s7_make_real(sc, cfn(x,y)); }
+S7_VV_V(f_vadd,     flux_vadd)
+S7_VV_V(f_vsub,     flux_vsub)
+S7_VV_V(f_vcross,   flux_vcross)
+S7_VV_V(f_vreflect, flux_vreflect)
+S7_VV_S(f_vdot,     flux_vdot)
+S7_VV_S(f_vdist,    flux_vdist)
+S7_VV_S(f_vdist_sq, flux_vdist_sq)
+static s7_pointer f_vmul(s7_scheme* sc, s7_pointer a){ double x[3],o[3]; readVecN(sc,a,x,3); flux_vmul(x, s7_number_to_real(sc,s7_cadr(a)), o); return makeVecN(sc,o,3); }
+static s7_pointer f_vdiv(s7_scheme* sc, s7_pointer a){ double x[3],o[3]; readVecN(sc,a,x,3); flux_vdiv(x, s7_number_to_real(sc,s7_cadr(a)), o); return makeVecN(sc,o,3); }
+static s7_pointer f_vmag(s7_scheme* sc, s7_pointer a){ double x[3]; readVecN(sc,a,x,3); return s7_make_real(sc, flux_vmag(x)); }
+static s7_pointer f_vnormalise(s7_scheme* sc, s7_pointer a){ double x[3],o[3]; readVecN(sc,a,x,3); flux_vnormalise(x,o); return makeVecN(sc,o,3); }
+static s7_pointer f_vtransform(s7_scheme* sc, s7_pointer a){ double v[3],m[16],o[3]; readVecN(sc,a,v,3); readVecN(sc,s7_cdr(a),m,16); flux_vtransform(v,m,o); return makeVecN(sc,o,3); }
+static s7_pointer f_vtransform_rot(s7_scheme* sc, s7_pointer a){ double v[3],m[16],o[3]; readVecN(sc,a,v,3); readVecN(sc,s7_cdr(a),m,16); flux_vtransform_rot(v,m,o); return makeVecN(sc,o,3); }
+// matrices (16-vectors)
+static s7_pointer f_mident(s7_scheme* sc, s7_pointer){ double o[16]; flux_mident(o); return makeVecN(sc,o,16); }
+static s7_pointer f_mmul(s7_scheme* sc, s7_pointer a){ double x[16],y[16],o[16]; readVecN(sc,a,x,16); readVecN(sc,s7_cdr(a),y,16); flux_mmul(x,y,o); return makeVecN(sc,o,16); }
+#define S7_V3_M(fn, cfn) static s7_pointer fn(s7_scheme* sc, s7_pointer a){ double v[3],o[16]; readVecN(sc,a,v,3); cfn(v,o); return makeVecN(sc,o,16); }
+S7_V3_M(f_mtranslate, flux_mtranslate)
+S7_V3_M(f_mrotate,    flux_mrotate)
+S7_V3_M(f_mscale,     flux_mscale)
+#define S7_M_M(fn, cfn) static s7_pointer fn(s7_scheme* sc, s7_pointer a){ double x[16],o[16]; readVecN(sc,a,x,16); cfn(x,o); return makeVecN(sc,o,16); }
+S7_M_M(f_mtranspose, flux_mtranspose)
+S7_M_M(f_minverse,   flux_minverse)
+static s7_pointer f_maim(s7_scheme* sc, s7_pointer a){ double d[3],u[3],o[16]; readVecN(sc,a,d,3); readVecN(sc,s7_cdr(a),u,3); flux_maim(d,u,o); return makeVecN(sc,o,16); }
+// quaternions (4-vectors x y z w)
+static s7_pointer f_qaxisangle(s7_scheme* sc, s7_pointer a){ double ax[3],o[4]; readVecN(sc,a,ax,3); flux_qaxisangle(ax, s7_number_to_real(sc,s7_cadr(a)), o); return makeVecN(sc,o,4); }
+static s7_pointer f_qmul(s7_scheme* sc, s7_pointer a){ double x[4],y[4],o[4]; readVecN(sc,a,x,4); readVecN(sc,s7_cdr(a),y,4); flux_qmul(x,y,o); return makeVecN(sc,o,4); }
+#define S7_Q_Q(fn, cfn) static s7_pointer fn(s7_scheme* sc, s7_pointer a){ double x[4],o[4]; readVecN(sc,a,x,4); cfn(x,o); return makeVecN(sc,o,4); }
+S7_Q_Q(f_qnormalise, flux_qnormalise)
+S7_Q_Q(f_qconjugate, flux_qconjugate)
+static s7_pointer f_qtomatrix(s7_scheme* sc, s7_pointer a){ double x[4],o[16]; readVecN(sc,a,x,4); flux_qtomatrix(x,o); return makeVecN(sc,o,16); }
+// noise (1..3 reals)
+static double argReal(s7_scheme* sc, s7_pointer a, int i){ for(int k=0;k<i && s7_is_pair(a);++k) a=s7_cdr(a); return s7_is_pair(a)?s7_number_to_real(sc,s7_car(a)):0.0; }
+static s7_pointer f_noise(s7_scheme* sc, s7_pointer a){ return s7_make_real(sc, flux_noise(argReal(sc,a,0),argReal(sc,a,1),argReal(sc,a,2))); }
+static s7_pointer f_snoise(s7_scheme* sc, s7_pointer a){ return s7_make_real(sc, flux_snoise(argReal(sc,a,0),argReal(sc,a,1),argReal(sc,a,2))); }
+static s7_pointer f_noise_seed(s7_scheme* sc, s7_pointer a){ flux_noise_seed((int) argReal(sc,a,0)); return s7_nil(sc); }
+static s7_pointer f_noise_detail(s7_scheme* sc, s7_pointer a){ flux_noise_detail((int) argReal(sc,a,0), argReal(sc,a,1)); return s7_nil(sc); }
+// grabbed-prim state setters missing from the s7 host (flux_* already exist)
+static s7_pointer f_backfacecull(s7_scheme* sc, s7_pointer a){ int on = s7_is_pair(a)?(s7_boolean(sc,s7_car(a))?1:0):1; flux_backfacecull(on); return s7_nil(sc); }
+static s7_pointer f_opacity(s7_scheme* sc, s7_pointer a){ if(s7_is_pair(a)) flux_opacity(s7_number_to_real(sc,s7_car(a))); return s7_nil(sc); }
+static s7_pointer f_wire_opacity(s7_scheme* sc, s7_pointer a){ if(s7_is_pair(a)) flux_wire_opacity(s7_number_to_real(sc,s7_car(a))); return s7_nil(sc); }
+static s7_pointer f_wire_colour(s7_scheme* sc, s7_pointer a){ double x,y,z; if(vec3(sc,a,x,y,z)) flux_wire_colour(x,y,z); return s7_nil(sc); }
+static s7_pointer f_key_poll(s7_scheme* sc, s7_pointer){ return s7_make_integer(sc, flux_get_key()); }
+static s7_pointer f_set_export(s7_scheme* sc, s7_pointer a){ int on = s7_boolean(sc,s7_car(a))?1:0; const char* p = s7_is_string(s7_cadr(a))?s7_string(s7_cadr(a)):""; int fps = (int) s7_number_to_real(sc,s7_caddr(a)); flux_set_export(on,p,fps); return s7_nil(sc); }
+
 s7_pointer f_colour(s7_scheme* sc, s7_pointer a)     { double x,y,z; if (vec3(sc,a,x,y,z)) flux_colour(x,y,z);     return s7_nil(sc); }
 s7_pointer f_background(s7_scheme* sc, s7_pointer a)  { double x,y,z; if (vec3(sc,a,x,y,z)) flux_background(x,y,z); return s7_nil(sc); }
 s7_pointer f_translate(s7_scheme* sc, s7_pointer a)   { double x,y,z; if (vec3(sc,a,x,y,z)) flux_translate(x,y,z);  return s7_nil(sc); }
@@ -486,6 +549,46 @@ void S7ScriptHost::init() {
   def("pdata-ref",    f_pdata_ref,    2, 0, false);
   def("pdata-set!",   f_pdata_set,    3, 0, false);
 
+  // ---- maths primitives (native; see FluxusCommands) ----------------------
+  def("vadd",           f_vadd,           2, 0, false);
+  def("vsub",           f_vsub,           2, 0, false);
+  def("vmul",           f_vmul,           2, 0, false);
+  def("vdiv",           f_vdiv,           2, 0, false);
+  def("vdot",           f_vdot,           2, 0, false);
+  def("vcross",         f_vcross,         2, 0, false);
+  def("vmag",           f_vmag,           1, 0, false);
+  def("vdist",          f_vdist,          2, 0, false);
+  def("vdist-sq",       f_vdist_sq,       2, 0, false);
+  def("vnormalise",     f_vnormalise,     1, 0, false);
+  def("vnormalize",     f_vnormalise,     1, 0, false);
+  def("vreflect",       f_vreflect,       2, 0, false);
+  def("vtransform",     f_vtransform,     2, 0, false);
+  def("vtransform-rot", f_vtransform_rot, 2, 0, false);
+  def("mident",         f_mident,         0, 0, false);
+  def("mmul",           f_mmul,           2, 0, false);
+  def("mtranslate",     f_mtranslate,     1, 0, false);
+  def("mrotate",        f_mrotate,        1, 0, false);
+  def("mscale",         f_mscale,         1, 0, false);
+  def("mtranspose",     f_mtranspose,     1, 0, false);
+  def("minverse",       f_minverse,       1, 0, false);
+  def("maim",           f_maim,           2, 0, false);
+  def("qaxisangle",     f_qaxisangle,     2, 0, false);
+  def("qmul",           f_qmul,           2, 0, false);
+  def("qnormalise",     f_qnormalise,     1, 0, false);
+  def("qconjugate",     f_qconjugate,     1, 0, false);
+  def("qtomatrix",      f_qtomatrix,      1, 0, false);
+  def("noise",          f_noise,          1, 2, false);
+  def("snoise",         f_snoise,         1, 2, false);
+  def("noise-seed",     f_noise_seed,     1, 0, false);
+  def("noise-detail",   f_noise_detail,   1, 1, false);
+  def("backfacecull",   f_backfacecull,   0, 1, false);
+  def("opacity",        f_opacity,        1, 0, false);
+  def("wire-opacity",   f_wire_opacity,   1, 0, false);
+  def("wire-colour",    f_wire_colour,    1, 0, false);
+  def("wire-color",     f_wire_colour,    1, 0, false);
+  def("key-poll",       f_key_poll,       0, 0, false);
+  def("set-export",     f_set_export,     3, 0, false);
+
   s7_eval_c_string(sc,
     "(define-macro (with-state . body)"
     "  `(begin (push) (let ((__r (begin ,@body))) (pop) __r)))");
@@ -496,6 +599,36 @@ void S7ScriptHost::init() {
   // retained is a no-op (retained mode is a Racket-host feature).
   s7_eval_c_string(sc, "(define-macro (every-frame . body) `(begin ,@body))");
   s7_eval_c_string(sc, "(define (retained . _) #f)");
+  // vector component accessors (match Racket's building-blocks.ss) + `sort`
+  // alias (s7's builtin is `sort!`) so canonical fluxus .scm sketches load.
+  s7_eval_c_string(sc,
+    "(begin"
+    "  (define (vx v) (vector-ref v 0)) (define (vy v) (vector-ref v 1))"
+    "  (define (vz v) (vector-ref v 2)) (define (vw v) (vector-ref v 3))"
+    "  (define (vr v) (vector-ref v 0)) (define (vg v) (vector-ref v 1))"
+    "  (define (vb v) (vector-ref v 2)) (define (va v) (vector-ref v 3))"
+    "  (unless (defined? 'sort) (define sort sort!))"
+    "  (unless (defined? 'void) (define (void . _) #f)))");
+  // pdata iteration helpers (mirror Racket's building-blocks.ss) so pdata-driven
+  // .scm sketches run on s7. proc gets (index write-val read-vals...) -> new val.
+  s7_eval_c_string(sc,
+    "(begin"
+    "  (define (pdata-index-map! proc wname . rnames)"
+    "    (let ((n (pdata-size)))"
+    "      (let loop ((i 0))"
+    "        (when (< i n)"
+    "          (pdata-set! wname i"
+    "            (apply proc i (pdata-ref wname i)"
+    "                   (map (lambda (rn) (pdata-ref rn i)) rnames)))"
+    "          (loop (+ i 1))))))"
+    "  (define (pdata-map! proc wname . rnames)"
+    "    (let ((n (pdata-size)))"
+    "      (let loop ((i 0))"
+    "        (when (< i n)"
+    "          (pdata-set! wname i"
+    "            (apply proc (pdata-ref wname i)"
+    "                   (map (lambda (rn) (pdata-ref rn i)) rnames)))"
+    "          (loop (+ i 1)))))))");
 }
 
 void S7ScriptHost::setRenderer(Fluxus::Renderer* r) { flux_set_renderer((void*) r); }
