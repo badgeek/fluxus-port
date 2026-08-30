@@ -173,6 +173,23 @@ static s7_pointer f_load_primitive(s7_scheme* sc, s7_pointer a){ return s7_make_
 static s7_pointer f_save_primitive(s7_scheme* sc, s7_pointer a){ if(s7_is_string(s7_car(a))) flux_save_primitive(s7_string(s7_car(a))); return s7_nil(sc); }
 static s7_pointer f_get_transform(s7_scheme* sc, s7_pointer){ double m[16]; flux_get_transform(m); return makeVecN(sc,m,16); }
 static s7_pointer f_get_global_transform(s7_scheme* sc, s7_pointer){ double m[16]; flux_get_global_transform(m); return makeVecN(sc,m,16); }
+// primitive functions (pfunc) + skinning
+static const char* symOrStr(s7_scheme* sc, s7_pointer v){ return s7_is_symbol(v)?s7_symbol_name(v):(s7_is_string(v)?s7_string(v):""); }
+static s7_pointer f_make_pfunc(s7_scheme* sc, s7_pointer a){ return s7_make_integer(sc, flux_pfunc_make(symOrStr(sc, s7_car(a)))); }
+static s7_pointer f_pfunc_set(s7_scheme* sc, s7_pointer a){
+  int id = (int) s7_number_to_real(sc, s7_car(a));
+  s7_pointer l = s7_cadr(a);
+  while (s7_is_pair(l) && s7_is_pair(s7_cdr(l))) {
+    const char* k = symOrStr(sc, s7_car(l)); s7_pointer v = s7_cadr(l);
+    if (s7_is_symbol(v) || s7_is_string(v)) flux_pfunc_set_str(id, k, symOrStr(sc, v));
+    else if (s7_is_integer(v)) flux_pfunc_set_int(id, k, (int) s7_integer(v));
+    else if (s7_is_real(v))    flux_pfunc_set_float(id, k, s7_number_to_real(sc, v));
+    else if (s7_is_vector(v)) { int n=(int)s7_vector_length(v);
+      double c[4]={0,0,0,1}; for(int i=0;i<n&&i<4;++i) c[i]=s7_number_to_real(sc,s7_vector_ref(sc,v,i));
+      if (n>=4) flux_pfunc_set_col(id,k,c[0],c[1],c[2],c[3]); else flux_pfunc_set_vec(id,k,c[0],c[1],c[2]); }
+    l = s7_cddr(l); }
+  return s7_nil(sc); }
+static s7_pointer f_pfunc_run(s7_scheme* sc, s7_pointer a){ flux_pfunc_run((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
 
 s7_pointer f_colour(s7_scheme* sc, s7_pointer a)     { double x,y,z; if (vec3(sc,a,x,y,z)) flux_colour(x,y,z);     return s7_nil(sc); }
 s7_pointer f_background(s7_scheme* sc, s7_pointer a)  { double x,y,z; if (vec3(sc,a,x,y,z)) flux_background(x,y,z); return s7_nil(sc); }
@@ -721,6 +738,9 @@ void S7ScriptHost::init() {
   def("save-primitive",         f_save_primitive,         1, 0, false);
   def("get-transform",          f_get_transform,          0, 0, false);
   def("get-global-transform",   f_get_global_transform,   0, 0, false);
+  def("make-pfunc",             f_make_pfunc,             1, 0, false);
+  def("pfunc-set!",             f_pfunc_set,              2, 0, false);
+  def("pfunc-run",              f_pfunc_run,              1, 0, false);
 
   s7_eval_c_string(sc,
     "(define-macro (with-state . body)"

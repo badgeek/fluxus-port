@@ -48,6 +48,11 @@ set(FLUXUS_MIN_SOURCES
     ${FLUXUS_MIN_SRC_DIR}/LocatorPrimitive.cpp     # build-locator
     ${FLUXUS_MIN_SRC_DIR}/VoxelPrimitive.cpp       # build-voxels
     ${FLUXUS_MIN_SRC_DIR}/BlobbyPrimitive.cpp      # build-blobby / voxels->poly (marching cubes)
+    ${FLUXUS_MIN_SRC_DIR}/PrimitiveFunction.cpp    # pfunc base (make-pfunc/pfunc-run)
+    ${FLUXUS_MIN_SRC_DIR}/ArithmeticPrimFunc.cpp   # pfunc: pdata arithmetic
+    ${FLUXUS_MIN_SRC_DIR}/GenSkinWeightsPrimFunc.cpp
+    ${FLUXUS_MIN_SRC_DIR}/SkinWeightsToVertColsPrimFunc.cpp
+    ${FLUXUS_MIN_SRC_DIR}/SkinningPrimFunc.cpp     # mesh skinning
     ${FLUXUS_MIN_SRC_DIR}/Geometry.cpp             # IntersectLineTriangle (ray tests)
     ${FLUXUS_MIN_SRC_DIR}/GraphicsUtils.cpp        # MakeCube lives here
     # --- extra primitives pulled in by GraphicsUtils / ShadowVolumeGen -----

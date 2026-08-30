@@ -22,6 +22,11 @@
 #include "BlobbyPrimitive.h"
 #include "PrimitiveIO.h"
 #include "Tree.h"
+#include "PrimitiveFunction.h"
+#include "ArithmeticPrimFunc.h"
+#include "GenSkinWeightsPrimFunc.h"
+#include "SkinWeightsToVertColsPrimFunc.h"
+#include "SkinningPrimFunc.h"
 
 #include <vector>
 #include <deque>
@@ -262,11 +267,15 @@ void flux_frame_begin(double t, int frame) {
   g_ctx.hints = 0;
   g_ctx.lineWidth = 2.0f;
   g_ctx.grabbed = nullptr;
+  g_ctx.grabbedId = -1;
   g_ctx.shader  = nullptr;
   g_ctx.parent  = -1;
   g_ctx.texture = 0;
   g_ctx.srcBlend = GL_SRC_ALPHA;
   g_ctx.dstBlend = GL_ONE_MINUS_SRC_ALPHA;
+  // immediate mode re-makes pfuncs every eval — free last frame's set so they
+  // don't leak. Retained mode makes them once in setup, so keep them there.
+  if (!flux_retained_on()) flux_pfunc_clear();
   applyCamera();   // orbit camera survives the per-frame scene Clear()
 }
 
@@ -1308,3 +1317,33 @@ void flux_get_global_transform(double out[16]) {
   }
   const float* a = m.arr(); for (int i = 0; i < 16; ++i) out[i] = a[i];
 }
+
+// ---- primitive functions (pfunc) + skinning ---------------------------------
+// A pfunc is a named operation applied to the grabbed prim: "arithmetic" (pdata
+// math), "genskinweights"/"skinning"/"skinweights->vertcols" (mesh skinning).
+// We own the instances (upstream's PFuncContainer needs Engine, which the port
+// lacks). make returns an int id; typed setters stash args; run applies it.
+namespace { std::vector<PrimitiveFunction*> g_pfuncs;
+  inline PrimitiveFunction* pf(int id) { return (id >= 0 && id < (int) g_pfuncs.size()) ? g_pfuncs[id] : nullptr; }
+}
+int flux_pfunc_make(const char* name) {
+  std::string n = name ? name : "";
+  PrimitiveFunction* p = nullptr;
+  if      (n == "arithmetic")            p = new ArithmeticPrimFunc();
+  else if (n == "genskinweights")        p = new GenSkinWeightsPrimFunc();
+  else if (n == "skinweights->vertcols") p = new SkinWeightsToVertColsPrimFunc();
+  else if (n == "skinning")              p = new SkinningPrimFunc();
+  else return -1;   // upstream returns 0 (a valid id) for unknown; -1 is safer
+  g_pfuncs.push_back(p);
+  return (int) g_pfuncs.size() - 1;
+}
+void flux_pfunc_set_str(int id, const char* k, const char* v) { if (PrimitiveFunction* f = pf(id)) f->SetArg<std::string>(k, std::string(v ? v : "")); }
+void flux_pfunc_set_int(int id, const char* k, int v)         { if (PrimitiveFunction* f = pf(id)) f->SetArg<int>(k, v); }
+void flux_pfunc_set_float(int id, const char* k, double v)    { if (PrimitiveFunction* f = pf(id)) f->SetArg<float>(k, (float) v); }
+void flux_pfunc_set_vec(int id, const char* k, double x, double y, double z)            { if (PrimitiveFunction* f = pf(id)) f->SetArg<dVector>(k, dVector((float) x, (float) y, (float) z)); }
+void flux_pfunc_set_col(int id, const char* k, double r, double g, double b, double a)  { if (PrimitiveFunction* f = pf(id)) f->SetArg<dColour>(k, dColour((float) r, (float) g, (float) b, (float) a)); }
+void flux_pfunc_run(int id) {
+  PrimitiveFunction* f = pf(id);
+  if (f && g_ctx.grabbed && g_ctx.r) f->Run(*g_ctx.grabbed, g_ctx.r->GetSceneGraph());
+}
+void flux_pfunc_clear(void) { for (PrimitiveFunction* p : g_pfuncs) delete p; g_pfuncs.clear(); }

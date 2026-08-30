@@ -328,6 +328,16 @@ extern "C" {
   void flux_get_transform(double out[16]);         // grabbed prim's local transform (or build ctx)
   void flux_get_global_transform(double out[16]);  // grabbed prim's world transform (scene graph)
 
+  // ---- primitive functions (pfunc) + skinning -------------------------------
+  int  flux_pfunc_make(const char* name);  // "arithmetic"|"genskinweights"|"skinning"|"skinweights->vertcols" -> id (-1 unknown)
+  void flux_pfunc_set_str(int id, const char* key, const char* v);
+  void flux_pfunc_set_int(int id, const char* key, int v);
+  void flux_pfunc_set_float(int id, const char* key, double v);
+  void flux_pfunc_set_vec(int id, const char* key, double x, double y, double z);
+  void flux_pfunc_set_col(int id, const char* key, double r, double g, double b, double a);
+  void flux_pfunc_run(int id);             // apply pfunc to the grabbed primitive
+  void flux_pfunc_clear(void);             // free all pfuncs
+
   // scripts report an error string back to the host (or "" to clear)
   void flux_report_error(const char* msg);
 }
