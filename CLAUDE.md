@@ -55,6 +55,19 @@ editor (JUCE TextEditor | fluxus GLEditor)
    `colour`/`rotate`/`hint-*`/`opacity`/etc. modify the GRABBED prim's `State`;
    otherwise they set the build context for the next-built primitive
    (see `grabbedState()` in FluxusCommands.cpp).
+5. **`cli/fluxus eval '(expr)'` REPLACES the whole running buffer** (it calls
+   `loadSource`, same as `load`). So `eval '(screenshot "/x.png")'` swaps the live
+   sketch for just that one call → the scene is EMPTY → a black PNG; `eval
+   '(start-record)'` kills the every-frame thunk mid-record → black frames + no
+   auto-stop. This burned an entire session chasing a non-existent "MSAA/occlusion
+   capture bug." The grab is FINE. To run something WITHOUT destroying the sketch:
+   (a) bind it to a **hotkey** read by `(key-poll)` in the thunk (see `V`=record,
+   `R`=reset), or (b) add the call INTO the sketch file + `cli/fluxus load <file>`
+   (never `eval`). Only use `eval` for throwaway one-liners you're happy to replace
+   the buffer with.
+6. **`hint-solid` defaults ON for a freshly built prim.** For a see-through
+   wireframe you MUST `(hint-solid #f)` explicitly — otherwise a solid fill draws
+   in the current `(colour …)` (looked like "black/orange blobs" not wireframe).
 
 ## Performance (measure before "optimizing")
 - **Startup was ~25s; it's now ~4s — don't undo the fix.** The embedded Racket
@@ -75,6 +88,21 @@ editor (JUCE TextEditor | fluxus GLEditor)
 - **Measure steady-state, not startup.** ~99% CPU right after launch is Racket
   still loading — wait for full load before judging. An idle/empty sketch is
   ~10%. The JUCE-editor apps render at a 30 Hz timer (not vsync-continuous).
+- **The GL bottleneck is per-draw STATE DISPATCH, not vertex upload** (profile:
+  `gldUpdateDispatch`/`gleDoDrawDispatchCore`/`gleUpdateDeferredState`, NOT
+  `glDrawArrays_IMM`). On Apple's Metal-emulated GL each prim = ~2 draws (a
+  hidden-line prim does solid + wire passes) + heavy state churn (polygon-mode,
+  lighting/texture enable, colour). Things that DON'T help (all tried, all
+  within-noise or worse): **display lists** (`glCallList` still runs every draw),
+  **VBOs** (upload isn't the cost; behind `-DFLUXUS_ENABLE_VBO`, default ON but
+  marginal), **state-sorting the ImmediateMode record** (retained already groups
+  static/dynamic). The ONLY real lever is **fewer draws** — merge geometry, or cut
+  prim count. What actually won (95%→~30%): retained mode; a persistent scene
+  (build static ONCE, `(destroy)`+rebuild only the animated prims); and pooling
+  churny prims (build once, mutate via `grab` — see the smoke pool + caption text
+  pool in `examples/iso-city.scm`). Cubes (QUADS, 24 verts) are much cheaper per
+  prim than cylinders/spheres (TRILIST, 40–140) — but that cuts vertex cost, not
+  draw count.
 
 ## Self-calibration + new script commands
 - `(set-window-size w h)` resizes the GL content (e.g. `1080 1920` for vertical
@@ -82,6 +110,52 @@ editor (JUCE TextEditor | fluxus GLEditor)
   writes the finished framebuffer to a PNG, **once per path** (safe to call every
   frame). `(set-aspect ratio)` letterboxes to a locked AR. Use these + the
   **fluxus-calibrate skill** to draw → screenshot → Read → adjust in a loop.
+- **The grab genuinely captures the on-screen frame** (post-shader + MSAA
+  included). If a screenshot is black it's almost always gotcha #5 (`eval` wiped
+  the sketch), NOT the capture. Correct loop: put `(screenshot "/tmp/x.png")`
+  inside the every-frame thunk of the sketch FILE, `cli/fluxus load <file>`, wait
+  a beat, `Read /tmp/x.png`, adjust the file, reload. Do NOT `eval` the screenshot.
+- `(key-poll)` returns the last-pressed char code (0 if none), consumed once —
+  poll it in the thunk for hotkeys. Keys reach scripts even with `(hide-editor)`
+  (the component grabs focus). `(set-export on "path" fps)` does an offline
+  frame-locked MP4 render; drive start/stop from a hotkey + a rendered-FRAME
+  counter (frame-locked `(time)`-based auto-stop is unreliable), and keep the
+  window visible while it renders.
+
+## Building optimized visual sketches (patterns that worked)
+Reference impl: `examples/iso-city.scm` (an audio-agnostic, self-evolving generative
+piece). Reuse these patterns; they keep it cheap AND readable.
+- **Retained + persistent scene.** `(retained)`, build streets/static geometry
+  ONCE at top level, and in the every-frame thunk only `(destroy)` + rebuild the
+  ANIMATED prims (track their ids in a `*dyn*` list; `clear-dyn!` each frame).
+  Never rebuild static geometry per frame.
+- **Rebuild-on-change, not per-frame,** for generative structure. Quantise the
+  driver (e.g. a growth `evo-step`) and rebuild the static set only when the step
+  advances; track the built ids so you can `(destroy)` them on the next flip.
+- **Pool churny prims.** Anything you'd `build-*` every frame (smoke puffs, HUD
+  glyphs): build ONCE into a reused pool, then per frame `grab` + reset transform/
+  opacity. Park unused pooled prims off-screen (`(translate (vector 0 -9999 0))`)
+  or they linger as stale ghosts when the active count drops.
+- **Wireframe aesthetic:** `(hint-solid #f)(hint-wire)(hint-unlit)(backfacecull #f)`
+  + a bright `(wire-colour …)`; occlude with a near-black solid fill only if you
+  want hidden-line. Cubes compose blocky/voxel forms cheaply.
+- **Screen-pinned HUD:** capture the camera basis (eye + right/up/fwd) in the
+  camera fn, then place text at `eye + fwd*D + right*X + up*Y` and yaw-billboard it.
+  Note fov ~12° is telephoto — visible extent at D≈3 is only ~±0.18 wide, so HUD
+  offsets/scale are ~5× smaller than intuition; right-align by estimating text
+  width (`nchars * CW * scale/0.9`).
+- **Grid-routed motion:** route vehicles along cell EDGES (roads), never cell
+  centres (buildings); use short PERPENDICULAR half-cell stubs into a source/dest
+  cell. Ribbons FOLD at sharp corners ("kelepit") — draw each segment as its own
+  straight 2-pt ribbon and overlap the ends to fill the joint.
+- **Determinism:** seed everything from `(hsh id)`; make animation a pure function
+  of a virtual clock you advance yourself (so you can scale speed live / compress
+  for a recording without the value jumping) rather than raw `(time)`.
+- **CRT/glow output:** one `(post-shader …)` over the whole frame (bloom +
+  scanlines + grille + curvature). HUD text drawn before it inherits the CRT look;
+  keep per-element flicker SUBTLE (a few % brightness breathe), not glitchy.
+- **Verify visually every step** (screenshot→Read, per the calibration loop above)
+  — composition, colour, and "does it read as X" are not derivable from code.
 
 ## Vendored fluxus (`vendor/fluxus/`)
 Minimally edited for the port — find every change with `grep -rn "fluxus->JUCE port"`.
