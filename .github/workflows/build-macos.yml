@@ -1,0 +1,70 @@
+name: build-macos
+
+# Builds the two Racket apps on Apple Silicon and uploads the .app bundles.
+#   - FluxusRacketApp    (JUCE-editor overlay + real Racket CS)
+#   - FluxusGLRacketApp  (fluxus GLEditor + real Racket CS)
+#
+# NOTE: these builds are NOT self-contained. They link libracketcs.a but load the
+# minimal-racket install's compiled collects at runtime (bundling is a TODO), so
+# the artifacts run only on a machine that has `brew install minimal-racket`.
+# Unsigned: on download, clear quarantine with
+#   xattr -dr com.apple.quarantine FluxusRacketApp.app
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14   # Apple Silicon (arm64)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: brew install ninja minimal-racket
+
+      - name: Resolve Racket prefix
+        id: racket
+        run: echo "prefix=$(brew --prefix minimal-racket)" >> "$GITHUB_OUTPUT"
+
+      # Cache the CMake FetchContent deps (JUCE, FreeType, s7) — the biggest cost.
+      - name: Cache _deps
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', 'cmake/**') }}
+          restore-keys: deps-${{ runner.os }}-
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DRACKET_DIR="${{ steps.racket.outputs.prefix }}"
+
+      - name: Build Racket apps
+        run: cmake --build build --target FluxusRacketApp FluxusGLRacketApp
+
+      - name: Precompile the .ss library (faster first launch)
+        run: make precompile RACKET="${{ steps.racket.outputs.prefix }}/bin/racket"
+
+      - name: Package .app bundles
+        run: |
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/FluxusRacketApp_artefacts/Release/FluxusRacketApp.app \
+            dist/FluxusRacketApp.zip
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/FluxusGLRacketApp_artefacts/Release/FluxusGLRacketApp.app \
+            dist/FluxusGLRacketApp.zip
+          ls -la dist
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluxus-racket-apps-macos-arm64
+          path: dist/*.zip
+          if-no-files-found: error
