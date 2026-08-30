@@ -171,6 +171,8 @@ static s7_pointer f_get_children(s7_scheme* sc, s7_pointer){ int n=flux_get_chil
 static s7_pointer f_recalc_bb(s7_scheme* sc, s7_pointer){ flux_recalc_bb(); return s7_nil(sc); }
 static s7_pointer f_load_primitive(s7_scheme* sc, s7_pointer a){ return s7_make_integer(sc, flux_load_primitive(s7_is_string(s7_car(a))?s7_string(s7_car(a)):"")); }
 static s7_pointer f_save_primitive(s7_scheme* sc, s7_pointer a){ if(s7_is_string(s7_car(a))) flux_save_primitive(s7_string(s7_car(a))); return s7_nil(sc); }
+static s7_pointer f_get_transform(s7_scheme* sc, s7_pointer){ double m[16]; flux_get_transform(m); return makeVecN(sc,m,16); }
+static s7_pointer f_get_global_transform(s7_scheme* sc, s7_pointer){ double m[16]; flux_get_global_transform(m); return makeVecN(sc,m,16); }
 
 s7_pointer f_colour(s7_scheme* sc, s7_pointer a)     { double x,y,z; if (vec3(sc,a,x,y,z)) flux_colour(x,y,z);     return s7_nil(sc); }
 s7_pointer f_background(s7_scheme* sc, s7_pointer a)  { double x,y,z; if (vec3(sc,a,x,y,z)) flux_background(x,y,z); return s7_nil(sc); }
@@ -717,6 +719,8 @@ void S7ScriptHost::init() {
   def("recalc-bb",              f_recalc_bb,              0, 0, false);
   def("load-primitive",         f_load_primitive,         1, 0, false);
   def("save-primitive",         f_save_primitive,         1, 0, false);
+  def("get-transform",          f_get_transform,          0, 0, false);
+  def("get-global-transform",   f_get_global_transform,   0, 0, false);
 
   s7_eval_c_string(sc,
     "(define-macro (with-state . body)"

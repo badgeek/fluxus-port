@@ -325,6 +325,9 @@ extern "C" {
   int  flux_load_primitive(const char* path);   // read a mesh -> new prim id (-1 fail)
   void flux_save_primitive(const char* path);   // write the grabbed prim to path
 
+  void flux_get_transform(double out[16]);         // grabbed prim's local transform (or build ctx)
+  void flux_get_global_transform(double out[16]);  // grabbed prim's world transform (scene graph)
+
   // scripts report an error string back to the host (or "" to clear)
   void flux_report_error(const char* msg);
 }

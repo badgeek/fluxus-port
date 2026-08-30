@@ -1295,3 +1295,16 @@ void flux_save_primitive(const char* path) {
   if (!g_ctx.r || !g_ctx.grabbed || g_ctx.grabbedId < 0 || !path) return;
   PrimitiveIO::Write(path, g_ctx.grabbed, (unsigned) g_ctx.grabbedId, g_ctx.r->GetSceneGraph());
 }
+
+void flux_get_transform(double out[16]) {
+  dMatrix m = g_ctx.grabbed ? g_ctx.grabbed->GetState()->Transform : g_ctx.tx;
+  const float* a = m.arr(); for (int i = 0; i < 16; ++i) out[i] = a[i];
+}
+void flux_get_global_transform(double out[16]) {
+  dMatrix m;   // identity if nothing grabbed / not in the graph
+  if (g_ctx.r && g_ctx.grabbedId >= 0) {
+    SceneNode* n = (SceneNode*) g_ctx.r->GetSceneGraph().FindNode(g_ctx.grabbedId);
+    if (n) m = g_ctx.r->GetSceneGraph().GetGlobalTransform(n);
+  }
+  const float* a = m.arr(); for (int i = 0; i < 16; ++i) out[i] = a[i];
+}
