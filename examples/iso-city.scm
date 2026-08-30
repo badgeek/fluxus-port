@@ -152,6 +152,39 @@
       (set! *pool-n* (+ i 1)))
     (vector-ref *pool* i)))
 
+;; ---- persistent triangle-particle pool (rocket exhaust smoke) ---------------
+;; Launch smoke is drawn as little wire TRIANGLES (line particles) instead of
+;; spheres — sharper, sparkier exhaust look. Same pool discipline: build each
+;; triangle once (a unit up-pointing tri in its local XY plane), park off-screen
+;; each frame, reposition only the ones emitted.
+(define *tri* (make-vector 512 -1))
+(define *tri-n* 0)
+(define *tri-cur* 0)
+(define (tri-frame-begin!)
+  (set! *tri-cur* 0)
+  (let loop ((i 0))
+    (when (< i *tri-n*)
+      (with-primitive (vector-ref *tri* i)
+        (identity) (translate (vector 0 -9999 0)) (wire-opacity 0.0))
+      (loop (+ i 1)))))
+(define (tri-particle!)                     ; next pooled triangle id (build once)
+  (let ((i *tri-cur*))
+    (set! *tri-cur* (+ i 1))
+    (when (>= i *tri-n*)
+      (let ((p (build-polygons 4 3)))       ; type 4 = POLYGON, 3 verts = triangle
+        (with-primitive p
+          (pdata-index-map!
+            (lambda (k v)
+              (cond ((= k 0) (vector  0.0   0.66 0.0))    ; apex
+                    ((= k 1) (vector -0.58 -0.33 0.0))    ; base-left
+                    (else    (vector  0.58 -0.33 0.0))))  ; base-right
+            "p")
+          (hint-solid #f) (hint-wire) (hint-unlit) (backfacecull #f)
+          (line-width 1.0))
+        (vector-set! *tri* i p)
+        (set! *tri-n* (+ i 1))))
+    (vector-ref *tri* i)))
+
 ;; ---- persistent caption text -----------------------------------------------
 ;; The caption title is rebuilt (build-text = a glyph-quad mesh) every frame even
 ;; though the string only changes as the typewriter reveals a char (~a few times
@@ -564,6 +597,145 @@
 
 ;; build the whole static scene for the CURRENT growth front: factory inside,
 ;; forest outside. Called only on a growth flip (see maybe-rebuild-site!).
+;; ---- rocket launch pads (advanced factories only, max PAD-N per city) -------
+(define PAD-N 3)
+(define PAD-CYCLE 15.0)                     ; seconds per launch cycle
+(define PAD-THRESH 0.42)                    ; industrialisation level pads appear at
+(define C-ROCKET (vector 0.90 0.94 1.00))  ; rocket wire (white)
+(define C-FLAME  (vector 1.00 0.55 0.12))  ; exhaust flame / scorch
+(define (take-n lst n) (if (or (<= n 0) (null? lst)) '() (cons (car lst) (take-n (cdr lst) (- n 1)))))
+;; the PAD-N cells with the highest pad-hash — chosen once, deterministic
+(define *pad-cells*
+  (let ((scored '()))
+    (let ly ((gz 0)) (when (< gz GRID)
+      (let lx ((gx 0)) (when (< gx GRID)
+        (set! scored (cons (cons (hsh (+ (+ gx (* gz GRID)) 90.0)) (+ gx (* gz GRID))) scored))
+        (lx (+ gx 1)))) (ly (+ gz 1))))
+    (map cdr (take-n (sort scored (lambda (a b) (> (car a) (car b)))) PAD-N))))
+(define (pad-cell? id) (and (member id *pad-cells*) #t))
+(define (pad-active? gx gz id)
+  (and (pad-cell? id) (cell-factory? gx gz) (> (indus) PAD-THRESH)))
+;; static launch structure — SpaceX-scale complex: massive concrete deck +
+;; launch mount + flame trench + 4 lightning/hold-down pylons + lattice
+;; transporter-erector gantry with two service arms.
+(define (launch-pad cx cz id)
+  (hl-box cx cz 0 (* BW 0.94) 0.18 (* BW 0.94) C-EDGE)                          ; concrete deck
+  (hl-box cx cz 0.18 (* BW 0.36) (* BW 0.14) (* BW 0.36) C-EDGE)               ; launch mount
+  ;; flame trench: scorched slot cut through the deck downwind of the mount
+  (glow-box (vector cx 0.03 (+ cz (* BW 0.5))) (vector (* BW 0.24) 0.02 (* BW 0.52)) C-BLACK 0.9)
+  ;; four corner lightning / hold-down pylons
+  (let ((o (* BW 0.72)) (ph (* BW 2.0)) (pw (* BW 0.05)))
+    (hl-box (- cx o) (- cz o) 0 pw ph pw C-EDGE)
+    (hl-box (+ cx o) (- cz o) 0 pw ph pw C-EDGE)
+    (hl-box (- cx o) (+ cz o) 0 pw ph pw C-EDGE)
+    (hl-box (+ cx o) (+ cz o) 0 pw ph pw C-EDGE))
+  ;; lattice transporter-erector gantry alongside the mount + two service arms
+  (let ((gx (+ cx (* BW 0.52))) (gh (* BW 2.3)) (gw (* BW 0.09)))
+    (hl-box gx cz 0 gw gh gw C-EDGE)                                            ; mast
+    (hl-box (- gx (* BW 0.16)) cz (* BW 0.95) (* BW 0.26) (* BW 0.05) (* BW 0.08) C-EDGE) ; lower arm
+    (hl-box (- gx (* BW 0.16)) cz (* BW 1.65) (* BW 0.26) (* BW 0.05) (* BW 0.08) C-EDGE)) ; upper arm
+  (glow-box (vector cx 0.19 cz) (vector (* BW 0.55) 0.01 (* BW 0.55)) C-FLAME 0.22)) ; scorch glow
+;; dynamic wireframe box (registers to *dyn*, rebuilt each frame)
+(define (dyn-box cx cz y0 w h d col)
+  (let ((b (with-state (translate (vector cx (+ y0 (* 0.5 h)) cz))
+                       (scale (vector w h d)) (build-cube))))
+    (hl-wire b col BLD-LW) (dyn! b)))
+;; ---- launch exhaust: radial billowing ground cloud (NOT wind-drift) ---------
+;; Chamber steam (smoke) drifts downwind; ROCKET exhaust does the opposite — it
+;; slams the deck and bursts OUTWARD in a ring pressed against the rocket base,
+;; hugging the ground then rolling up. Radial, wind-independent, fast.
+;; ey = the rocket's ENGINE exhaust height. Particles are BORN at the nozzle and
+;; stream DOWNWARD (opposite thrust) as they age, widening into a cone — so the
+;; smoke trails the rising rocket from its exhaust. When the plume reaches the
+;; ground it stops falling and billows OUTWARD (radial ground cloud).
+(define (launch-smoke cx cz ey seed n intensity)
+  (let loop ((k 0))
+    (when (< k n)
+      (let* ((prog (fract (+ (* (time) 0.7) (* k (/ 1.0 n)) (hsh (+ seed (* k 3.0))))))
+             (ang  (* TWO-PI (hsh (+ seed (* k 13.0)))))        ; radial direction
+             (fall (* prog BW 2.4))                             ; drops below the nozzle
+             (py   (max 0.12 (- ey fall)))                      ; clamp at deck level
+             (grnd (<= py 0.14))                                ; hit the ground?
+             ;; cone widens down the plume; billows wide once it pancakes on deck
+             (rad  (* intensity BW (+ 0.05 (* prog (if grnd 2.0 0.6)))))
+             (wob  (* 0.10 (sin (+ (* 3.3 (time)) (* 5 k) seed))))
+             (r    (* BW (+ 0.12 (* prog 0.52))))               ; triangle grows as it drifts
+             (op   (* (expt (- 1.0 prog) 0.55) (min 1.0 (* prog 6.0)) 0.75 intensity))
+             ;; tumble: each particle spins on all axes, seeded + time-driven
+             (spin (* 360.0 (+ (hsh (+ seed (* k 5.0))) (* (time) 0.5))))
+             (t (tri-particle!)))
+        (with-primitive t
+          (identity)
+          (translate (vector (+ cx (* (cos ang) rad) (* wob 0.4))
+                             (+ py (* 0.2 (abs wob)))
+                             (+ cz (* (sin ang) rad) (* wob 0.4))))
+          (rotate (vector (* spin 0.7) spin (* spin 1.3)))      ; tumbling line triangle
+          (scale (vector r r r))
+          (line-width 1.0)
+          (colour C-SMOKE) (opacity op)
+          (wire-colour C-SMOKE) (wire-opacity op)))
+      (loop (+ k 1)))))
+;; per-pad launch sequence: idle on pad -> ignite -> lift + accelerate + exhaust.
+;; Falcon-scale two-stage stack: long white first stage, black interstage band,
+;; grid fins, stowed landing legs, second stage, tapered payload fairing.
+(define (rocket cx cz id)
+  (let* ((ph  (fract (+ (/ (time) PAD-CYCLE) (* 0.37 (hsh (+ id 91.0))))))
+         (ign (and (> ph 0.50) (< ph 0.55)))            ; hold-down ignition
+         (lift (> ph 0.55))
+         (u   (max 0.0 (/ (- ph 0.55) 0.45)))           ; 0..1 during liftoff
+         (by  (+ 0.32 (if lift (* u u 9.5) 0.0)))       ; accelerating rise
+         (w   (* BW 0.155))                             ; body half-extent (slender)
+         (s1  (* BW 1.55))                              ; first stage (tall)
+         (band (* BW 0.14))                             ; interstage band
+         (s2  (* BW 0.85))                              ; second stage
+         (fh  (* BW 0.62)))                             ; fairing / nose
+    (when (< by 10.5)                                   ; still in frame
+      ;; --- first stage: long white core + flared engine skirt ---
+      (dyn-box cx cz by w s1 w C-ROCKET)
+      (dyn-box cx cz by (* w 1.16) (* BW 0.12) (* w 1.16) C-EDGE)      ; engine skirt ring
+      ;; four stowed landing legs against the base
+      (let ((ly (+ by (* BW 0.04))) (lo (* w 1.06)) (lh (* BW 0.52)))
+        (dyn-box (- cx lo) cz ly (* w 0.18) lh (* w 0.42) C-EDGE)
+        (dyn-box (+ cx lo) cz ly (* w 0.18) lh (* w 0.42) C-EDGE)
+        (dyn-box cx (- cz lo) ly (* w 0.42) lh (* w 0.18) C-EDGE)
+        (dyn-box cx (+ cz lo) ly (* w 0.42) lh (* w 0.18) C-EDGE))
+      ;; four grid fins near the top of the first stage
+      (let ((gy (+ by (* s1 0.88))) (go (* w 1.06)) (gw (* w 0.55)))
+        (dyn-box (- cx go) cz gy (* w 0.28) (* gw 1.1) gw C-EDGE)
+        (dyn-box (+ cx go) cz gy (* w 0.28) (* gw 1.1) gw C-EDGE)
+        (dyn-box cx (- cz go) gy gw (* gw 1.1) (* w 0.28) C-EDGE)
+        (dyn-box cx (+ cz go) gy gw (* gw 1.1) (* w 0.28) C-EDGE))
+      ;; --- black interstage band ---
+      (dyn-box cx cz (+ by s1) (* w 1.03) band (* w 1.03) C-EDGE)
+      ;; --- second stage ---
+      (dyn-box cx cz (+ by s1 band) (* w 0.95) s2 (* w 0.95) C-ROCKET)
+      ;; --- payload fairing: tapered nose (base tier + shoulder + cap) ---
+      (dyn-box cx cz (+ by s1 band s2)              (* w 0.86) (* fh 0.5)  (* w 0.86) C-ROCKET)
+      (dyn-box cx cz (+ by s1 band s2 (* fh 0.5))   (* w 0.56) (* fh 0.34) (* w 0.56) C-ROCKET)
+      (dyn-box cx cz (+ by s1 band s2 (* fh 0.84))  (* w 0.26) (* fh 0.3)  (* w 0.26) C-ROCKET)
+      ;; --- ignition flash on the deck ---
+      (when ign
+        (dyn! (glow-box (vector cx 0.24 cz) (vector (* BW 0.52) 0.16 (* BW 0.52)) C-FLAME 0.95)))
+      ;; --- exhaust plume (follows engines) + radial ground cloud (stays at pad) ---
+      (when lift
+        (dyn-box cx cz (- by (* BW 0.5)) (* w 0.9) (* BW 0.55) (* w 0.9) C-FLAME)
+        (dyn! (glow-box (vector cx (- by (* BW 0.7)) cz)
+                        (vector (* w 1.8) (* BW 0.4) (* w 1.8)) C-FLAME 0.85)))
+      ;; exhaust cloud billows against the rocket while it's near the pad, fading
+      ;; as it climbs (chamber steam still drifts elsewhere — this does not)
+      (let ((si (cond (ign 1.0) (lift (max 0.0 (- 1.0 (* u 0.7)))) (else 0.0))))
+        (when (> si 0.05)
+          ;; emit from the engine nozzle (just below the first stage), trailing down
+          (launch-smoke cx cz (max 0.14 (- by (* BW 0.1))) (+ id 200.0) 14 si))))))
+(define (rockets)
+  (for-each
+    (lambda (id)
+      (let* ((gx (modulo id GRID)) (gz (quotient id GRID))
+             (cx (+ (- HALF) (* (+ gx 0.5) CELL)))
+             (cz (+ (- HALF) (* (+ gz 0.5) CELL))))
+        (when (pad-active? gx gz id) (rocket cx cz id))))
+    *pad-cells*))
+
 (define (build-site)
   (let ((tops '()))
     (let ly ((gz 0))
@@ -576,14 +748,16 @@
               (if (cell-factory? gx gz)
                   (when (cell-occ? id)          ; factory (empty pads stay bare)
                     (cell-birth! id)             ; record first-built time (raise anim)
-                    ;; grow taller with industrialisation, and RISE from the ground
-                    ;; over RAISE-DUR when first constructed
-                    (let ((h (* (cell-base-h gx gz) (+ 1.0 (* 0.6 (indus)))
-                                (max 0.02 (cell-raise id)))))
-                      (build-structure cx cz h (cell-sty id)
-                                       (wire-col (hsh (+ id 23))) id)
-                      (when (> (indus) 0.3) (industrial-annex cx cz id))
-                      (set! tops (cons (vector cx (cell-top-h id h) cz) tops))))
+                    (if (pad-active? gx gz id)
+                        (launch-pad cx cz id)    ; advanced factory -> rocket pad
+                        ;; grow taller with industrialisation, and RISE from the
+                        ;; ground over RAISE-DUR when first constructed
+                        (let ((h (* (cell-base-h gx gz) (+ 1.0 (* 0.6 (indus)))
+                                    (max 0.02 (cell-raise id)))))
+                          (build-structure cx cz h (cell-sty id)
+                                           (wire-col (hsh (+ id 23))) id)
+                          (when (> (indus) 0.3) (industrial-annex cx cz id))
+                          (set! tops (cons (vector cx (cell-top-h id h) cz) tops)))))
                   (when (forest-cell? id)        ; forest ring, not yet razed
                     (tree cx cz id))))
             (lx (+ gx 1))))
@@ -1020,6 +1194,7 @@ void main() {
   (begin
     (clear-dyn!)                           ; remove last frame's animated prims
     (pool-frame-begin!)                    ; reset persistent smoke-pool cursor
+    (tri-frame-begin!)                      ; reset rocket exhaust triangle-particle pool
     (let ((k (key-poll)))
       (when (or (= k 114) (= k 82)) (reset-anim!))    ; R -> restart the animation
       (when (or (= k 118) (= k 86)) (start-record))   ; V -> record a 1-min video
@@ -1033,6 +1208,7 @@ void main() {
     (maybe-rebuild-site!)                  ; regrow factory / raze forest on a flip
     (iso-camera)
     (site-dynamic)                         ; smoke, core lights, site beacons
+    (rockets)                              ; rocket launch sequences (advanced pads)
     (comm-dots)                            ; packets travelling the comm arcs
     (powerline-dynamic)                    ; pylon beacons + energy pulses
     (traffic)                              ; vehicle trails (factory roads only)
