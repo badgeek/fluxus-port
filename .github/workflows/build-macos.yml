@@ -13,6 +13,7 @@ name: build-macos
 on:
   push:
     branches: [main]
+    tags: ['v*']        # a tag push (e.g. v0.1.0) also publishes a GitHub Release
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -20,6 +21,8 @@ on:
 jobs:
   build:
     runs-on: macos-14   # Apple Silicon (arm64)
+    permissions:
+      contents: write   # create releases + upload assets on tag builds
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -71,3 +74,17 @@ jobs:
           name: fluxus-racket-apps-macos-arm64
           path: dist/*.zip
           if-no-files-found: error
+
+      # On a tag push (v*), publish a GitHub Release with the .app zips attached.
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true
+          body: |
+            macOS (Apple Silicon) builds of the Racket apps.
+
+            Not self-contained: install the Racket runtime first —
+            `brew install minimal-racket`. Unsigned: after download run
+            `xattr -dr com.apple.quarantine <App>.app`.
