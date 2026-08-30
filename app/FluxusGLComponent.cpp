@@ -92,6 +92,7 @@ void FluxusGLComponent::loadScript(const juce::String& text) {
   if (overlay) overlay->setText(t);          // show it in the GL editor
   std::lock_guard<std::mutex> lk(shared.m);  // commit + run (like Ctrl+E)
   shared.pending = t;
+  shared.dirty = true;                       // force a re-eval (retained mode re-commits)
 }
 
 bool FluxusGLComponent::loadFile(const juce::File& f) {
@@ -177,6 +178,9 @@ bool FluxusGLComponent::keyPressed(const juce::KeyPress& k) {
     std::string t = overlay->getText();
     std::lock_guard<std::mutex> lk(shared.m);
     shared.pending = t;
+    shared.dirty = true;   // mark for re-eval — without this the scene only commits
+                           // the FIRST frame (commit = isDirty || !committedOnce), so
+                           // Ctrl+E edits were silently ignored in retained mode
     return true;   // don't forward to the editor
   }
 
