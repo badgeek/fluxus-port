@@ -7,6 +7,7 @@ extern "C" {
 }
 
 #include <string>
+#include <cstring>
 
 // s7 bindings are thin: parse args, call the shared flux_* commands. Both s7 and
 // Racket drive the SAME FluxusCommands layer, so a primitive added there is
@@ -103,6 +104,27 @@ static s7_pointer f_frustum(s7_scheme* sc, s7_pointer a){ flux_set_frustum(argRe
 static s7_pointer f_ortho(s7_scheme* sc, s7_pointer a){ int on = s7_is_pair(a)?(s7_boolean(sc,s7_car(a))?1:0):1; flux_set_ortho(on); return s7_nil(sc); }
 static s7_pointer f_clip(s7_scheme* sc, s7_pointer a){ flux_set_clip(argReal(sc,a,0), argReal(sc,a,1)); return s7_nil(sc); }
 static s7_pointer f_viewport(s7_scheme* sc, s7_pointer a){ flux_set_viewport(argReal(sc,a,0),argReal(sc,a,1),argReal(sc,a,2),argReal(sc,a,3)); return s7_nil(sc); }
+// turtle builder
+static s7_pointer f_turtle_prim(s7_scheme* sc, s7_pointer a){
+  int t = 0;
+  if (s7_is_pair(a)) { s7_pointer v = s7_car(a);
+    if (s7_is_symbol(v)) { const char* n = s7_symbol_name(v);
+      if(!strcmp(n,"quad-list"))t=1; else if(!strcmp(n,"triangle-list"))t=2;
+      else if(!strcmp(n,"triangle-fan"))t=3; else if(!strcmp(n,"polygon"))t=4; else t=0; }
+    else t = (int) s7_number_to_real(sc, v); }
+  flux_turtle_prim(t); return s7_nil(sc); }
+static s7_pointer f_turtle_vert(s7_scheme* sc, s7_pointer){ flux_turtle_vert(); return s7_nil(sc); }
+static s7_pointer f_turtle_build(s7_scheme* sc, s7_pointer){ return s7_make_integer(sc, flux_turtle_build()); }
+static s7_pointer f_turtle_move(s7_scheme* sc, s7_pointer a){ flux_turtle_move(argReal(sc,a,0)); return s7_nil(sc); }
+static s7_pointer f_turtle_turn(s7_scheme* sc, s7_pointer a){ double x,y,z; if(vec3(sc,a,x,y,z)) flux_turtle_turn(x,y,z); return s7_nil(sc); }
+static s7_pointer f_turtle_push(s7_scheme* sc, s7_pointer){ flux_turtle_push(); return s7_nil(sc); }
+static s7_pointer f_turtle_pop(s7_scheme* sc, s7_pointer){ flux_turtle_pop(); return s7_nil(sc); }
+static s7_pointer f_turtle_reset(s7_scheme* sc, s7_pointer){ flux_turtle_reset(); return s7_nil(sc); }
+static s7_pointer f_turtle_attach(s7_scheme* sc, s7_pointer a){ flux_turtle_attach(argInt(sc,a,0,-1)); return s7_nil(sc); }
+static s7_pointer f_turtle_skip(s7_scheme* sc, s7_pointer a){ flux_turtle_skip(argInt(sc,a,0,0)); return s7_nil(sc); }
+static s7_pointer f_turtle_position(s7_scheme* sc, s7_pointer){ return s7_make_integer(sc, flux_turtle_position()); }
+static s7_pointer f_turtle_seek(s7_scheme* sc, s7_pointer a){ flux_turtle_seek(argInt(sc,a,0,0)); return s7_nil(sc); }
+static s7_pointer f_get_turtle_transform(s7_scheme* sc, s7_pointer){ double m[16]; flux_get_turtle_transform(m); return makeVecN(sc,m,16); }
 
 s7_pointer f_colour(s7_scheme* sc, s7_pointer a)     { double x,y,z; if (vec3(sc,a,x,y,z)) flux_colour(x,y,z);     return s7_nil(sc); }
 s7_pointer f_background(s7_scheme* sc, s7_pointer a)  { double x,y,z; if (vec3(sc,a,x,y,z)) flux_background(x,y,z); return s7_nil(sc); }
@@ -610,6 +632,19 @@ void S7ScriptHost::init() {
   def("ortho",          f_ortho,          0, 1, false);
   def("clip",           f_clip,           2, 0, false);
   def("viewport",       f_viewport,       4, 0, false);
+  def("turtle-prim",     f_turtle_prim,     0, 1, false);
+  def("turtle-vert",     f_turtle_vert,     0, 0, false);
+  def("turtle-build",    f_turtle_build,    0, 0, false);
+  def("turtle-move",     f_turtle_move,     1, 0, false);
+  def("turtle-turn",     f_turtle_turn,     1, 0, false);
+  def("turtle-push",     f_turtle_push,     0, 0, false);
+  def("turtle-pop",      f_turtle_pop,      0, 0, false);
+  def("turtle-reset",    f_turtle_reset,    0, 0, false);
+  def("turtle-attach",   f_turtle_attach,   1, 0, false);
+  def("turtle-skip",     f_turtle_skip,     1, 0, false);
+  def("turtle-position", f_turtle_position, 0, 0, false);
+  def("turtle-seek",     f_turtle_seek,     1, 0, false);
+  def("get-turtle-transform", f_get_turtle_transform, 0, 0, false);
 
   s7_eval_c_string(sc,
     "(define-macro (with-state . body)"

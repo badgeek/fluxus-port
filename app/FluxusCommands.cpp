@@ -20,6 +20,7 @@
 #include "SimplexNoise.h"
 
 #include <vector>
+#include <deque>
 #include <mutex>
 #include <cmath>
 #include <cstdio>
@@ -1062,3 +1063,68 @@ double flux_noise(double x, double y, double z)  { return Noise::noise((float) x
 double flux_snoise(double x, double y, double z) { return SimplexNoise::noise((float) x, (float) y, (float) z); }
 void   flux_noise_seed(int seed)                 { Noise::noise_seed((unsigned) seed); }
 void   flux_noise_detail(int octaves, double falloff) { Noise::noise_detail(octaves, (float) falloff); }
+
+// ---- turtle builder (ported from modules/fluxus-engine/src/TurtleBuilder) ---
+// A turtle carries a transform stack; move/turn drive it, vert emits a vertex
+// into a build prim (or overwrites an attached prim's "p" pdata). Build hands
+// the prim to the renderer through addPrim so it honours the build context.
+namespace {
+struct TurtleState { dVector pos = dVector(0,0,0); dVector rot = dVector(0,0,0); };
+struct Turtle {
+  PolyPrimitive* building = nullptr;
+  TypedPData<dVector>* attached = nullptr;   // non-owning: an attached prim's "p"
+  unsigned int position = 0;
+  std::deque<TurtleState> state;
+  Turtle() { reset(); }
+  void reset() { state.clear(); state.push_front(TurtleState()); position = 0; }
+  void init()  { if (building) delete building; building = nullptr; attached = nullptr; position = 0; }
+  void prim(int type) {
+    init();
+    PolyPrimitive::Type t;
+    switch (type) { case 1: t = PolyPrimitive::QUADS;   break;
+                    case 2: t = PolyPrimitive::TRILIST; break;
+                    case 3: t = PolyPrimitive::TRIFAN;  break;
+                    case 4: t = PolyPrimitive::POLYGON; break;
+                    default: t = PolyPrimitive::TRISTRIP; }
+    building = new PolyPrimitive(t);
+  }
+  void attach(PolyPrimitive* p) {
+    init();
+    attached = dynamic_cast<TypedPData<dVector>*>(p->GetDataRaw("p"));
+  }
+  void vert() {
+    if (building) building->AddVertex(dVertex(state.front().pos, dVector(0, 1, 0)));
+    else if (attached && !attached->m_Data.empty())
+      attached->m_Data[position % attached->m_Data.size()] = state.front().pos;
+    position++;
+  }
+  void move(float d) {
+    dVector off(d, 0, 0); dMatrix m;
+    m.rotxyz(state.front().rot.x, state.front().rot.y, state.front().rot.z);
+    off = m.transform(off); state.front().pos += off;
+  }
+  void turn(dVector a) { state.front().rot += a; }
+  void push() { if (state.empty()) state.push_front(TurtleState()); else state.push_front(state.front()); }
+  void pop()  { if (state.size() > 1) state.pop_front(); }
+  dMatrix transform() {
+    dMatrix m; m.rotxyz(state.front().rot.x, state.front().rot.y, state.front().rot.z);
+    m.settranslate(state.front().pos); return m;
+  }
+};
+Turtle g_turtle;
+}
+void flux_turtle_prim(int type)  { g_turtle.prim(type); }
+void flux_turtle_vert(void)      { g_turtle.vert(); }
+int  flux_turtle_build(void)     { if (!g_turtle.building) return -1;
+                                   PolyPrimitive* p = g_turtle.building; g_turtle.building = nullptr;
+                                   return addPrim(p); }
+void flux_turtle_move(double d)  { g_turtle.move((float) d); }
+void flux_turtle_turn(double x, double y, double z) { g_turtle.turn(dVector((float) x, (float) y, (float) z)); }
+void flux_turtle_push(void)      { g_turtle.push(); }
+void flux_turtle_pop(void)       { g_turtle.pop(); }
+void flux_turtle_reset(void)     { g_turtle.reset(); }
+void flux_turtle_attach(int id)  { if (g_ctx.r) { PolyPrimitive* p = dynamic_cast<PolyPrimitive*>(g_ctx.r->GetPrimitive(id)); if (p) g_turtle.attach(p); } }
+void flux_turtle_skip(int n)     { g_turtle.position += (unsigned) n; }
+int  flux_turtle_position(void)  { return (int) g_turtle.position; }
+void flux_turtle_seek(int pos)   { g_turtle.position = (unsigned) pos; }
+void flux_get_turtle_transform(double out[16]) { dMatrix m = g_turtle.transform(); const float* a = m.arr(); for (int i = 0; i < 16; ++i) out[i] = a[i]; }

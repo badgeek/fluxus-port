@@ -262,6 +262,21 @@ extern "C" {
   void   flux_noise_seed(int seed);
   void   flux_noise_detail(int octaves, double falloff);
 
+  // ---- turtle builder: emit vertices by moving/turning a turtle -------------
+  void flux_turtle_prim(int type);        // begin a build prim (0..4 = poly type)
+  void flux_turtle_vert(void);            // emit a vertex at the turtle position
+  int  flux_turtle_build(void);           // hand the prim to the renderer -> id
+  void flux_turtle_move(double d);        // advance d along the turtle's local +X
+  void flux_turtle_turn(double x, double y, double z);  // add euler degrees
+  void flux_turtle_push(void);
+  void flux_turtle_pop(void);
+  void flux_turtle_reset(void);
+  void flux_turtle_attach(int id);        // deform an existing poly's "p" pdata
+  void flux_turtle_skip(int n);
+  int  flux_turtle_position(void);
+  void flux_turtle_seek(int pos);
+  void flux_get_turtle_transform(double out[16]);
+
   // scripts report an error string back to the host (or "" to clear)
   void flux_report_error(const char* msg);
 }
