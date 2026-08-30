@@ -41,6 +41,8 @@
 (define C-RED    (vector 1.00 0.12 0.10))     ; ALERT red
 (define C-PURPLE (vector 0.62 0.35 1.00))     ; Eva-01 purple
 (define C-SMOKE  (vector 1.00 1.00 1.00))     ; steam/smoke white
+(define C-GRID   (vector 0.20 0.85 0.40))     ; green road grid
+(define C-GRID-D (vector 0.12 0.50 0.24))     ; dim green sub-grid
 ;; wire colour per structure: mostly orange, some green, rare red/purple
 (define (wire-col r)
   (cond ((< r 0.55) C-EDGE)
@@ -67,25 +69,50 @@
 ;; The static scene rebuilds each time the quantised evolution step advances.
 (define CENTER (* 0.5 (- GRID 1)))         ; grid centre index (4.0 for GRID 9)
 (define GROW-MAX (+ CENTER 1.3))
-;; AUDIO-REACTIVE growth: evolution advances by accumulated audio ENERGY, not raw
-;; time — so buildings appear in sync with the music (loud passages / beats build
-;; fast, quiet passages creep). Monotonic + one-way (energy only accumulates).
-(define GROW-ENERGY 46.0)                   ; energy to reach fully over-industrialised
-(define AUDIO-DRIVE 2.4)                    ; how hard audio accelerates the build
-(define *energy* 0.0)
-(define *lt* -1.0)                          ; last frame time (for delta)
-(define (evo-advance!)                     ; call once per frame (top of the thunk)
-  (let* ((t (time))
-         (dt (if (< *lt* 0) 0.0 (min 0.1 (- t *lt*))))
-         (g (gain)))                        ; live audio level 0..~1
-    (set! *lt* t)
-    ;; steady creep + audio acceleration (g^2 emphasises loud passages / beats)
-    (set! *energy* (+ *energy* (* dt (+ 0.10 (* AUDIO-DRIVE g g)))))))
-(define (evo) (min 1.0 (/ *energy* GROW-ENERGY)))   ; 0 -> 1, holds at 1
-(define (reset-anim!)                      ; press R: back to bare forest
-  (set! *energy* 0.0) (set! *lt* -1.0) (set! *built-step* -999))
+;; time-based growth: evolution advances monotonically over GROW-TOTAL seconds
+;; then holds (one-way, no loop).
+(define GROW-TOTAL 210.0)                   ; seconds: bare centre -> fully maxed out
+;; growth runs on a VIRTUAL clock (*evo-elapsed*) advanced once per frame by
+;; dt * *grow-speed*, so +/- can scale industrialisation speed live without the
+;; evolution value jumping (scaling raw elapsed retroactively would). evo-tick!
+;; is called once at the top of every-frame (before anything reads (evo)).
+(define *evo-elapsed* 0.0)                  ; accumulated virtual growth-seconds
+(define *last-t* -1.0)                       ; previous real time sampled
+(define *grow-speed* 1.0)                    ; +/- multiplier (0.0625 .. 16)
+(define (evo-tick!)
+  (when (< *last-t* 0) (set! *last-t* (time)))
+  (let ((dt (- (time) *last-t*)))
+    (set! *last-t* (time))
+    (set! *evo-elapsed* (+ *evo-elapsed* (* dt *grow-speed*)))))
+(define (grow-faster!) (set! *grow-speed* (min 16.0    (* *grow-speed* 1.5))))
+(define (grow-slower!) (set! *grow-speed* (max 0.0625  (/ *grow-speed* 1.5))))
+(define (evo)                              ; 0 -> 1 monotonic, holds at 1
+  ;; while recording, compress the whole arc to fit the clip (live stays GROW-TOTAL)
+  (min 1.0 (/ *evo-elapsed* (if *rec* (* REC-LEN 0.92) GROW-TOTAL))))
 (define (evo-step) (inexact->exact (floor (* (evo) 52))))  ; rebuild trigger
 (define (indus) (max 0.0 (min 1.0 (/ (- (evo) 0.45) 0.55)))) ; densification 0..1
+;; per-cell construction raise: a building scales up from the ground over
+;; RAISE-DUR seconds after the cell is first built.
+(define RAISE-DUR 0.4)
+(define *birth* (make-vector (* GRID GRID) -1.0))
+(define (cell-birth! id) (when (< (vector-ref *birth* id) 0) (vector-set! *birth* id (time))))
+(define (cell-raise id)
+  (let ((b (vector-ref *birth* id)))
+    (if (< b 0) 0.0 (smoothstep (min 1.0 (/ (- (time) b) RAISE-DUR))))))
+(define (reset-anim!)                      ; press R: restart from bare forest
+  (set! *evo-elapsed* 0.0) (set! *last-t* -1.0) (set! *built-step* -999)
+  (let loop ((i 0)) (when (< i (* GRID GRID)) (vector-set! *birth* i -1.0) (loop (+ i 1)))))
+;; offline recording: restart the animation from forest, then render a frame-locked
+;; 60fps MP4; auto-stops after REC-LEN seconds of footage (see the thunk).
+(define REC-LEN 60.0)
+(define REC-FPS 60)
+(define *rec* #f)
+(define *rec-frames* 0)                     ; rendered frames since record start
+(define (start-record)
+  (reset-anim!)
+  (set! *rec-frames* 0)
+  (set-export #t "/Users/manticore/Movies/iso-city-1min.mp4" REC-FPS)
+  (set! *rec* #t))
 (define (cell-metric gx gz)                ; Chebyshev (square) dist + per-cell jitter
   (let ((dx (- gx CENTER)) (dz (- gz CENTER)))
     (+ (max (abs dx) (abs dz))
@@ -242,24 +269,61 @@
     (when (<= i GRID)
       (let* ((x (+ (- HALF) (* i CELL)))
              (ave (or (= i 0) (= i GRID) (= 0 (modulo i 3))))
-             (col (if ave C-AVENUE C-STREET))
-             (w   (if ave 0.014 0.006))
-             (op  (if ave 0.95 0.75)))
+             (col (if ave C-GRID C-GRID-D))     ; green grid
+             (w   (if ave 0.008 0.004))         ; thinner
+             (op  (if ave 0.95 0.70)))
         (glow-box (vector x 0.004 0) (vector w 0.006 SPAN) col op)
         (glow-box (vector 0 0.004 x) (vector SPAN 0.006 w) col op)
         (when ave
-          (glow-box (vector x 0.002 0) (vector 0.16 0.004 SPAN) col 0.10)
-          (glow-box (vector 0 0.002 x) (vector SPAN 0.004 0.16) col 0.10)))
+          (glow-box (vector x 0.002 0) (vector 0.10 0.004 SPAN) col 0.08)
+          (glow-box (vector 0 0.002 x) (vector SPAN 0.004 0.10) col 0.08)))
       (loop (+ i 1))))
-  ;; fine sub-grid: faint thin lines subdividing each cell (SUB per cell)
+  ;; fine sub-grid: thin green lines subdividing each cell (SUB per cell)
   (let ((SUB 4))
     (let loop ((i 0))
       (when (<= i (* GRID SUB))
         (when (not (= 0 (modulo i SUB)))       ; skip where main lines already are
           (let ((x (+ (- HALF) (* i (/ CELL SUB)))))
-            (glow-box (vector x 0.0025 0) (vector 0.003 0.004 SPAN) C-STREET 0.28)
-            (glow-box (vector 0 0.0025 x) (vector SPAN 0.004 0.003) C-STREET 0.28)))
+            (glow-box (vector x 0.0025 0) (vector 0.0035 0.004 SPAN) C-GRID 0.8)
+            (glow-box (vector 0 0.0025 x) (vector SPAN 0.004 0.0035) C-GRID 0.8)))
         (loop (+ i 1))))))
+
+;; ---- rolling terrain contour (value noise) surrounding the razed grid -------
+;; value noise = smooth bilinear interp of a hashed lattice; 2 octaves for hills.
+(define (vnoise x z)
+  (let* ((x0 (floor x)) (z0 (floor z))
+         (sx (smoothstep (- x x0))) (sz (smoothstep (- z z0)))
+         (hh (lambda (i j) (hsh (+ (* i 57.0) (* j 131.0) 0.3))))
+         (n00 (hh x0 z0)) (n10 (hh (+ x0 1) z0))
+         (n01 (hh x0 (+ z0 1))) (n11 (hh (+ x0 1) (+ z0 1)))
+         (a (+ n00 (* sx (- n10 n00))))
+         (b (+ n01 (* sx (- n11 n01)))))
+    (+ a (* sz (- b a)))))
+(define (fbm x z) (+ (* 0.65 (vnoise x z)) (* 0.35 (vnoise (* 2.0 x) (* 2.0 z)))))
+;; global wind: slowly drifting X/Z push from value noise over time. Smoke drifts
+;; with it (more the higher it rises = wind shear).
+(define WIND-AMP 1.6)
+(define (wind-x) (* WIND-AMP (- (fbm (* (time) 0.11)  3.0) 0.5)))
+(define (wind-z) (* WIND-AMP (- (fbm (* (time) 0.09) 47.0) 0.5)))
+(define TERR-N 30)                          ; mesh resolution
+(define TERR-EXT (* SPAN 1.7))              ; extends well beyond the city
+(define TERR-AMP 0.75)                      ; hill height
+(define (terrain)
+  (let ((p (with-state
+             (translate (vector 0 -0.08 0))
+             (rotate (vector 90 0 0))       ; lay the XY plane flat onto XZ
+             (scale (vector TERR-EXT TERR-EXT 1))
+             (build-seg-plane TERR-N TERR-N))))
+    (with-primitive p
+      (pdata-index-map!
+        (lambda (i v)
+          (let ((lx (vx v)) (ly (vy v)))    ; local plane coords (~ -0.5..0.5)
+            (vector lx ly (* (/ TERR-AMP TERR-EXT)
+                             (- (fbm (* (+ lx 0.5) 7.0) (* (+ ly 0.5) 7.0)) 0.5)))))
+        "p")
+      (hint-solid #f) (hint-wire) (hint-unlit)
+      (line-width 1.0)
+      (colour C-GRID-D) (wire-colour C-GRID-D) (wire-opacity 0.42))))
 
 ;; ---- per-cell derived values (shared by site + caption + camera) -----------
 ;; occupancy tightens as the zone industrialises: empty lots fill in (threshold
@@ -290,12 +354,15 @@
       (let* ((prog (fract (+ (* (time) 0.13) (* k (/ 1.0 n)) (hsh seed))))
              (y (+ y0 (* prog rise)))
              (r (+ 0.055 (* prog spread)))
-             (op (* (- 1.0 prog) (min 1.0 (* prog 6.0)) 0.55))
+             ;; slow fade-out: stays bright as it rises, only fades near the top
+             (op (* (expt (- 1.0 prog) 0.4) (min 1.0 (* prog 6.0)) 0.55))
              (wob (* 0.08 prog (sin (+ (* 1.7 (time)) (* 4 k) seed))))
              (s (pool-sphere!)))              ; persistent: built once, reused
         (with-primitive s
           (identity)                          ; reset last frame's transform
-          (translate (vector (+ cx wob) y (+ cz (* 0.5 wob))))
+          (translate (vector (+ cx wob (* (wind-x) prog))
+                             y
+                             (+ cz (* 0.5 wob) (* (wind-z) prog))))
           (scale (vector r r r))
           (hint-solid #f) (hint-wire) (hint-unlit)
           (line-width 1.0)
@@ -508,8 +575,11 @@
                    (cz (+ (- HALF) (* (+ gz 0.5) CELL))))
               (if (cell-factory? gx gz)
                   (when (cell-occ? id)          ; factory (empty pads stay bare)
-                    ;; structures grow taller as the zone over-industrialises
-                    (let ((h (* (cell-base-h gx gz) (+ 1.0 (* 0.6 (indus))))))
+                    (cell-birth! id)             ; record first-built time (raise anim)
+                    ;; grow taller with industrialisation, and RISE from the ground
+                    ;; over RAISE-DUR when first constructed
+                    (let ((h (* (cell-base-h gx gz) (+ 1.0 (* 0.6 (indus)))
+                                (max 0.02 (cell-raise id)))))
                       (build-structure cx cz h (cell-sty id)
                                        (wire-col (hsh (+ id 23))) id)
                       (when (> (indus) 0.3) (industrial-annex cx cz id))
@@ -519,11 +589,14 @@
             (lx (+ gx 1))))
         (ly (+ gz 1))))
     (comm-links tops)))
-;; rebuild when the evolution step advances (front expands OR density rises)
+;; rebuild when the evolution step advances (front/density) — OR every frame while
+;; the construction animation is live, so buildings visibly rise from the ground.
+;; Once fully evolved + settled, it holds and only rebuilds on a step change.
 (define *built-step* -1)
 (define (maybe-rebuild-site!)
-  (let ((s (evo-step)))
-    (unless (= s *built-step*)
+  (let ((s (evo-step))
+        (anim (< *evo-elapsed* (+ GROW-TOTAL RAISE-DUR 0.5))))
+    (when (or anim (not (= s *built-step*)))
       (for-each destroy *site-ids*)
       (set! *site-ids* '())
       (set! *in-site* #t)
@@ -607,57 +680,103 @@
       (loop (+ j 1)))))
 
 ;; ---- traffic: service vehicles on roads; trail = past positions ------------
-(define NCARS 28)
-(define (lane-of i)                       ; snap to a road line (cell edge)
-  (+ (- HALF) (* (floor (* (hsh (+ i 1)) (+ GRID 1))) CELL)))
-(define (car-pos i t horiz)
-  (let* ((spd  (+ 0.8 (* 1.1 (hsh (+ i 4)))))
-         (dir  (if (> (hsh (+ i 8)) 0.5) 1.0 -1.0))
-         (lane (lane-of i))
-         (p (- (fract (/ (+ (* spd dir t) (* 5.7 (hsh (+ i 2)))) SPAN)) 0.5))
-         (along (* p SPAN)))
-    (if horiz (vector along CARY lane) (vector lane CARY along))))
+;; ---- traffic: vehicles make trips BETWEEN buildings, stop-and-go -----------
+;; Each vehicle runs A->B along the road grid (move in X, then Z), easing out of
+;; the origin and braking into the destination (start-stop), then parks briefly
+;; before the next leg. Endpoints are factory buildings only, so nothing drives
+;; on the forest. Stateless: the trip is a pure function of (vehicle, time-slot);
+;; each leg's destination is the next leg's origin, so trips chain continuously.
+(define NCARS 14)
+(define TRIP-DUR 5.5)                      ; seconds per building-to-building leg
+(define (fac-cell seed)                    ; a factory+occupied cell centre, or #f
+  (let loop ((k 0))
+    (if (> k 12) #f
+        (let* ((gx (modulo (inexact->exact (floor (* (hsh (+ seed (* 0.13 k) 0.1)) GRID))) GRID))
+               (gz (modulo (inexact->exact (floor (* (hsh (+ seed (* 0.31 k) 0.7)) GRID))) GRID)))
+          (if (and (cell-factory? gx gz) (cell-occ? (+ gx (* gz GRID))))
+              (vector (+ (- HALF) (* (+ gx 0.5) CELL)) CARY
+                      (+ (- HALF) (* (+ gz 0.5) CELL)))
+              (loop (+ k 1)))))))
+;; route on the ROAD GRID (cell edges), never through building centres: stub from
+;; the origin cell to its nearest road, run an X-corridor then a Z-corridor along
+;; edge-roads (the clear gaps between buildings), then stub into the destination.
+(define (snap-road w) (+ (- HALF) (* (round (/ (+ w HALF) CELL)) CELL)))
+(define (route a b)
+  ;; A -> [perp. exit stub in Z] -> X-corridor (edge road) -> Z-corridor (edge road)
+  ;; -> [perp. entry stub in X] -> B. Corridors run on cell edges (clear of building
+  ;; footprints); the only moves that touch a building are the half-cell stubs into
+  ;; its own cell, straight/perpendicular to the face.
+  (let* ((ax (vx a)) (az (vz a)) (bx (vx b)) (bz (vz b))
+         (azr (snap-road az))                 ; horizontal road bordering A
+         (bxr (snap-road bx)))                ; vertical road bordering B
+    (list a
+          (vector ax  CARY azr)               ; exit A straight (Z) onto a road
+          (vector bxr CARY azr)               ; X-corridor along that road
+          (vector bxr CARY bz)                ; Z-corridor along B's side road
+          b)))                                ; enter B straight (X), perpendicular
+(define (poly-pos pts p)                    ; position at fraction p by arc-length
+  (let* ((segs (let loop ((ps pts) (acc '()))
+                 (if (null? (cdr ps)) (reverse acc)
+                     (loop (cdr ps) (cons (vdist (car ps) (cadr ps)) acc)))))
+         (total (max 0.0001 (apply + segs)))
+         (target (* p total)))
+    (let loop ((ps pts) (sl segs) (acc 0.0))
+      (if (null? sl) (last pts)
+          (let ((nx (+ acc (car sl))))
+            (if (>= nx target)
+                (vmix (car ps) (cadr ps) (/ (- target acc) (max 0.0001 (car sl))))
+                (loop (cdr ps) (cdr sl) nx)))))))
+(define (trip-pos a b p) (poly-pos (route a b) p))
+(define (trip-ease p) (smoothstep (min 1.0 (/ p 0.72))))  ; accel/brake, park at end
 (define (car-col i)
   (let ((r (hsh (+ i 5))))
-    (cond ((< r 0.30) C-RED)                      ; taillights / alerts
-          ((< r 0.50) C-GREEN)                    ; MAGI green couriers
-          (else       (vector 1.0 0.72 0.30)))))  ; NERV amber headlights
-(define (trail i t horiz col T dt w-core w-glow)
-  (let ((rb (dyn! (build-ribbon T))))             ; glow halo pass
-    (with-primitive rb
-      (identity) (hint-unlit) (colour col) (opacity 0.16)
-      (pdata-index-map!
-        (lambda (k v) (car-pos i (- t (* k dt)) horiz)) "p")
-      (pdata-index-map!
-        (lambda (k w)
-          (let ((tp (* w-glow (- 1.0 (/ k (- T 1.0)))))) (vector tp tp tp)))
-        "w")))
-  (let ((rb (dyn! (build-ribbon T))))             ; bright core pass
-    (with-primitive rb
-      (identity) (hint-unlit) (colour col)
-      (pdata-index-map!
-        (lambda (k v) (vadd (car-pos i (- t (* k dt)) horiz)
-                            (vector 0 0.012 0))) "p")
-      (pdata-index-map!
-        (lambda (k w)
-          (let ((tp (* w-core (- 1.0 (/ k (- T 1.0)))))) (vector tp tp tp)))
-        "w"))))
-;; traffic only runs on roads INSIDE the built factory zone — no cars out on the
-;; forest. A car shows only while its head is within the industrialised square.
-(define (in-factory? pos)
-  (< (max (abs (vx pos)) (abs (vz pos))) (* (max 0.0 (- (growth-front) 0.5)) CELL)))
+    (cond ((< r 0.30) C-RED)
+          ((< r 0.50) C-GREEN)
+          (else       (vector 1.0 0.72 0.30)))))
+(define (vehicle i t)
+  (let* ((dur  (+ TRIP-DUR (* 4.0 (hsh (+ i 20)))))  ; per-vehicle leg duration
+         (tt   (+ t (* 11.0 (hsh (+ i 30)))))        ; per-vehicle phase offset
+         (slot (floor (/ tt dur)))
+         (prog (fract (/ tt dur)))
+         (a (fac-cell (+ i (* slot 1.7))))          ; this leg's origin
+         (b (fac-cell (+ i (* (+ slot 1) 1.7)))))   ; = next leg's origin (chained)
+    (when (and a b (> (vdist a b) 0.1))
+      (let* ((pts (route a b)) (np (length pts))
+             (col (car-col i)) (T 4)
+             (headp (poly-pos pts (trip-ease prog))))
+        ;; glitchy trajectory line: the full planned route, flickering on/off like
+        ;; a nav / targeting overlay
+        ;; draw each route segment as its own straight ribbon — a single ribbon
+        ;; folds/pinches at the 90-degree corners; per-segment keeps them straight.
+        (let ((fl (if (> (fract (+ (* (time) 7.0) (* i 0.37))) 0.22) 0.75 0.25)))
+          (let seg ((ps pts))
+            (when (and (pair? ps) (pair? (cdr ps)))
+              (let* ((p0 (car ps)) (p1 (cadr ps))
+                     (len (vdist p1 p0))
+                     (e   (if (> len 0.001) (vmul (vsub p1 p0) (/ 0.012 len)) (vector 0 0 0)))
+                     (q0  (vadd (vsub p0 e) (vector 0 0.02 0)))    ; extend past both ends
+                     (q1  (vadd (vadd p1 e) (vector 0 0.02 0))))   ; so corners overlap
+                (let ((rb (dyn! (build-ribbon 2))))
+                  (with-primitive rb
+                    (identity) (hint-unlit) (colour C-GREEN) (opacity fl)
+                    (pdata-index-map! (lambda (k v) (if (= k 0) q0 q1)) "p")
+                    (pdata-index-map! (lambda (k w) (vector 0.022 0.022 0.022)) "w"))))
+              (seg (cdr ps)))))
+        ;; short fading trail behind the head
+        (let ((rb (dyn! (build-ribbon T))))
+          (with-primitive rb
+            (identity) (hint-unlit) (colour col)
+            (pdata-index-map!
+              (lambda (k v) (poly-pos pts (trip-ease (max 0.0 (- prog (* k 0.014)))))) "p")
+            (pdata-index-map!
+              (lambda (k w) (let ((tp (* 0.05 (- 1.0 (/ k (- T 1.0)))))) (vector tp tp tp))) "w")))
+        (dyn! (glow-box headp (vector 0.05 0.05 0.05) col 0.9))))))   ; bright vehicle
 (define (traffic)
   (let ((t (time)))
     (let loop ((i 0))
       (when (< i NCARS)
-        (when (in-factory? (car-pos i t (even? i)))
-          (trail i t (even? i) (car-col i) 16 0.05 0.05 0.12))
-        (loop (+ i 1))))
-    ;; two slow heavy haulers, extra-long acid-green trails
-    (when (in-factory? (car-pos 101 (* t 0.45) #t))
-      (trail 101 (* t 0.45) #t (vector 0.7 1.0 0.4) 26 0.09 0.07 0.18))
-    (when (in-factory? (car-pos 202 (* t 0.45) #f))
-      (trail 202 (* t 0.45) #f (vector 0.7 1.0 0.4) 26 0.09 0.07 0.18))))
+        (vehicle i t)
+        (loop (+ i 1))))))
 
 ;; ---- technical caption: kinked leader + typewriter title on a random -------
 ;; structure; the pick evolves every few seconds (hash of the time slot)
@@ -824,7 +943,12 @@
       (hud-line 0 C-GREEN "BIOSPHERE")
       (hud-line 1 C-TREE  (string-append "FOREST " (number->string trees)))
       (hud-line 2 C-EDGE  (string-append "INDUS  " (number->string fac)))
-      (hud-line 3 C-RED   (string-append "CO2 " (number->string co2) "kt")))
+      (hud-line 3 C-RED   (string-append "CO2 " (number->string co2) "kt"))
+      ;; growth-speed readout — only while off 1x (+/- keys), keeps the clip clean
+      (when (not (= *grow-speed* 1.0))
+        (hud-line 4 C-EDGE
+          (string-append "GROWTH x"
+            (number->string (/ (round (* *grow-speed* 100)) 100))))))
     ;; (hud-credit)                          ; "made with FLUXUS" (hidden)
     ))
 
@@ -889,15 +1013,23 @@ void main() {
 ;; while the factory slowly reclaims the forest. The thunk otherwise destroys +
 ;; rebuilds only the animated prims (smoke, beacons, traffic, caption).
 (retained)
-(streets)                                  ; static ground grid   \  built once
+(terrain)                                  ; rolling noise terrain \  built once
+(streets)                                  ; static ground grid    } (persist)
 (powerline-static)                         ; static HV line       /
 (every-frame
   (begin
     (clear-dyn!)                           ; remove last frame's animated prims
     (pool-frame-begin!)                    ; reset persistent smoke-pool cursor
-    (let ((k (key-poll)))                  ; press R -> restart the animation
-      (when (or (= k 114) (= k 82)) (reset-anim!)))
-    (evo-advance!)                         ; accumulate audio energy -> growth
+    (let ((k (key-poll)))
+      (when (or (= k 114) (= k 82)) (reset-anim!))    ; R -> restart the animation
+      (when (or (= k 118) (= k 86)) (start-record))   ; V -> record a 1-min video
+      (when (or (= k 43) (= k 61)) (grow-faster!))    ; + / = -> faster industrial growth
+      (when (or (= k 45) (= k 95)) (grow-slower!)))   ; - / _ -> slower industrial growth
+    (evo-tick!)                            ; advance the virtual growth clock (once/frame)
+    (when *rec*                            ; count rendered frames; auto-stop at REC-LEN
+      (set! *rec-frames* (+ *rec-frames* 1))
+      (when (>= *rec-frames* (inexact->exact (floor (* REC-LEN REC-FPS))))
+        (set-export #f "" 0) (set! *rec* #f)))
     (maybe-rebuild-site!)                  ; regrow factory / raze forest on a flip
     (iso-camera)
     (site-dynamic)                         ; smoke, core lights, site beacons

@@ -100,6 +100,9 @@
 ;; (key-poll): consume the last-pressed char code (0 if none) — simple hotkeys.
 (define _keypoll (cfun "flux_get_key" (_fun -> _int) (lambda () 0)))
 (define (key-poll) (_keypoll))
+;; (set-export on path fps): offline frame-locked render straight to MP4.
+(define _setexport (cfun "flux_set_export" (_fun _int _string _int -> _void) (lambda (a b c) (void))))
+(define (set-export on path fps) (_setexport (if on 1 0) path fps))
 ;; mouse-driven camera params (wheel dolly + drag orbit), readable by scripts
 (define _cdist (cfun "flux_camera_dist"  (_fun -> _double) (lambda () 10.0)))
 (define _cyaw  (cfun "flux_camera_yaw"   (_fun -> _double) (lambda () 0.0)))
