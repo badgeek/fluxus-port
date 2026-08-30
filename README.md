@@ -104,6 +104,13 @@ The app prints which runtime it booted from at startup:
 [fluxus] Racket boot: …/FluxusRacketApp.app/Contents/Resources/racket (bundled, self-contained)
 ```
 
+The builds are unsigned (ad-hoc), so a downloaded `.app` needs its quarantine
+flag cleared once:
+
+```sh
+xattr -dr com.apple.quarantine FluxusRacketApp.app
+```
+
 ## Layout
 
 ```

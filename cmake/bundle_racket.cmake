@@ -23,10 +23,38 @@ endif()
 
 set(DEST "${APP_DIR}/Contents/Resources/racket")
 
-# Up-to-date check: the boot files are the last thing written (see below), so if
-# the stamp is newer than the source prefix we can skip the ~90 MB copy.
+# The linker ad-hoc-signs the .app at link time; adding files to it afterwards
+# breaks that seal ("code has no resources but signature indicates they must be
+# present"). Gatekeeper then refuses the DOWNLOADED app with the misleading
+# "is damaged and can't be opened" — that is NOT a quarantine prompt, and
+# `xattr -dr com.apple.quarantine` does not clear it. So re-sign ad-hoc after
+# touching the bundle — including on the already-bundled path, since a relink
+# re-signs the executable and invalidates the seal again.
+function(resign_bundle app)
+  find_program(CODESIGN codesign)
+  if(NOT CODESIGN)
+    message(WARNING "bundle_racket: codesign not found; the bundled .app will fail "
+                    "Gatekeeper with \"is damaged and can't be opened\"")
+    return()
+  endif()
+  execute_process(COMMAND "${CODESIGN}" --force --deep --sign - "${app}"
+                  RESULT_VARIABLE _rc ERROR_VARIABLE _err)
+  if(NOT _rc EQUAL 0)
+    message(FATAL_ERROR "codesign failed for ${app}: ${_err}")
+  endif()
+  execute_process(COMMAND "${CODESIGN}" --verify --deep "${app}"
+                  RESULT_VARIABLE _rc ERROR_VARIABLE _err)
+  if(NOT _rc EQUAL 0)
+    message(FATAL_ERROR "codesign verify failed for ${app}: ${_err}")
+  endif()
+  message(STATUS "Re-signed (ad-hoc) ${app}")
+endfunction()
+
+# Up-to-date check: the stamp is the last thing written (see below), so if it is
+# there the ~90 MB copy is already done — but still re-sign.
 if(EXISTS "${DEST}/.bundled")
   message(STATUS "Racket runtime already bundled in ${APP_DIR}")
+  resign_bundle("${APP_DIR}")
   return()
 endif()
 
@@ -111,5 +139,16 @@ foreach(b petite scheme racket)
   file(COPY "${RACKET_DIR}/lib/racket/${b}.boot" DESTINATION "${DEST}/lib/racket")
 endforeach()
 file(WRITE "${DEST}/.bundled" "${RACKET_DIR}\n")
+
+# brew ships the collects/boot files mode 444. Copied verbatim into the bundle
+# that makes `xattr -dr com.apple.quarantine <App>.app` fail with "Permission
+# denied" on thousands of files — the step every user has to run on an unsigned
+# download. Make them user-writable (which also lets users edit the bundled .ss).
+file(GLOB_RECURSE _ro "${DEST}/*")
+foreach(f ${_ro})
+  file(CHMOD "${f}" PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ)
+endforeach()
+
+resign_bundle("${APP_DIR}")
 
 message(STATUS "Bundled Racket runtime into ${APP_DIR}")

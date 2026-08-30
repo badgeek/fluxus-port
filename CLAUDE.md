@@ -186,6 +186,15 @@ Skip `scheme/class`-based files (frisbee/gui/drflux/itchy/joylisten/tricks).
   it; absent, it falls back to `RACKET_DIR`. The boot line in stderr says which.
   Run `make precompile` BEFORE a bundling build or the `.zo` won't be in the bundle.
   See `cmake/bundle_racket.cmake`.
+- **Adding files to an .app AFTER the link breaks its ad-hoc signature**, and a
+  DOWNLOADED broken-signature app is rejected by Gatekeeper as *"is damaged and
+  can't be opened"* — which reads like a corrupt download but is not, and
+  `xattr -dr com.apple.quarantine` does NOT fix it (`codesign --verify` says
+  "code has no resources but signature indicates they must be present"). So
+  `bundle_racket.cmake` re-signs `--force --deep --sign -` after bundling, on BOTH
+  the fresh and already-bundled paths (a relink re-signs the binary and breaks the
+  seal again). It also chmods the copied tree u+w — brew ships collects 444, and
+  read-only files make the user's `xattr -dr` fail with "Permission denied".
 - Verify visual changes by launching the app + screenshotting; verify `.ss` changes
   with the racket CLI (fast, no rebuild — `.ss` files load at runtime).
 - Commit only when asked; end commit messages with:

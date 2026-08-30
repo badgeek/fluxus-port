@@ -72,7 +72,12 @@ jobs:
             test -f "$d/fluxus-lib/fluxus-modules.ss"    || { echo "$a: no fluxus-lib"; exit 1; }
             n=$(find "$d/share/racket/collects" -name '*.zo' | wc -l | tr -d ' ')
             test "$n" -gt 100 || { echo "$a: only $n .zo in collects (compiled mirror missing)"; exit 1; }
-            echo "$a: OK ($n .zo, $(du -sh "$d" | cut -f1))"
+            # The seal must cover the bundled runtime, or Gatekeeper rejects the
+            # DOWNLOADED app as "damaged" (bundling after the linker's ad-hoc sign
+            # breaks it; bundle_racket.cmake re-signs).
+            codesign --verify --deep "build/${a}_artefacts/Release/${a}.app" \
+              || { echo "$a: broken code signature"; exit 1; }
+            echo "$a: OK ($n .zo, $(du -sh "$d" | cut -f1), signature valid)"
           done
 
       - name: Package .app bundles
