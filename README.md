@@ -19,8 +19,11 @@ Editor and script host are independent axes — any combination works:
 | **FluxusRacketApp** | JUCE `TextEditor` overlay | real Racket CS |
 | **FluxusGLRacketApp** | fluxus's own `GLEditor` | real Racket CS |
 
-Racket apps need `brew install minimal-racket`; they load fluxus's actual
-`.ss` Scheme library (incl. the real `building-blocks.ss`) via FFI.
+Racket apps load fluxus's actual `.ss` Scheme library (incl. the real
+`building-blocks.ss`) via FFI. To *build* them you need
+`brew install minimal-racket`; the **released `.app`s are self-contained** — the
+Racket CS runtime is bundled inside them, so downloads need nothing installed
+(configure with `-DFLUXUS_BUNDLE_RACKET=ON`, see [Building](#build--run)).
 
 ## Architecture — the seams
 
@@ -81,6 +84,25 @@ open build/FluxusApp_artefacts/Release/FluxusApp.app
 ```
 First configure fetches JUCE (+ FreeType for the GL editor). Racket targets are
 skipped if `minimal-racket` isn't installed.
+
+### Self-contained (redistributable) Racket apps
+
+By default the Racket apps point at your local `minimal-racket` install, so the
+built `.app` only runs on this machine. For a bundle you can hand to someone else:
+
+```sh
+make precompile                                   # .zo must exist BEFORE bundling
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DFLUXUS_BUNDLE_RACKET=ON
+cmake --build build --target FluxusRacketApp
+```
+
+Each app then carries the Racket CS runtime in `Contents/Resources/racket/`
+(~+90 MB) and boots from it — no `minimal-racket` needed on the target machine.
+The app prints which runtime it booted from at startup:
+
+```
+[fluxus] Racket boot: …/FluxusRacketApp.app/Contents/Resources/racket (bundled, self-contained)
+```
 
 ## Layout
 

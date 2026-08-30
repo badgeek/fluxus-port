@@ -7,6 +7,7 @@
 #   make build          # build every target
 #   make s7 gl racket   # build the other three apps
 #   make run-s7 / run-gl / run-racket
+#   make dist           # self-contained Racket apps (runtime bundled in the .app)
 #   make clean          # remove the build dir
 #
 # The run targets exec the app's inner Mach-O binary directly (not `open`) so it
@@ -39,7 +40,7 @@ LIBSS = fluxus-modules building-blocks maths randomness poly-tools shapes \
         input camera mouse help pixels-tools voxels-tools planetarium \
         collada-import fluxus-engine
 
-.PHONY: all configure build clean precompile \
+.PHONY: all configure build clean precompile dist \
         run run-s7 run-gl run-racket \
         gl-racket racket s7 gl
 
@@ -79,5 +80,21 @@ run-s7: | $(BUILD)      ## JUCE editor + s7 Scheme
 run-gl: | $(BUILD)      ## fluxus GLEditor + s7 Scheme
 	$(call RUN_APP,FluxusGLApp)
 
+# --- redistributable, self-contained Racket apps ----------------------------
+# Bundles the Racket CS runtime into each .app (Contents/Resources/racket) so it
+# runs without `brew install minimal-racket`. Precompiles FIRST — the bundling
+# step copies racket-lib/, so the .zo must already exist. Uses a separate build
+# dir to keep the fast dev build (no 90 MB copy) intact.
+DIST_BUILD ?= build-dist
+
+.PHONY: dist
+dist: precompile
+	$(CMAKE) -S . -B $(DIST_BUILD) -G "$(GENERATOR)" -DCMAKE_BUILD_TYPE=$(CONFIG) \
+	  -DFLUXUS_BUNDLE_RACKET=ON
+	$(CMAKE) --build $(DIST_BUILD) --target FluxusRacketApp FluxusGLRacketApp
+	@for a in FluxusRacketApp FluxusGLRacketApp; do \
+	  echo "$$a: $$(du -sh $(DIST_BUILD)/$${a}_artefacts/$(CONFIG)/$$a.app | cut -f1)"; \
+	done
+
 clean:
-	rm -rf $(BUILD)
+	rm -rf $(BUILD) $(DIST_BUILD)

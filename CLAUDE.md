@@ -175,8 +175,17 @@ add a stub to `fluxus-engine.ss`; on `already defined` add to its `except-out`.
 Skip `scheme/class`-based files (frisbee/gui/drflux/itchy/joylisten/tricks).
 
 ## Conventions
-- Racket paths are currently hardcoded (`RACKET_DIR`, `RACKET_LIB_DIR` in CMake) —
-  not portable; bundling is a TODO.
+- **Racket runtime: dev builds point at the brew install; release builds bundle it.**
+  Dev (default) bakes the absolute `RACKET_DIR` / `RACKET_LIB_DIR` into the binary —
+  fast, but the `.app` only runs on this machine. Configure with
+  `-DFLUXUS_BUNDLE_RACKET=ON` (CI does) and each Racket `.app` gets a self-contained
+  copy in `Contents/Resources/racket/` (~+90 MB): boot files, the collects tree with
+  the install's separate compiled root merged back IN-TREE, a relative
+  `etc/racket/config.rktd` with `compiled-file-roots '(same)`, and `racket-lib/`.
+  `RacketScriptHost::bundleRoot()` finds it relative to the executable and prefers
+  it; absent, it falls back to `RACKET_DIR`. The boot line in stderr says which.
+  Run `make precompile` BEFORE a bundling build or the `.zo` won't be in the bundle.
+  See `cmake/bundle_racket.cmake`.
 - Verify visual changes by launching the app + screenshotting; verify `.ss` changes
   with the racket CLI (fast, no rebuild — `.ss` files load at runtime).
 - Commit only when asked; end commit messages with:

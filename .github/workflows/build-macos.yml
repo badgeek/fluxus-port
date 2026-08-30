@@ -4,10 +4,10 @@ name: build-macos
 #   - FluxusRacketApp    (JUCE-editor overlay + real Racket CS)
 #   - FluxusGLRacketApp  (fluxus GLEditor + real Racket CS)
 #
-# NOTE: these builds are NOT self-contained. They link libracketcs.a but load the
-# minimal-racket install's compiled collects at runtime (bundling is a TODO), so
-# the artifacts run only on a machine that has `brew install minimal-racket`.
-# Unsigned: on download, clear quarantine with
+# These builds ARE self-contained: -DFLUXUS_BUNDLE_RACKET=ON copies the Racket CS
+# runtime (boot files + collects + our .ss) into each .app under
+# Contents/Resources/racket, so the artifacts run without minimal-racket installed
+# (~+90 MB per app). Unsigned: on download, clear quarantine with
 #   xattr -dr com.apple.quarantine FluxusRacketApp.app
 
 on:
@@ -45,17 +45,35 @@ jobs:
       - name: Configure
         # CMAKE_POLICY_VERSION_MINIMUM=3.5: the fetched FreeType still declares
         # cmake_minimum_required(<3.5), which newer CMake on the runner rejects.
+        # FLUXUS_BUNDLE_RACKET=ON copies the Racket runtime into each .app so the
+        # released bundles run without `brew install minimal-racket`.
         run: >
           cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          -DFLUXUS_BUNDLE_RACKET=ON
           -DRACKET_DIR="${{ steps.racket.outputs.prefix }}"
+
+      # BEFORE the build: the post-build bundling step copies racket-lib/ into the
+      # .app, so the .zo must already exist or the bundle ships sources only.
+      - name: Precompile the .ss library (faster first launch)
+        run: make precompile RACKET="${{ steps.racket.outputs.prefix }}/bin/racket"
 
       - name: Build Racket apps
         run: cmake --build build --target FluxusRacketApp FluxusGLRacketApp
 
-      - name: Precompile the .ss library (faster first launch)
-        run: make precompile RACKET="${{ steps.racket.outputs.prefix }}/bin/racket"
+      - name: Check the bundles are self-contained
+        run: |
+          for a in FluxusRacketApp FluxusGLRacketApp; do
+            d="build/${a}_artefacts/Release/${a}.app/Contents/Resources/racket"
+            test -f "$d/lib/racket/racket.boot"          || { echo "$a: no boot files"; exit 1; }
+            test -d "$d/share/racket/collects/racket"    || { echo "$a: no collects";   exit 1; }
+            test -f "$d/etc/racket/config.rktd"          || { echo "$a: no config";     exit 1; }
+            test -f "$d/fluxus-lib/fluxus-modules.ss"    || { echo "$a: no fluxus-lib"; exit 1; }
+            n=$(find "$d/share/racket/collects" -name '*.zo' | wc -l | tr -d ' ')
+            test "$n" -gt 100 || { echo "$a: only $n .zo in collects (compiled mirror missing)"; exit 1; }
+            echo "$a: OK ($n .zo, $(du -sh "$d" | cut -f1))"
+          done
 
       - name: Package .app bundles
         run: |
@@ -85,6 +103,7 @@ jobs:
           body: |
             macOS (Apple Silicon) builds of the Racket apps.
 
-            Not self-contained: install the Racket runtime first —
-            `brew install minimal-racket`. Unsigned: after download run
+            Self-contained: the Racket CS runtime is bundled inside each `.app`
+            (`Contents/Resources/racket`), so no `brew install minimal-racket` is
+            needed. Unsigned: after download run
             `xattr -dr com.apple.quarantine <App>.app`.

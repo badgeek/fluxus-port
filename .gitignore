@@ -1,5 +1,6 @@
 # build output
 build/
+build-dist/
 spikes/build/
 spikes/**/build/
 cmake-build*/

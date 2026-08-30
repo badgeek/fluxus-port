@@ -7,8 +7,13 @@ extern "C" {
 #include "racketcs.h"
 }
 
+#include <cstdio>
 #include <cstring>
 #include <string>
+#include <sys/stat.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 
 #ifndef RACKET_DIR
 #define RACKET_DIR ""
@@ -19,6 +24,53 @@ extern "C" {
 
 namespace {
 bool g_booted = false;
+
+bool dirExists(const std::string& p) {
+  struct stat st;
+  return !p.empty() && stat(p.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+// --- self-contained bundle -------------------------------------------------
+// A packaged .app carries its own Racket runtime under
+//   <App>.app/Contents/Resources/racket/{lib/racket/*.boot, share/racket/collects,
+//                                        etc/racket/config.rktd, fluxus-lib/}
+// (see cmake/bundle_racket.cmake). Everything there is RELATIVE, so the app runs
+// on any machine. Dev builds have no Resources/racket and fall back to the
+// absolute RACKET_DIR / RACKET_LIB_DIR baked in at configure time.
+//
+// Returns "" when there is no bundled runtime.
+const std::string& bundleRoot() {
+  static std::string root = [] () -> std::string {
+#ifdef __APPLE__
+    char buf[4096];
+    uint32_t sz = sizeof(buf);
+    if (_NSGetExecutablePath(buf, &sz) != 0) return {};
+    std::string exe(buf);                                  // …/Contents/MacOS/App
+    auto cut = exe.find_last_of('/');                      // …/Contents/MacOS
+    if (cut == std::string::npos) return {};
+    std::string macos = exe.substr(0, cut);
+    cut = macos.find_last_of('/');                         // …/Contents
+    if (cut == std::string::npos) return {};
+    std::string cand = macos.substr(0, cut) + "/Resources/racket";
+    if (dirExists(cand)) return cand;
+#endif
+    return {};
+  }();
+  return root;
+}
+
+// Racket install prefix to boot from: the bundled one when present.
+std::string racketPrefix() {
+  const std::string& b = bundleRoot();
+  return b.empty() ? std::string(RACKET_DIR) : b;
+}
+
+// Where the fluxus .ss library lives: bundled copy when present.
+std::string fluxusLibDir() {
+  const std::string& b = bundleRoot();
+  if (!b.empty() && dirExists(b + "/fluxus-lib")) return b + "/fluxus-lib";
+  return std::string(RACKET_LIB_DIR);
+}
 
 ptr sym(const char* s) { return Sstring_to_symbol(s); }
 
@@ -52,7 +104,7 @@ const char* kHostPrelude =
 ")";
 
 std::string requireLibForm() {
-  std::string lib = RACKET_LIB_DIR;
+  std::string lib = fluxusLibDir();
   // load fluxus-modules (engine commands via FFI) + real fluxus library files
   return "(require (file \"" + lib + "/fluxus-modules.ss\")"
          "         (file \"" + lib + "/building-blocks.ss\")"   // vadd/vsub/vmul, with-state, pdata-map!
@@ -78,11 +130,15 @@ void RacketScriptHost::init() {
   if (!g_booted) {
     racket_boot_arguments_t ba;
     std::memset(&ba, 0, sizeof(ba));
-    static std::string b1 = std::string(RACKET_DIR) + "/lib/racket/petite.boot";
-    static std::string b2 = std::string(RACKET_DIR) + "/lib/racket/scheme.boot";
-    static std::string b3 = std::string(RACKET_DIR) + "/lib/racket/racket.boot";
-    static std::string cd = std::string(RACKET_DIR) + "/share/racket/collects";
-    static std::string cf = std::string(RACKET_DIR) + "/etc/racket";
+    const std::string prefix = racketPrefix();
+    static std::string b1 = prefix + "/lib/racket/petite.boot";
+    static std::string b2 = prefix + "/lib/racket/scheme.boot";
+    static std::string b3 = prefix + "/lib/racket/racket.boot";
+    static std::string cd = prefix + "/share/racket/collects";
+    // The bundle ships its own etc/racket/config.rktd (relative paths +
+    // compiled-file-roots '(same)). brew's Cellar prefix has no etc/racket —
+    // Racket then just uses an empty config, and the block below sets the roots.
+    static std::string cf = prefix + "/etc/racket";
     ba.boot1_path = b1.c_str();
     ba.boot2_path = b2.c_str();
     ba.boot3_path = b3.c_str();
@@ -90,6 +146,8 @@ void RacketScriptHost::init() {
     ba.collects_dir = cd.c_str();
     ba.config_dir   = cf.c_str();
     ba.cs_compiled_subdir = 1;
+    std::fprintf(stderr, "[fluxus] Racket boot: %s (%s)\n", prefix.c_str(),
+                 bundleRoot().empty() ? "external install" : "bundled, self-contained");
     racket_boot(&ba);
     g_booted = true;
   }
@@ -121,12 +179,16 @@ void RacketScriptHost::init() {
   // (~22s). Point the roots (and use-compiled-file-paths) where the CLI does so we
   // load bytecode: cuts init from ~25s to ~4s. Also lets our racket-lib/compiled
   // *.zo be used (precompile with: raco make / managed-compile-zo on racket-lib).
+  // In the self-contained bundle that separate root is merged back IN-TREE, so
+  // 'same alone is enough (and stays relocatable).
   {
-    std::string root = std::string(RACKET_DIR) + "/lib/racket/compiled";
     std::string form =
       "(begin"
       "  (use-compiled-file-paths (list (string->path \"compiled\")))"
-      "  (current-compiled-file-roots (list 'same (string->path \"" + root + "\"))))";
+      "  (current-compiled-file-roots (list 'same";
+    if (bundleRoot().empty())
+      form += " (string->path \"" + std::string(RACKET_DIR) + "/lib/racket/compiled\")";
+    form += ")))";
     eval_cstr(form.c_str());
   }
 

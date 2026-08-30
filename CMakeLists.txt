@@ -161,6 +161,26 @@ target_link_libraries(FluxusGLApp PRIVATE
 # ============================================================================
 set(RACKET_DIR "/opt/homebrew/Cellar/minimal-racket/9.3" CACHE PATH "Racket CS install prefix")
 
+# Copy the Racket runtime (boot files + collects + our .ss) into each .app so the
+# release bundles run without `brew install minimal-racket`. Costs ~90 MB/app and
+# a slow first link, so it is OFF for local dev (the host falls back to the
+# absolute RACKET_DIR) and ON in CI. See cmake/bundle_racket.cmake.
+option(FLUXUS_BUNDLE_RACKET "Bundle a self-contained Racket runtime into the .app" OFF)
+
+# Add the post-build bundling step to a Racket app target.
+function(fluxus_bundle_racket target)
+  if(NOT FLUXUS_BUNDLE_RACKET)
+    return()
+  endif()
+  add_custom_command(TARGET ${target} POST_BUILD
+    COMMAND ${CMAKE_COMMAND}
+            -DRACKET_DIR=${RACKET_DIR}
+            -DFLUXUS_LIB=${CMAKE_CURRENT_SOURCE_DIR}/racket-lib
+            -DAPP_DIR=$<TARGET_BUNDLE_DIR:${target}>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/bundle_racket.cmake
+    VERBATIM COMMENT "Bundling self-contained Racket runtime into ${target}.app")
+endfunction()
+
 if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
   juce_add_gui_app(FluxusRacketApp PRODUCT_NAME "FluxusRacketApp"
     MICROPHONE_PERMISSION_ENABLED TRUE
@@ -208,6 +228,9 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       PUBLIC
       juce::juce_recommended_config_flags
       juce::juce_recommended_warning_flags)
+
+  fluxus_bundle_racket(FluxusRacketApp)
+
   # --- FluxusGLRacketApp: fluxus's own GLEditor + REAL Racket ---------------
   juce_add_gui_app(FluxusGLRacketApp PRODUCT_NAME "FluxusGLRacketApp"
     MICROPHONE_PERMISSION_ENABLED TRUE
@@ -253,6 +276,8 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       PUBLIC
       juce::juce_recommended_config_flags
       juce::juce_recommended_warning_flags)
+
+  fluxus_bundle_racket(FluxusGLRacketApp)
 else()
   message(STATUS "Racket not found at ${RACKET_DIR}; skipping FluxusRacketApp (brew install minimal-racket)")
 endif()
