@@ -19,7 +19,7 @@ class Noise
 		static const int PERLIN_ZWRAPB = 8;
 		static const int PERLIN_ZWRAP = 1 << PERLIN_ZWRAPB;
 		static const int PERLIN_SIZE = PERLIN_YWRAP * PERLIN_ZWRAP;
-		static const float PERLIN_MIN_AMPLITUDE = 0.001f;
+		static constexpr float PERLIN_MIN_AMPLITUDE = 0.001f; // fluxus->JUCE port: constexpr (clang -Wstatic-float-init)
 
 		static bool inited;
 		static float perlin[4096];

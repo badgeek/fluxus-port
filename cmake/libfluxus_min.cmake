@@ -31,6 +31,8 @@ get_filename_component(FLUXUS_MIN_SRC_DIR "${FLUXUS_MIN_SRC_DIR}" ABSOLUTE)
 set(FLUXUS_MIN_SOURCES
     # --- math / containers -------------------------------------------------
     ${FLUXUS_MIN_SRC_DIR}/dada.cpp
+    ${FLUXUS_MIN_SRC_DIR}/Noise.cpp                # Perlin noise (self-contained)
+    ${FLUXUS_MIN_SRC_DIR}/SimplexNoise.cpp         # simplex noise (self-contained)
     ${FLUXUS_MIN_SRC_DIR}/Allocator.cpp
     ${FLUXUS_MIN_SRC_DIR}/PData.cpp
     ${FLUXUS_MIN_SRC_DIR}/PDataContainer.cpp

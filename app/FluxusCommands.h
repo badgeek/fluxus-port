@@ -224,6 +224,44 @@ extern "C" {
   void flux_set_antialias(int on);           // GL line/polygon smoothing
   void flux_set_retained(int on);            // retained mode: build once, per-frame thunk only
 
+  // ---- maths primitives (pure; no engine state) ---------------------------
+  // Canonical fluxus maths, reimplemented on the engine's dVector/dMatrix/dQuat.
+  // Vectors are double[3], matrices double[16] (dMatrix arr() order), quats
+  // double[4] (x y z w). Outputs are written through the trailing pointer arg.
+  void   flux_vadd(const double a[3], const double b[3], double o[3]);
+  void   flux_vsub(const double a[3], const double b[3], double o[3]);
+  void   flux_vmul(const double a[3], double s, double o[3]);            // vec * scalar
+  void   flux_vdiv(const double a[3], double s, double o[3]);            // vec / scalar
+  double flux_vdot(const double a[3], const double b[3]);
+  void   flux_vcross(const double a[3], const double b[3], double o[3]);
+  double flux_vmag(const double a[3]);
+  double flux_vdist(const double a[3], const double b[3]);
+  double flux_vdist_sq(const double a[3], const double b[3]);
+  void   flux_vnormalise(const double a[3], double o[3]);
+  void   flux_vreflect(const double a[3], const double n[3], double o[3]);
+  void   flux_vtransform(const double v[3], const double m[16], double o[3]);      // full (w/ translation)
+  void   flux_vtransform_rot(const double v[3], const double m[16], double o[3]);  // rotation only
+
+  void flux_mident(double o[16]);
+  void flux_mmul(const double a[16], const double b[16], double o[16]);
+  void flux_mtranslate(const double v[3], double o[16]);
+  void flux_mrotate(const double v[3], double o[16]);       // euler degrees x,y,z
+  void flux_mscale(const double v[3], double o[16]);
+  void flux_mtranspose(const double a[16], double o[16]);
+  void flux_minverse(const double a[16], double o[16]);
+  void flux_maim(const double dir[3], const double up[3], double o[16]);
+
+  void flux_qaxisangle(const double axis[3], double angle, double o[4]);  // angle in degrees
+  void flux_qmul(const double a[4], const double b[4], double o[4]);
+  void flux_qnormalise(const double a[4], double o[4]);
+  void flux_qconjugate(const double a[4], double o[4]);
+  void flux_qtomatrix(const double a[4], double o[16]);
+
+  double flux_noise(double x, double y, double z);      // classic Perlin (Fluxus::Noise)
+  double flux_snoise(double x, double y, double z);     // simplex noise
+  void   flux_noise_seed(int seed);
+  void   flux_noise_detail(int octaves, double falloff);
+
   // scripts report an error string back to the host (or "" to clear)
   void flux_report_error(const char* msg);
 }

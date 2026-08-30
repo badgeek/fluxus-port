@@ -16,6 +16,8 @@
 #include "SceneGraph.h"
 #include "GLSLShader.h"
 #include "dada.h"
+#include "Noise.h"
+#include "SimplexNoise.h"
 
 #include <vector>
 #include <mutex>
@@ -1009,3 +1011,54 @@ std::string flux_last_error() {
   std::lock_guard<std::mutex> lk(g_errMutex);
   return g_err;
 }
+
+// ---- maths primitives -------------------------------------------------------
+// Pure functions on the engine's dVector/dMatrix/dQuat. Matrices marshal through
+// dMatrix::arr() (float[16], m[row][col] order) so results match the engine's own
+// transform stack (flux_rotate/scale/translate use the same rotxyz/scale/translate).
+namespace {
+  inline dVector V(const double a[3]) { return dVector((float) a[0], (float) a[1], (float) a[2]); }
+  inline void    outV(const dVector& v, double o[3]) { o[0] = v.x; o[1] = v.y; o[2] = v.z; }
+  inline dMatrix M(const double a[16]) { dMatrix m; float* p = m.arr(); for (int i = 0; i < 16; ++i) p[i] = (float) a[i]; return m; }
+  inline void    outM(dMatrix m, double o[16]) { const float* p = m.arr(); for (int i = 0; i < 16; ++i) o[i] = p[i]; }
+  inline dQuat   Q(const double a[4]) { return dQuat((float) a[0], (float) a[1], (float) a[2], (float) a[3]); }
+  inline void    outQ(const dQuat& q, double o[4]) { o[0] = q.x; o[1] = q.y; o[2] = q.z; o[3] = q.w; }
+}
+
+void   flux_vadd(const double a[3], const double b[3], double o[3]) { outV(V(a) + V(b), o); }
+void   flux_vsub(const double a[3], const double b[3], double o[3]) { outV(V(a) - V(b), o); }
+void   flux_vmul(const double a[3], double s, double o[3])          { outV(V(a) * (float) s, o); }
+void   flux_vdiv(const double a[3], double s, double o[3])          { outV(V(a) / (float) s, o); }
+double flux_vdot(const double a[3], const double b[3])              { dVector x = V(a); return x.dot(V(b)); }
+void   flux_vcross(const double a[3], const double b[3], double o[3]) { outV(V(a).cross(V(b)), o); }
+double flux_vmag(const double a[3])                                 { dVector x = V(a); return x.mag(); }
+double flux_vdist(const double a[3], const double b[3])             { dVector d = V(a) - V(b); return d.mag(); }
+double flux_vdist_sq(const double a[3], const double b[3])          { dVector d = V(a) - V(b); return d.dot(d); }
+void   flux_vnormalise(const double a[3], double o[3]) {
+  dVector v = V(a); float m = v.mag();
+  if (m > 0.0f) v /= m;
+  outV(v, o);
+}
+void   flux_vreflect(const double a[3], const double n[3], double o[3]) { dVector v = V(a); outV(v.reflect(V(n)), o); }
+void   flux_vtransform(const double v[3], const double m[16], double o[3])     { outV(M(m).transform(V(v)), o); }
+void   flux_vtransform_rot(const double v[3], const double m[16], double o[3]) { outV(M(m).transform_no_trans(V(v)), o); }
+
+void flux_mident(double o[16])                                   { outM(dMatrix(), o); }
+void flux_mmul(const double a[16], const double b[16], double o[16]) { outM(M(a) * M(b), o); }
+void flux_mtranslate(const double v[3], double o[16]) { dMatrix m; m.translate((float) v[0], (float) v[1], (float) v[2]); outM(m, o); }
+void flux_mrotate(const double v[3], double o[16])    { dMatrix m; m.rotxyz((float) v[0], (float) v[1], (float) v[2]); outM(m, o); }
+void flux_mscale(const double v[3], double o[16])     { dMatrix m; m.scale((float) v[0], (float) v[1], (float) v[2]); outM(m, o); }
+void flux_mtranspose(const double a[16], double o[16]) { dMatrix m = M(a); m.transpose(); outM(m, o); }
+void flux_minverse(const double a[16], double o[16])   { outM(M(a).inverse(), o); }
+void flux_maim(const double dir[3], const double up[3], double o[16]) { dMatrix m; m.aim(V(dir), V(up)); outM(m, o); }
+
+void flux_qaxisangle(const double axis[3], double angle, double o[4]) { dQuat q; q.setAxisAngle(V(axis), (float) angle); outQ(q, o); }
+void flux_qmul(const double a[4], const double b[4], double o[4])     { outQ(Q(a) * Q(b), o); }
+void flux_qnormalise(const double a[4], double o[4])                  { outQ(Q(a).getNormlised(), o); }
+void flux_qconjugate(const double a[4], double o[4])                  { outQ(Q(a).conjugate(), o); }
+void flux_qtomatrix(const double a[4], double o[16])                  { outM(Q(a).toMatrix(), o); }
+
+double flux_noise(double x, double y, double z)  { return Noise::noise((float) x, (float) y, (float) z); }
+double flux_snoise(double x, double y, double z) { return SimplexNoise::noise((float) x, (float) y, (float) z); }
+void   flux_noise_seed(int seed)                 { Noise::noise_seed((unsigned) seed); }
+void   flux_noise_detail(int octaves, double falloff) { Noise::noise_detail(octaves, (float) falloff); }
