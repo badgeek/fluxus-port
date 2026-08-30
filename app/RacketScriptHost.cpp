@@ -116,6 +116,7 @@ std::string requireLibForm() {
          "         (file \"" + lib + "/camera.ss\")"           // input-camera, reset-camera
          "         (file \"" + lib + "/mouse.ss\")"            // mouse-pos, world-pos, 2dvec->angle
          "         (file \"" + lib + "/help.ss\")"             // help/set-help-locale!
+         "         (file \"" + lib + "/tasks.ss\")"           // spawn-task/rm-task (+ time.ss)
          "         (file \"" + lib + "/pixels-tools.ss\")"     // pixels-circle/dodge/burn
          "         (file \"" + lib + "/voxels-tools.ss\")"     // voxels-index/pos/sphere
          "         (file \"" + lib + "/planetarium.ss\")"      // dome-* projection helpers

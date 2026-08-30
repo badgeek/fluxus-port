@@ -34,6 +34,7 @@
  vx vy vz vr vg vb va
  vx-set! vy-set! vz-set! vr-set! vg-set! vb-set! va-set!
  vmul vdiv
+ shader-set!          ;; defined below but was missing from the provide
  )
 
 ;; StartFunctionDoc-en

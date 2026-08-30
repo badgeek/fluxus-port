@@ -41,6 +41,19 @@ target_include_directories(s7 PUBLIC ${s7_SOURCE_DIR})
 target_compile_definitions(s7 PRIVATE WITH_C_LOADER=0 WITH_SYSTEM_EXTRAS=0)
 target_compile_options(s7 PRIVATE -w)
 
+# --- bundled example sketches ----------------------------------------------
+# Copy the upstream fluxus examples into <App>.app/Contents/Resources/examples;
+# FluxusMenu lists them under File > Examples (AppMenu.h). ~370 KB, so unlike the
+# Racket runtime this is unconditional. See cmake/bundle_examples.cmake.
+function(fluxus_bundle_examples target)
+  add_custom_command(TARGET ${target} POST_BUILD
+    COMMAND ${CMAKE_COMMAND}
+            -DEXAMPLES_DIR=${CMAKE_CURRENT_SOURCE_DIR}/vendor/fluxus/examples
+            -DAPP_DIR=$<TARGET_BUNDLE_DIR:${target}>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/bundle_examples.cmake
+    VERBATIM COMMENT "Bundling example sketches into ${target}.app")
+endfunction()
+
 # --- the JUCE app ----------------------------------------------------------
 juce_add_gui_app(FluxusApp PRODUCT_NAME "FluxusApp"
     MICROPHONE_PERMISSION_ENABLED TRUE
@@ -81,6 +94,8 @@ target_link_libraries(FluxusApp PRIVATE
     PUBLIC
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
+
+fluxus_bundle_examples(FluxusApp)
 
 # ============================================================================
 # Variant: FluxusGLApp — uses fluxus's OWN GL text editor (GLEditor/PolyGlyph)
@@ -229,6 +244,8 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       juce::juce_recommended_config_flags
       juce::juce_recommended_warning_flags)
 
+  # examples FIRST: bundle_racket re-signs, and adding files after a sign breaks it
+  fluxus_bundle_examples(FluxusRacketApp)
   fluxus_bundle_racket(FluxusRacketApp)
 
   # --- FluxusGLRacketApp: fluxus's own GLEditor + REAL Racket ---------------
@@ -277,6 +294,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       juce::juce_recommended_config_flags
       juce::juce_recommended_warning_flags)
 
+  fluxus_bundle_examples(FluxusGLRacketApp)
   fluxus_bundle_racket(FluxusGLRacketApp)
 else()
   message(STATUS "Racket not found at ${RACKET_DIR}; skipping FluxusRacketApp (brew install minimal-racket)")

@@ -65,6 +65,7 @@ public:
     juce::PopupMenu m;
     if (name == "File") {
       m.addItem(kOpen,   "Open…");
+      if (! examples().isEmpty()) m.addSubMenu("Examples", examplesMenu());
       m.addSeparator();
       m.addItem(kSave,   "Save",   currentFile != juce::File());
       m.addItem(kSaveAs, "Save As…");
@@ -88,6 +89,12 @@ public:
   }
 
   void menuItemSelected(int id, int) override {
+    if (id >= kExampleBase) {
+      const auto& e = examples();
+      const int i = id - kExampleBase;
+      if (load && i < e.size() && e[i].existsAsFile()) { currentFile = e[i]; load(e[i]); }
+      return;
+    }
     if (id >= kAspectBase && id < kViewBase) { setAspect(id - kAspectBase); return; }
     switch (id) {
       case kOpen:   openFile();  break;
@@ -119,7 +126,65 @@ public:
 
 private:
   enum { kOpen = 1, kSave, kSaveAs, kLoadAudio, kAspectBase = 100, kViewBase = 200,
-         kShowEditor = kViewBase, kFullWidth, kRecord, kExport, kSetExportAudio };
+         kShowEditor = kViewBase, kFullWidth, kRecord, kExport, kSetExportAudio,
+         kExampleBase = 1000 };
+
+  // --- bundled examples ------------------------------------------------------
+  // A packaged .app carries the upstream fluxus sketches in
+  //   <App>.app/Contents/Resources/examples/
+  // (see cmake/bundle_examples.cmake). Dev builds have no Resources/examples, so
+  // the menu falls back to the repo's vendor/fluxus/examples when the binary is
+  // still inside the build tree — and simply hides the submenu if neither exists.
+  static juce::File examplesDir() {
+    const auto exe = juce::File::getSpecialLocation(juce::File::currentExecutableFile);
+    // <App>.app/Contents/MacOS/<exe> -> <App>.app/Contents/Resources/examples
+    const auto bundled = exe.getParentDirectory().getSiblingFile("Resources")
+                            .getChildFile("examples");
+    if (bundled.isDirectory()) return bundled;
+    // dev: walk up out of build/<Target>_artefacts/<Config>/<App>.app/Contents/MacOS
+    for (auto d = exe.getParentDirectory(); d != juce::File() && d.getParentDirectory() != d;
+         d = d.getParentDirectory()) {
+      const auto v = d.getChildFile("vendor/fluxus/examples");
+      if (v.isDirectory()) return v;
+    }
+    return {};
+  }
+
+  // Scanned once — the set cannot change while the app runs.
+  static const juce::Array<juce::File>& examples() {
+    static const juce::Array<juce::File> found = [] {
+      juce::Array<juce::File> a;
+      const auto dir = examplesDir();
+      if (dir.isDirectory()) {
+        dir.findChildFiles(a, juce::File::findFiles, false, "*.scm");
+        a.sort();   // by full path == by name within one dir
+      }
+      return a;
+    }();
+    return found;
+  }
+
+  // Flat list is long (~60), so break it into alphabetical chunks.
+  juce::PopupMenu examplesMenu() const {
+    const auto& e = examples();
+    juce::PopupMenu m;
+    constexpr int kChunk = 20;
+    if (e.size() <= kChunk) {
+      for (int i = 0; i < e.size(); ++i)
+        m.addItem(kExampleBase + i, e[i].getFileNameWithoutExtension());
+      return m;
+    }
+    for (int start = 0; start < e.size(); start += kChunk) {
+      const int end = juce::jmin(start + kChunk, e.size());
+      juce::PopupMenu sub;
+      for (int i = start; i < end; ++i)
+        sub.addItem(kExampleBase + i, e[i].getFileNameWithoutExtension());
+      m.addSubMenu(e[start].getFileNameWithoutExtension().substring(0, 1).toUpperCase()
+                     + " – " + e[end - 1].getFileNameWithoutExtension().substring(0, 1).toUpperCase(),
+                   sub);
+    }
+    return m;
+  }
 
   void openAudio() {
     chooser = std::make_unique<juce::FileChooser>(
@@ -153,7 +218,9 @@ private:
 
   void openFile() {
     chooser = std::make_unique<juce::FileChooser>(
-        "Open Fluxus script", juce::File(), "*.scm;*.ss;*.scheme");
+        "Open Fluxus script",
+        currentFile != juce::File() ? currentFile.getParentDirectory() : examplesDir(),
+        "*.scm;*.ss;*.scheme");
     const auto flags = juce::FileBrowserComponent::openMode
                      | juce::FileBrowserComponent::canSelectFiles;
     chooser->launchAsync(flags, [this](const juce::FileChooser& fc) {

@@ -63,12 +63,16 @@
 (define _tr  (cfun "flux_translate"  (_fun _double _double _double -> _void) (lambda (a b c) (void))))
 (define _rot (cfun "flux_rotate"     (_fun _double _double _double -> _void) (lambda (a b c) (void))))
 (define _scl (cfun "flux_scale"      (_fun _double _double _double -> _void) (lambda (a b c) (void))))
-(define (background v) (_bg  (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
-(define (colour v)     (_col (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
+;; Upstream fluxus lets these take a NUMBER as shorthand: (scale 2) is uniform,
+;; (colour 0.5) is grey. Many vendor/fluxus/examples rely on it — without this
+;; they die on `vector-ref: contract violation, given: 1`.
+(define (->v3 v) (if (number? v) (vector v v v) v))
+(define (background v) (let ((v (->v3 v))) (_bg  (->fl (vx v)) (->fl (vy v)) (->fl (vz v)))))
+(define (colour v)     (let ((v (->v3 v))) (_col (->fl (vx v)) (->fl (vy v)) (->fl (vz v)))))
 (define (color v)      (colour v))
-(define (translate v)  (_tr  (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
-(define (rotate v)     (_rot (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
-(define (scale v)      (_scl (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
+(define (translate v)  (let ((v (->v3 v))) (_tr  (->fl (vx v)) (->fl (vy v)) (->fl (vz v)))))
+(define (rotate v)     (let ((v (->v3 v))) (_rot (->fl (vx v)) (->fl (vy v)) (->fl (vz v)))))
+(define (scale v)      (let ((v (->v3 v))) (_scl (->fl (vx v)) (->fl (vy v)) (->fl (vz v)))))
 
 (define identity (cfun "flux_identity" (_fun -> _void) (lambda () (void))))
 (define push     (cfun "flux_push"     (_fun -> _void) (lambda () (void))))
@@ -100,7 +104,10 @@
 (define _mb (cfun "flux_mouse_button" (_fun -> _int)    (lambda () 0)))
 (define (mouse-x) (_mx))
 (define (mouse-y) (_my))
-(define (mouse-button) (_mb))
+;; upstream: (mouse-button n) -> is button n currently down. The port's engine
+;; call returns WHICH button is down (0 = none), so compare. No arg keeps this
+;; port's older "which button" reading.
+(define (mouse-button . n) (if (null? n) (_mb) (= (_mb) (car n))))
 ;; (key-poll): consume the last-pressed char code (0 if none) — simple hotkeys.
 (define _keypoll (cfun "flux_get_key" (_fun -> _int) (lambda () 0)))
 (define (key-poll) (_keypoll))
@@ -140,7 +147,7 @@
 (define _bfc (cfun "flux_backfacecull" (_fun _int -> _void) (lambda (x) (void))))
 (define (opacity o) (_op (->fl o)))
 (define (wire-opacity o) (_wo (->fl o)))
-(define (wire-colour v) (_wc (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
+(define (wire-colour v) (let ((v (->v3 v))) (_wc (->fl (vx v)) (->fl (vy v)) (->fl (vz v)))))
 (define (backfacecull on) (_bfc (if (and on (not (zero? on))) 1 0)))
 
 (stub-void concat shader-set! shader
@@ -178,11 +185,26 @@
 (define _padd (cfun "flux_pdata_add"  (_fun _string _string -> _void) (lambda (a b) (void))))
 (define _pcpy (cfun "flux_pdata_copy" (_fun _string _string -> _void) (lambda (a b) (void))))
 (define (pdata-size) (_psize))
-(define (pdata-ref name i) (vector (_pget name i 0) (_pget name i 1) (_pget name i 2)))
-(define (pdata-set! name i v) (_pset name i 0 (->fl (vx v))) (_pset name i 1 (->fl (vy v))) (_pset name i 2 (->fl (vz v))))
+;; Some pdata channels are SCALAR, not vec3 — ribbon width "w", particle size
+;; "s". Upstream reads/writes those as plain numbers, so accept and return one
+;; (a vec3 channel is unchanged). Without this a (pdata-map! (lambda (w) 0.5) "w")
+;; dies on `vector-ref: contract violation, given: 0.5`.
+(define (scalar-pdata? name) (member name '("w" "s")))
+(define (pdata-ref name i)
+  (if (scalar-pdata? name)
+      (_pget name i 0)
+      (vector (_pget name i 0) (_pget name i 1) (_pget name i 2))))
+(define (pdata-set! name i v)
+  (if (number? v)
+      (_pset name i 0 (->fl v))
+      (begin (_pset name i 0 (->fl (vx v)))
+             (_pset name i 1 (->fl (vy v)))
+             (_pset name i 2 (->fl (vz v))))))
 (define (pdata-add name type) (_padd name type))
 (define (pdata-copy src dst) (_pcpy src dst))
-(define (recalc-normals) (_rn))
+;; upstream: (recalc-normals smooth) — 1 arg, 0=faceted 1=smooth. The port's
+;; engine call has no smooth flag, so the argument is accepted and ignored.
+(define (recalc-normals (smooth 1)) (_rn))
 ;; native audio deform of the grabbed prim (p = ori + n*disp), whole loop in C++
 (define _deform (cfun "flux_deform_audio" (_fun _double _double _double _double _int -> _void)
                       (lambda (a b c d e) (void))))
@@ -448,7 +470,14 @@
         ((eq? t 'triangle-list) 2)  ((eq? t 'triangle-fan) 3)
         ((eq? t 'polygon) 4)        (else 0)))
 (define _polys (cfun "flux_build_polygons" (_fun _int _int -> _int) (lambda (a b) 0)))
-(define (build-polygons type nverts) (_polys (poly-type-num type) nverts))
+;; Upstream fluxus is (build-polygons COUNT 'type); this port's own sketches
+;; (examples/iso-city.scm) and the C layer use (type count). Accept both: a
+;; SYMBOL in either slot names the type, and the number is the vertex count.
+;; Two bare numbers keep the port's historical (type count) meaning.
+(define (build-polygons a b)
+  (cond ((symbol? b) (_polys (poly-type-num b) a))     ; upstream: (count 'type)
+        ((symbol? a) (_polys (poly-type-num a) b))     ; (type-symbol count)
+        (else        (_polys (poly-type-num a) b))))   ; legacy: (type-num count)
 (define _copy (cfun "flux_build_copy" (_fun _int -> _int) (lambda (a) 0)))
 (define (build-copy id) (_copy id))
 ;; ---- turtle builder (real engine, FFI) -------------------------------------
@@ -488,11 +517,11 @@
 (define _shin (cfun "flux_shinyness"     (_fun _double -> _void) (lambda (a) (void))))
 (define _ncol (cfun "flux_normal_colour" (_fun _double _double _double -> _void) (lambda (a b c) (void))))
 (define _pw   (cfun "flux_point_width"   (_fun _double -> _void) (lambda (a) (void))))
-(define (specular v)      (_spec (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
-(define (ambient v)       (_amb  (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
-(define (emissive v)      (_emi  (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
+(define (specular v) (let ((v (->v3 v))) (_spec (->fl (vx v)) (->fl (vy v)) (->fl (vz v)))))
+(define (ambient v) (let ((v (->v3 v))) (_amb  (->fl (vx v)) (->fl (vy v)) (->fl (vz v)))))
+(define (emissive v) (let ((v (->v3 v))) (_emi  (->fl (vx v)) (->fl (vy v)) (->fl (vz v)))))
 (define (shinyness s)     (_shin (->fl s)))
-(define (normal-colour v) (_ncol (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
+(define (normal-colour v) (let ((v (->v3 v))) (_ncol (->fl (vx v)) (->fl (vy v)) (->fl (vz v)))))
 (define (point-width w)   (_pw   (->fl w)))
 
 ;; ---- render hints ----------------------------------------------------------
@@ -557,9 +586,19 @@
 (define _oscdst (cfun "flux_osc_destination" (_fun _string _int -> _void) (lambda (h p) (void))))
 (define _oscsnd (cfun "flux_osc_send"        (_fun _string _f64vector _int -> _void) (lambda (a v n) (void))))
 (define _oscmsg (cfun "flux_osc_msg"         (_fun _bytes _int -> _int) (lambda (b c) 0)))
-(define (osc-source port) (_oscsrc port))
+;; upstream passes the port as a STRING ("4444"); accept either.
+(define (osc-source port)
+  (_oscsrc (if (string? port) (or (string->number port) 0) port)))
 (define (osc addr (index 0)) (_oscget addr index))
-(define (osc-destination host port) (_oscdst host port))
+;; upstream takes a single liblo URL ("osc.udp://localhost:4444"); this port
+;; takes host + port. Accept both.
+(define (osc-destination host (port #f))
+  (if port
+      (_oscdst host port)
+      (let ((m (regexp-match #rx"//([^:/]+):([0-9]+)" host)))
+        (if m
+            (_oscdst (cadr m) (or (string->number (caddr m)) 0))
+            (_oscdst host 0)))))
 (define (osc-send addr . args) (_oscsnd addr (list->f64vector (map ->fl args)) (length args)))
 (define (osc-msg)
   (let ((buf (make-bytes 256 0)))
@@ -625,7 +664,10 @@
 (define _mktext (cfun "flux_build_text"   (_fun _string -> _int) (lambda (a) 0)))
 (define _mkpix  (cfun "flux_build_pixels" (_fun _int _int -> _int) (lambda (a b) 0)))
 (define (build-text str) (_mktext str))
-(define (build-pixels w h) (_mkpix w h))
+;; upstream: (build-pixels w h [renderer? [num-textures]]) — the port has no
+;; render-to-texture, so the optional args are accepted and ignored (see the
+;; PixelPrimitive note in ROADMAP.md).
+(define (build-pixels w h (renderer #f) (ntex 1)) (_mkpix w h))
 ;; planetarium.ss engine prims
 (define (current-camera . _) 0)
 (define (pixels->texture . _) 0)
@@ -670,3 +712,90 @@
 (define (voxels->poly id (isolevel 1.0)) (_v2p id (->fl isolevel)))
 (define (build-blobby count dim size) (_bblob count (->fl (vx dim)) (->fl (vy dim)) (->fl (vz dim)) (->fl (vx size)) (->fl (vy size)) (->fl (vz size))))
 (define (blobby->poly id) (_b2p id))
+
+;; --- util / compatibility shims -------------------------------------------
+;; Commands the upstream vendor/fluxus/examples call that this port has no
+;; engine-side equivalent for. Defining them here (rather than leaving them
+;; unbound) is what lets those sketches LOAD; where the port cannot honour the
+;; command it is a documented no-op rather than a silent lie about behaviour.
+
+;; flxrnd/flxseed: upstream's seeded rand()/RAND_MAX in [0,1). Implemented in
+;; Scheme over a Racket pseudo-random-generator (same contract, no C round-trip).
+(define _flxrnd-gen (make-pseudo-random-generator))
+(define (flxrnd) (real->double-flonum (random _flxrnd-gen)))
+(define (flxseed n)
+  (parameterize ((current-pseudo-random-generator _flxrnd-gen))
+    (random-seed (bitwise-and (inexact->exact (floor n)) #x7fffffff))))
+
+;; Debug overlays / frame pacing the port does not implement. The apps render on
+;; a fixed timer and have no axis/fps overlay, so these are accepted and ignored.
+(define (show-axis . a) (void))
+(define (show-fps . a) (void))
+(define (desiredfps . a) (void))
+(define (shadow-debug . a) (void))
+
+;; Pre-bang aliases: older fluxus spelled these without the !.
+(define (pdata-set name i v) (pdata-set! name i v))
+(define (pdata-get name i) (pdata-ref name i))
+
+;; Audio: this port takes its input from the JUCE AudioHost (see (gh)/(gain)),
+;; not from fluxa/JACK, so the upstream device-setup calls are accepted no-ops.
+;; The FFT band count is fixed host-side.
+(define (set-num-frequency-bins . a) (void))
+(define (get-num-frequency-bins) 16)
+(define (smoothing-bias . a) (void))
+(define (gain-audio . a) (void))
+
+;; ODE physics is not ported (see ROADMAP.md). These are defined so a physics
+;; sketch LOADS and its non-physics geometry still draws; the bodies simply do
+;; not move. Anything that must return an id returns 0.
+(define (collisions . a) (void))
+(define (ground-plane . a) (void))
+(define (gravity . a) (void))
+(define (set-max-physical . a) (void))
+(define (active-box . a) 0)
+(define (active-sphere . a) 0)
+(define (active-cylinder . a) 0)
+(define (passive-box . a) 0)
+(define (passive-sphere . a) 0)
+(define (passive-cylinder . a) 0)
+(define (surface-params . a) (void))
+(define (kick . a) (void))
+(define (twist . a) (void))
+(define (has-collided . a) #f)
+(define (build-balljoint . a) 0)
+(define (build-hingejoint . a) 0)
+(define (build-sliderjoint . a) 0)
+(define (build-hinge2joint . a) 0)
+(define (build-amotorjoint . a) 0)
+(define (build-fixedjoint . a) 0)
+(define (joint-param . a) (void))
+(define (joint-angle . a) (void))
+(define (joint-slide . a) (void))
+
+;; Other upstream commands with no equivalent in this port yet — defined so the
+;; sketches that touch them still LOAD (see ROADMAP.md for what each needs):
+;;   fluxus-init      - upstream's engine bring-up; the host already did it
+;;   selectable      - marks a prim pickable (this port's (select) is FFI-real)
+;;   camera-hide      - per-camera visibility (single camera only)
+;;   pixels-download  - PixelPrimitive readback (no render-to-texture)
+;;   geo/line-intersect - the geometry addon, not vendored
+(define (fluxus-init . a) (void))
+(define (fluxus-reshape . a) (void))
+(define (selectable . a) (void))
+(define (camera-hide . a) (void))
+(define (pixels-download . a) (void))
+(define (geo/line-intersect . a) #f)
+(define (set-physics-debug . a) (void))
+(define (passive-mesh . a) 0)
+(define (active-mesh . a) 0)
+(define (pixels-render-to . a) (void))
+(define (pixels-display-to . a) (void))
+(define (ffgl-load . a) 0)
+(define (ffgl-get-info . a) '())
+(define (ffgl-get-parameters . a) '())
+(define (ffgl-set-parameter! . a) (void))
+(define (ffgl-activate . a) (void))
+(define (ffgl-process . a) (void))
+(define-syntax-rule (with-ffgl id body ...) (begin body ...))
+(define (pixels-display . a) (void))

@@ -37,7 +37,7 @@ RACKET   ?= /opt/homebrew/Cellar/minimal-racket/9.3/bin/racket
 RACKET_LIB = racket-lib
 # the .ss files the Racket hosts require (see RacketScriptHost::requireLibForm)
 LIBSS = fluxus-modules building-blocks maths randomness poly-tools shapes \
-        input camera mouse help pixels-tools voxels-tools planetarium \
+        input camera mouse help tasks time pixels-tools voxels-tools planetarium \
         collada-import fluxus-engine
 
 .PHONY: all configure build clean precompile dist \
