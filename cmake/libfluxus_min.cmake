@@ -46,6 +46,8 @@ set(FLUXUS_MIN_SOURCES
     ${FLUXUS_MIN_SRC_DIR}/RibbonPrimitive.cpp      # build-ribbon
     ${FLUXUS_MIN_SRC_DIR}/ParticlePrimitive.cpp    # build-particles
     ${FLUXUS_MIN_SRC_DIR}/LocatorPrimitive.cpp     # build-locator
+    ${FLUXUS_MIN_SRC_DIR}/VoxelPrimitive.cpp       # build-voxels
+    ${FLUXUS_MIN_SRC_DIR}/BlobbyPrimitive.cpp      # build-blobby / voxels->poly (marching cubes)
     ${FLUXUS_MIN_SRC_DIR}/Geometry.cpp             # IntersectLineTriangle (ray tests)
     ${FLUXUS_MIN_SRC_DIR}/GraphicsUtils.cpp        # MakeCube lives here
     # --- extra primitives pulled in by GraphicsUtils / ShadowVolumeGen -----

@@ -277,6 +277,28 @@ extern "C" {
   void flux_turtle_seek(int pos);
   void flux_get_turtle_transform(double out[16]);
 
+  // ---- voxels + blobby (volumetric grid + metaball implicit surface) --------
+  int  flux_build_voxels(int w, int h, int d);
+  int  flux_voxels_width(void);           // 0 if grabbed prim is not a voxel prim
+  int  flux_voxels_height(void);
+  int  flux_voxels_depth(void);
+  void flux_voxels_calc_gradient(void);
+  void flux_voxels_sphere_influence(double px, double py, double pz,
+                                    double r, double g, double b, double pow);
+  void flux_voxels_sphere_solid(double px, double py, double pz,
+                                double r, double g, double b, double radius);
+  void flux_voxels_box_solid(double tx, double ty, double tz,
+                             double bx, double by, double bz,
+                             double r, double g, double b);
+  void flux_voxels_threshold(double v);
+  void flux_voxels_point_light(double px, double py, double pz,
+                               double r, double g, double b);
+  int  flux_voxels_to_blobby(int id);
+  int  flux_voxels_to_poly(int id, double isolevel);
+  int  flux_build_blobby(int count, double dx, double dy, double dz,
+                         double sx, double sy, double sz);
+  int  flux_blobby_to_poly(int id);
+
   // scripts report an error string back to the host (or "" to clear)
   void flux_report_error(const char* msg);
 }

@@ -18,6 +18,8 @@
 #include "dada.h"
 #include "Noise.h"
 #include "SimplexNoise.h"
+#include "VoxelPrimitive.h"
+#include "BlobbyPrimitive.h"
 
 #include <vector>
 #include <deque>
@@ -1128,3 +1130,63 @@ void flux_turtle_skip(int n)     { g_turtle.position += (unsigned) n; }
 int  flux_turtle_position(void)  { return (int) g_turtle.position; }
 void flux_turtle_seek(int pos)   { g_turtle.position = (unsigned) pos; }
 void flux_get_turtle_transform(double out[16]) { dMatrix m = g_turtle.transform(); const float* a = m.arr(); for (int i = 0; i < 16; ++i) out[i] = a[i]; }
+
+// ---- voxels + blobby --------------------------------------------------------
+// Voxel mutators/accessors act on the GRABBED prim (with-primitive); build-* and
+// the ->poly / ->blobby converters act by primitive id, like the other builders.
+namespace {
+  inline VoxelPrimitive* grabbedVoxel() { return dynamic_cast<VoxelPrimitive*>(g_ctx.grabbed); }
+}
+int flux_build_voxels(int w, int h, int d) {
+  return addPrim(new VoxelPrimitive(w > 0 ? w : 1, h > 0 ? h : 1, d > 0 ? d : 1));
+}
+int flux_voxels_width(void)  { VoxelPrimitive* v = grabbedVoxel(); return v ? (int) v->GetWidth()  : 0; }
+int flux_voxels_height(void) { VoxelPrimitive* v = grabbedVoxel(); return v ? (int) v->GetHeight() : 0; }
+int flux_voxels_depth(void)  { VoxelPrimitive* v = grabbedVoxel(); return v ? (int) v->GetDepth()  : 0; }
+void flux_voxels_calc_gradient(void) { if (VoxelPrimitive* v = grabbedVoxel()) v->CalcGradient(); }
+void flux_voxels_sphere_influence(double px, double py, double pz, double r, double g, double b, double pow) {
+  if (VoxelPrimitive* v = grabbedVoxel())
+    v->SphereInfluence(dVector((float) px, (float) py, (float) pz), dColour((float) r, (float) g, (float) b), (float) pow);
+}
+void flux_voxels_sphere_solid(double px, double py, double pz, double r, double g, double b, double radius) {
+  if (VoxelPrimitive* v = grabbedVoxel())
+    v->SphereSolid(dVector((float) px, (float) py, (float) pz), dColour((float) r, (float) g, (float) b), (float) radius);
+}
+void flux_voxels_box_solid(double tx, double ty, double tz, double bx, double by, double bz, double r, double g, double b) {
+  if (VoxelPrimitive* v = grabbedVoxel())
+    v->BoxSolid(dVector((float) tx, (float) ty, (float) tz), dVector((float) bx, (float) by, (float) bz), dColour((float) r, (float) g, (float) b));
+}
+void flux_voxels_threshold(double val) { if (VoxelPrimitive* v = grabbedVoxel()) v->Threshold((float) val); }
+void flux_voxels_point_light(double px, double py, double pz, double r, double g, double b) {
+  if (VoxelPrimitive* v = grabbedVoxel())
+    v->PointLight(dVector((float) px, (float) py, (float) pz), dColour((float) r, (float) g, (float) b));
+}
+int flux_voxels_to_blobby(int id) {
+  if (!g_ctx.r) return -1;
+  VoxelPrimitive* v = dynamic_cast<VoxelPrimitive*>(g_ctx.r->GetPrimitive(id));
+  if (!v) return -1;
+  return addPrim(v->ConvertToBlobby());
+}
+int flux_voxels_to_poly(int id, double isolevel) {
+  if (!g_ctx.r) return -1;
+  VoxelPrimitive* v = dynamic_cast<VoxelPrimitive*>(g_ctx.r->GetPrimitive(id));
+  if (!v) return -1;
+  BlobbyPrimitive* bp = v->ConvertToBlobby();
+  PolyPrimitive* np = new PolyPrimitive(PolyPrimitive::TRILIST);
+  bp->ConvertToPoly(*np, (float) isolevel);
+  delete bp;
+  return addPrim(np);
+}
+int flux_build_blobby(int count, double dx, double dy, double dz, double sx, double sy, double sz) {
+  BlobbyPrimitive* p = new BlobbyPrimitive((int) dx, (int) dy, (int) dz, dVector((float) sx, (float) sy, (float) sz));
+  for (int i = 0; i < count; ++i) p->AddInfluence(dVector(0, 0, 0), 0);
+  return addPrim(p);
+}
+int flux_blobby_to_poly(int id) {
+  if (!g_ctx.r) return -1;
+  BlobbyPrimitive* bp = dynamic_cast<BlobbyPrimitive*>(g_ctx.r->GetPrimitive(id));
+  if (!bp) return -1;
+  PolyPrimitive* np = new PolyPrimitive(PolyPrimitive::TRILIST);
+  bp->ConvertToPoly(*np);
+  return addPrim(np);
+}

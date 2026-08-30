@@ -125,6 +125,21 @@ static s7_pointer f_turtle_skip(s7_scheme* sc, s7_pointer a){ flux_turtle_skip(a
 static s7_pointer f_turtle_position(s7_scheme* sc, s7_pointer){ return s7_make_integer(sc, flux_turtle_position()); }
 static s7_pointer f_turtle_seek(s7_scheme* sc, s7_pointer a){ flux_turtle_seek(argInt(sc,a,0,0)); return s7_nil(sc); }
 static s7_pointer f_get_turtle_transform(s7_scheme* sc, s7_pointer){ double m[16]; flux_get_turtle_transform(m); return makeVecN(sc,m,16); }
+// voxels + blobby
+static s7_pointer f_build_voxels(s7_scheme* sc, s7_pointer a){ return s7_make_integer(sc, flux_build_voxels(argInt(sc,a,0,8),argInt(sc,a,1,8),argInt(sc,a,2,8))); }
+static s7_pointer f_voxels_width(s7_scheme* sc, s7_pointer){ return s7_make_integer(sc, flux_voxels_width()); }
+static s7_pointer f_voxels_height(s7_scheme* sc, s7_pointer){ return s7_make_integer(sc, flux_voxels_height()); }
+static s7_pointer f_voxels_depth(s7_scheme* sc, s7_pointer){ return s7_make_integer(sc, flux_voxels_depth()); }
+static s7_pointer f_voxels_calc_gradient(s7_scheme* sc, s7_pointer){ flux_voxels_calc_gradient(); return s7_nil(sc); }
+static s7_pointer f_voxels_sphere_influence(s7_scheme* sc, s7_pointer a){ double p[3],c[3]; readVecN(sc,a,p,3); readVecN(sc,s7_cdr(a),c,3); flux_voxels_sphere_influence(p[0],p[1],p[2],c[0],c[1],c[2],argReal(sc,a,2)); return s7_nil(sc); }
+static s7_pointer f_voxels_sphere_solid(s7_scheme* sc, s7_pointer a){ double p[3],c[3]; readVecN(sc,a,p,3); readVecN(sc,s7_cdr(a),c,3); flux_voxels_sphere_solid(p[0],p[1],p[2],c[0],c[1],c[2],argReal(sc,a,2)); return s7_nil(sc); }
+static s7_pointer f_voxels_box_solid(s7_scheme* sc, s7_pointer a){ double t[3],b[3],c[3]; readVecN(sc,a,t,3); readVecN(sc,s7_cdr(a),b,3); readVecN(sc,s7_cddr(a),c,3); flux_voxels_box_solid(t[0],t[1],t[2],b[0],b[1],b[2],c[0],c[1],c[2]); return s7_nil(sc); }
+static s7_pointer f_voxels_threshold(s7_scheme* sc, s7_pointer a){ flux_voxels_threshold(argReal(sc,a,0)); return s7_nil(sc); }
+static s7_pointer f_voxels_point_light(s7_scheme* sc, s7_pointer a){ double p[3],c[3]; readVecN(sc,a,p,3); readVecN(sc,s7_cdr(a),c,3); flux_voxels_point_light(p[0],p[1],p[2],c[0],c[1],c[2]); return s7_nil(sc); }
+static s7_pointer f_voxels_to_blobby(s7_scheme* sc, s7_pointer a){ return s7_make_integer(sc, flux_voxels_to_blobby(argInt(sc,a,0,-1))); }
+static s7_pointer f_voxels_to_poly(s7_scheme* sc, s7_pointer a){ double iso = s7_is_pair(s7_cdr(a))?argReal(sc,a,1):1.0; return s7_make_integer(sc, flux_voxels_to_poly(argInt(sc,a,0,-1), iso)); }
+static s7_pointer f_build_blobby(s7_scheme* sc, s7_pointer a){ double d[3],s[3]; readVecN(sc,s7_cdr(a),d,3); readVecN(sc,s7_cddr(a),s,3); return s7_make_integer(sc, flux_build_blobby(argInt(sc,a,0,1),d[0],d[1],d[2],s[0],s[1],s[2])); }
+static s7_pointer f_blobby_to_poly(s7_scheme* sc, s7_pointer a){ return s7_make_integer(sc, flux_blobby_to_poly(argInt(sc,a,0,-1))); }
 
 s7_pointer f_colour(s7_scheme* sc, s7_pointer a)     { double x,y,z; if (vec3(sc,a,x,y,z)) flux_colour(x,y,z);     return s7_nil(sc); }
 s7_pointer f_background(s7_scheme* sc, s7_pointer a)  { double x,y,z; if (vec3(sc,a,x,y,z)) flux_background(x,y,z); return s7_nil(sc); }
@@ -645,6 +660,20 @@ void S7ScriptHost::init() {
   def("turtle-position", f_turtle_position, 0, 0, false);
   def("turtle-seek",     f_turtle_seek,     1, 0, false);
   def("get-turtle-transform", f_get_turtle_transform, 0, 0, false);
+  def("build-voxels",            f_build_voxels,            3, 0, false);
+  def("voxels-width",            f_voxels_width,            0, 0, false);
+  def("voxels-height",           f_voxels_height,           0, 0, false);
+  def("voxels-depth",            f_voxels_depth,            0, 0, false);
+  def("voxels-calc-gradient",    f_voxels_calc_gradient,    0, 0, false);
+  def("voxels-sphere-influence", f_voxels_sphere_influence, 3, 0, false);
+  def("voxels-sphere-solid",     f_voxels_sphere_solid,     3, 0, false);
+  def("voxels-box-solid",        f_voxels_box_solid,        3, 0, false);
+  def("voxels-threshold",        f_voxels_threshold,        1, 0, false);
+  def("voxels-point-light",      f_voxels_point_light,      2, 0, false);
+  def("voxels->blobby",          f_voxels_to_blobby,        1, 0, false);
+  def("voxels->poly",            f_voxels_to_poly,          1, 1, false);
+  def("build-blobby",            f_build_blobby,            3, 0, false);
+  def("blobby->poly",            f_blobby_to_poly,          1, 0, false);
 
   s7_eval_c_string(sc,
     "(define-macro (with-state . body)"
