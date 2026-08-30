@@ -91,6 +91,18 @@ static s7_pointer f_wire_opacity(s7_scheme* sc, s7_pointer a){ if(s7_is_pair(a))
 static s7_pointer f_wire_colour(s7_scheme* sc, s7_pointer a){ double x,y,z; if(vec3(sc,a,x,y,z)) flux_wire_colour(x,y,z); return s7_nil(sc); }
 static s7_pointer f_key_poll(s7_scheme* sc, s7_pointer){ return s7_make_integer(sc, flux_get_key()); }
 static s7_pointer f_set_export(s7_scheme* sc, s7_pointer a){ int on = s7_boolean(sc,s7_car(a))?1:0; const char* p = s7_is_string(s7_cadr(a))?s7_string(s7_cadr(a)):""; int fps = (int) s7_number_to_real(sc,s7_caddr(a)); flux_set_export(on,p,fps); return s7_nil(sc); }
+// s7-parity sweep: engine-backed commands the s7 host still lacked
+static int argInt(s7_scheme* sc, s7_pointer a, int i, int dflt){ for(int k=0;k<i && s7_is_pair(a);++k) a=s7_cdr(a); return s7_is_pair(a)?(int)s7_number_to_real(sc,s7_car(a)):dflt; }
+static s7_pointer f_build_nurbs_plane(s7_scheme* sc, s7_pointer a){ return s7_make_integer(sc, flux_build_nurbs_plane(argInt(sc,a,0,5), argInt(sc,a,1,5))); }
+static s7_pointer f_build_nurbs_sphere(s7_scheme* sc, s7_pointer a){ return s7_make_integer(sc, flux_build_nurbs_sphere(argInt(sc,a,0,10), argInt(sc,a,1,10))); }
+static s7_pointer f_pdata_add(s7_scheme* sc, s7_pointer a){ if(s7_is_string(s7_car(a))&&s7_is_string(s7_cadr(a))) flux_pdata_add(s7_string(s7_car(a)), s7_string(s7_cadr(a))); return s7_nil(sc); }
+static s7_pointer f_pdata_copy(s7_scheme* sc, s7_pointer a){ if(s7_is_string(s7_car(a))&&s7_is_string(s7_cadr(a))) flux_pdata_copy(s7_string(s7_car(a)), s7_string(s7_cadr(a))); return s7_nil(sc); }
+static s7_pointer f_recalc_normals(s7_scheme* sc, s7_pointer){ flux_recalc_normals(); return s7_nil(sc); }
+static s7_pointer f_delta(s7_scheme* sc, s7_pointer){ return s7_make_real(sc, flux_delta()); }
+static s7_pointer f_frustum(s7_scheme* sc, s7_pointer a){ flux_set_frustum(argReal(sc,a,0),argReal(sc,a,1),argReal(sc,a,2),argReal(sc,a,3)); return s7_nil(sc); }
+static s7_pointer f_ortho(s7_scheme* sc, s7_pointer a){ int on = s7_is_pair(a)?(s7_boolean(sc,s7_car(a))?1:0):1; flux_set_ortho(on); return s7_nil(sc); }
+static s7_pointer f_clip(s7_scheme* sc, s7_pointer a){ flux_set_clip(argReal(sc,a,0), argReal(sc,a,1)); return s7_nil(sc); }
+static s7_pointer f_viewport(s7_scheme* sc, s7_pointer a){ flux_set_viewport(argReal(sc,a,0),argReal(sc,a,1),argReal(sc,a,2),argReal(sc,a,3)); return s7_nil(sc); }
 
 s7_pointer f_colour(s7_scheme* sc, s7_pointer a)     { double x,y,z; if (vec3(sc,a,x,y,z)) flux_colour(x,y,z);     return s7_nil(sc); }
 s7_pointer f_background(s7_scheme* sc, s7_pointer a)  { double x,y,z; if (vec3(sc,a,x,y,z)) flux_background(x,y,z); return s7_nil(sc); }
@@ -588,6 +600,16 @@ void S7ScriptHost::init() {
   def("wire-color",     f_wire_colour,    1, 0, false);
   def("key-poll",       f_key_poll,       0, 0, false);
   def("set-export",     f_set_export,     3, 0, false);
+  def("build-nurbs-plane",  f_build_nurbs_plane,  0, 2, false);
+  def("build-nurbs-sphere", f_build_nurbs_sphere, 0, 2, false);
+  def("pdata-add",      f_pdata_add,      2, 0, false);
+  def("pdata-copy",     f_pdata_copy,     2, 0, false);
+  def("recalc-normals", f_recalc_normals, 0, 0, false);
+  def("delta",          f_delta,          0, 0, false);
+  def("frustum",        f_frustum,        4, 0, false);
+  def("ortho",          f_ortho,          0, 1, false);
+  def("clip",           f_clip,           2, 0, false);
+  def("viewport",       f_viewport,       4, 0, false);
 
   s7_eval_c_string(sc,
     "(define-macro (with-state . body)"
