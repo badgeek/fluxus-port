@@ -1,5 +1,7 @@
 #pragma once
 #include <string>
+#include <vector>
+#include <functional>
 
 // Shared fluxus command layer — the immediate-mode "turtle" build API operating
 // on a global build context + current Renderer. C-callable (extern "C") so BOTH
@@ -345,12 +347,38 @@ extern "C" {
   void flux_hsv_to_rgb(const double hsv[3], double rgb[3]);
   void flux_rgb_to_hsv(const double rgb[3], double hsv[3]);
 
+  // ---- MIDI input (MidiHost pushes on a JUCE thread; scripts read) ----------
+  void   flux_set_midi_cc(int chan, int ctrl, int val);   // store a CC (val 0..127)
+  void   flux_set_midi_note(int pitch, int vel);          // store the last note-on
+  int    flux_midi_cc(int chan, int ctrl);                // raw 0..127 (0 if unseen)
+  double flux_midi_ccn(int chan, int ctrl);               // normalised 0..1
+  int    flux_midi_note(void);                            // last note-on pitch (-1 none)
+  int    flux_midi_note_velocity(void);                   // last note-on velocity
+
+  // ---- OSC (OscHost pushes received msgs; send goes via an installed bridge)
+  void   flux_set_osc(const char* addr, const double* args, int n);  // received (host push)
+  double flux_osc_get(const char* addr, int index);       // an arg of the latest msg at addr
+  int    flux_osc_msg(char* out, int cap);                // last received address -> out; len
+  void   flux_osc_source(int port);                       // open a receiver on a UDP port
+  void   flux_osc_destination(const char* host, int port);// set the send target
+  void   flux_osc_send(const char* addr, const double* args, int n); // send float args
+
   // scripts report an error string back to the host (or "" to clear)
   void flux_report_error(const char* msg);
 }
 
 // C++-side accessor for the host (not FFI).
 std::string flux_last_error();
+
+// C++-side: OscHost installs its transport here so the script-facing
+// flux_osc_source/destination/send can drive it without FluxusCommands
+// depending on JUCE. Any callback may be null (no OSC host wired).
+struct FluxOscBridge {
+  std::function<void(int)>                                   openSource;   // (port)
+  std::function<void(const std::string&, int)>              setDestination; // (host, port)
+  std::function<void(const std::string&, const std::vector<double>&)> send; // (addr, args)
+};
+void flux_osc_install_bridge(const FluxOscBridge& bridge);
 
 // C++-side post-FX accessors for FluxusScene (not FFI).
 // returns true if post is enabled; fills frag + feedback; sets dirty=true (and

@@ -196,6 +196,16 @@ static s7_pointer f_light_attenuation(s7_scheme* sc, s7_pointer a){ const char* 
 static s7_pointer f_colour_mode(s7_scheme* sc, s7_pointer a){ const char* m=symOrStr(sc,s7_car(a)); flux_colour_mode(!strcmp(m,"hsv")?1:0); return s7_nil(sc); }
 static s7_pointer f_hsv_to_rgb(s7_scheme* sc, s7_pointer a){ double h[3],o[3]; readVecN(sc,a,h,3); flux_hsv_to_rgb(h,o); return makeVecN(sc,o,3); }
 static s7_pointer f_rgb_to_hsv(s7_scheme* sc, s7_pointer a){ double r[3],o[3]; readVecN(sc,a,r,3); flux_rgb_to_hsv(r,o); return makeVecN(sc,o,3); }
+// MIDI + OSC
+static s7_pointer f_midi_cc(s7_scheme* sc, s7_pointer a){ return s7_make_integer(sc, flux_midi_cc(argInt(sc,a,0,0), argInt(sc,a,1,0))); }
+static s7_pointer f_midi_ccn(s7_scheme* sc, s7_pointer a){ return s7_make_real(sc, flux_midi_ccn(argInt(sc,a,0,0), argInt(sc,a,1,0))); }
+static s7_pointer f_midi_note(s7_scheme* sc, s7_pointer){ return s7_make_integer(sc, flux_midi_note()); }
+static s7_pointer f_midi_note_velocity(s7_scheme* sc, s7_pointer){ return s7_make_integer(sc, flux_midi_note_velocity()); }
+static s7_pointer f_osc_source(s7_scheme* sc, s7_pointer a){ flux_osc_source(argInt(sc,a,0,0)); return s7_nil(sc); }
+static s7_pointer f_osc(s7_scheme* sc, s7_pointer a){ const char* ad = s7_is_string(s7_car(a))?s7_string(s7_car(a)):""; int idx = s7_is_pair(s7_cdr(a))?(int)s7_number_to_real(sc,s7_cadr(a)):0; return s7_make_real(sc, flux_osc_get(ad, idx)); }
+static s7_pointer f_osc_msg(s7_scheme* sc, s7_pointer){ char buf[256]; flux_osc_msg(buf, sizeof(buf)); return s7_make_string(sc, buf); }
+static s7_pointer f_osc_destination(s7_scheme* sc, s7_pointer a){ const char* h = s7_is_string(s7_car(a))?s7_string(s7_car(a)):"127.0.0.1"; flux_osc_destination(h, (int)s7_number_to_real(sc,s7_cadr(a))); return s7_nil(sc); }
+static s7_pointer f_osc_send(s7_scheme* sc, s7_pointer a){ const char* ad = s7_is_string(s7_car(a))?s7_string(s7_car(a)):""; std::vector<double> args; for (s7_pointer l=s7_cdr(a); s7_is_pair(l); l=s7_cdr(l)) args.push_back(s7_number_to_real(sc,s7_car(l))); flux_osc_send(ad, args.data(), (int)args.size()); return s7_nil(sc); }
 
 s7_pointer f_colour(s7_scheme* sc, s7_pointer a)     { double x,y,z; if (vec3(sc,a,x,y,z)) flux_colour(x,y,z);     return s7_nil(sc); }
 s7_pointer f_background(s7_scheme* sc, s7_pointer a)  { double x,y,z; if (vec3(sc,a,x,y,z)) flux_background(x,y,z); return s7_nil(sc); }
@@ -753,6 +763,15 @@ void S7ScriptHost::init() {
   def("color-mode",             f_colour_mode,            1, 0, false);
   def("hsv->rgb",               f_hsv_to_rgb,             1, 0, false);
   def("rgb->hsv",               f_rgb_to_hsv,             1, 0, false);
+  def("midi-cc",                f_midi_cc,                2, 0, false);
+  def("midi-ccn",               f_midi_ccn,               2, 0, false);
+  def("midi-note",              f_midi_note,              0, 0, false);
+  def("midi-note-velocity",     f_midi_note_velocity,     0, 0, false);
+  def("osc-source",             f_osc_source,             1, 0, false);
+  def("osc",                    f_osc,                    1, 1, false);
+  def("osc-msg",                f_osc_msg,                0, 0, false);
+  def("osc-destination",        f_osc_destination,        2, 0, false);
+  def("osc-send",               f_osc_send,               1, 0, true);
 
   s7_eval_c_string(sc,
     "(define-macro (with-state . body)"

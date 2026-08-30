@@ -9,6 +9,8 @@
 class FluxusScene;
 class IScriptHost;
 struct IAudioHost;
+struct IMidiHost;
+struct IOscHost;
 class ControlServer;
 using ScriptHostFactory = std::function<std::unique_ptr<IScriptHost>()>;
 
@@ -59,6 +61,8 @@ private:
   juce::OpenGLContext ctx;
   std::unique_ptr<FluxusScene> scene;
   std::unique_ptr<IAudioHost>  audio;
+  std::unique_ptr<IMidiHost>   midi;
+  std::unique_ptr<IOscHost>    osc;
   ScriptHostFactory makeHost;
   SharedScript shared;
 

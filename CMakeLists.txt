@@ -57,6 +57,8 @@ target_sources(FluxusApp PRIVATE
     app/TextureLoader.cpp
     app/FluxusCommands.cpp
       app/AudioHost.cpp
+      app/MidiHost.cpp
+      app/OscHost.cpp
       app/VideoHost.mm
     app/S7ScriptHost.cpp)
 
@@ -74,6 +76,7 @@ target_link_libraries(FluxusApp PRIVATE
     juce::juce_gui_extra
     juce::juce_audio_utils
     juce::juce_dsp
+    juce::juce_osc
     ${FLUXUS_VIDEO_FRAMEWORKS}
     PUBLIC
     juce::juce_recommended_config_flags
@@ -125,6 +128,8 @@ target_sources(FluxusGLApp PRIVATE
     app/TextureLoader.cpp
     app/FluxusCommands.cpp
       app/AudioHost.cpp
+      app/MidiHost.cpp
+      app/OscHost.cpp
       app/VideoHost.mm
     app/S7ScriptHost.cpp)
 
@@ -144,6 +149,7 @@ target_link_libraries(FluxusGLApp PRIVATE
     juce::juce_gui_extra
     juce::juce_audio_utils
     juce::juce_dsp
+    juce::juce_osc
     ${FLUXUS_VIDEO_FRAMEWORKS}
     PUBLIC
     juce::juce_recommended_config_flags
@@ -171,6 +177,8 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       app/TextureLoader.cpp
       app/FluxusCommands.cpp
       app/AudioHost.cpp
+      app/MidiHost.cpp
+      app/OscHost.cpp
       app/VideoHost.mm
       app/RacketScriptHost.cpp)
 
@@ -191,6 +199,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       juce::juce_gui_extra
     juce::juce_audio_utils
     juce::juce_dsp
+    juce::juce_osc
       "${RACKET_DIR}/lib/libracketcs.a"
       "-liconv" "-lncurses"
       "-framework CoreFoundation"
@@ -214,6 +223,8 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       app/TextureLoader.cpp
       app/FluxusCommands.cpp
       app/AudioHost.cpp
+      app/MidiHost.cpp
+      app/OscHost.cpp
       app/VideoHost.mm
       app/RacketScriptHost.cpp)
   target_include_directories(FluxusGLRacketApp PRIVATE "${RACKET_DIR}/include/racket")
@@ -233,6 +244,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       juce::juce_gui_extra
     juce::juce_audio_utils
     juce::juce_dsp
+    juce::juce_osc
       "${RACKET_DIR}/lib/libracketcs.a"
       "-liconv" "-lncurses"
       "-framework CoreFoundation"
@@ -270,4 +282,5 @@ juce_add_console_app(fft_test)
 target_sources(fft_test PRIVATE spikes/fft/main.cpp)
 target_link_libraries(fft_test PRIVATE
     juce::juce_dsp
+    juce::juce_osc
     PUBLIC juce::juce_recommended_config_flags)

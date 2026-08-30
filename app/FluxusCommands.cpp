@@ -33,6 +33,7 @@
 #include <mutex>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <map>
 #include <string>
 #include <set>
@@ -135,6 +136,18 @@ std::string g_err;
 std::mutex         g_audioMutex;
 std::vector<float> g_bands;
 double             g_gain = 0.0;
+
+// MIDI input state (MidiHost writes on a JUCE thread; scripts read on GL thread)
+std::mutex g_midiMutex;
+int  g_midiCC[16][128] = {};     // last CC value per channel/controller (0 default)
+int  g_midiNotePitch = -1;       // last note-on pitch (-1 = none yet)
+int  g_midiNoteVel   = 0;
+
+// OSC state: latest args per received address + the send transport bridge
+std::mutex g_oscMutex;
+std::map<std::string, std::vector<double>> g_oscMsgs;
+std::string g_oscLastAddr;
+FluxOscBridge g_oscBridge;
 
 // persistent script state (GL thread only, but guard anyway)
 std::mutex                                  g_stateMutex;
@@ -712,6 +725,51 @@ double flux_audio_gain(void) {
   return g_gain;
 }
 
+// ---- MIDI input -------------------------------------------------------------
+void flux_set_midi_cc(int chan, int ctrl, int val) {
+  if (chan < 0 || chan >= 16 || ctrl < 0 || ctrl >= 128) return;
+  std::lock_guard<std::mutex> lk(g_midiMutex);
+  g_midiCC[chan][ctrl] = val;
+}
+void flux_set_midi_note(int pitch, int vel) {
+  std::lock_guard<std::mutex> lk(g_midiMutex);
+  g_midiNotePitch = pitch; g_midiNoteVel = vel;
+}
+int flux_midi_cc(int chan, int ctrl) {
+  if (chan < 0 || chan >= 16 || ctrl < 0 || ctrl >= 128) return 0;
+  std::lock_guard<std::mutex> lk(g_midiMutex);
+  return g_midiCC[chan][ctrl];
+}
+double flux_midi_ccn(int chan, int ctrl) { return flux_midi_cc(chan, ctrl) / 127.0; }
+int flux_midi_note(void)          { std::lock_guard<std::mutex> lk(g_midiMutex); return g_midiNotePitch; }
+int flux_midi_note_velocity(void) { std::lock_guard<std::mutex> lk(g_midiMutex); return g_midiNoteVel; }
+
+// ---- OSC --------------------------------------------------------------------
+void flux_set_osc(const char* addr, const double* args, int n) {
+  if (!addr) return;
+  std::lock_guard<std::mutex> lk(g_oscMutex);
+  g_oscLastAddr = addr;
+  g_oscMsgs[addr].assign(args, args + (n > 0 ? n : 0));
+}
+double flux_osc_get(const char* addr, int index) {
+  if (!addr) return 0.0;
+  std::lock_guard<std::mutex> lk(g_oscMutex);
+  auto it = g_oscMsgs.find(addr);
+  if (it == g_oscMsgs.end() || index < 0 || index >= (int) it->second.size()) return 0.0;
+  return it->second[(size_t) index];
+}
+int flux_osc_msg(char* out, int cap) {
+  std::lock_guard<std::mutex> lk(g_oscMutex);
+  int len = (int) g_oscLastAddr.size();
+  if (out && cap > 0) { int c = len < cap - 1 ? len : cap - 1; memcpy(out, g_oscLastAddr.data(), (size_t) c); out[c] = 0; }
+  return len;
+}
+void flux_osc_source(int port)                        { if (g_oscBridge.openSource) g_oscBridge.openSource(port); }
+void flux_osc_destination(const char* host, int port) { if (g_oscBridge.setDestination) g_oscBridge.setDestination(host ? host : "", port); }
+void flux_osc_send(const char* addr, const double* args, int n) {
+  if (g_oscBridge.send) g_oscBridge.send(addr ? addr : "", std::vector<double>(args, args + (n > 0 ? n : 0)));
+}
+
 void flux_set_mouse(double x, double y, int button) { g_mouseX = x; g_mouseY = y; g_mouseButton = button; }
 double flux_mouse_x(void)     { return g_mouseX; }
 double flux_mouse_y(void)     { return g_mouseY; }
@@ -990,6 +1048,10 @@ void flux_report_error(const char* msg) {
 }
 
 } // extern "C"
+
+// OSC send transport bridge (C++ linkage — takes FluxOscBridge, so it lives
+// outside the extern "C" block). OscHost installs its lambdas here at start.
+void flux_osc_install_bridge(const FluxOscBridge& b) { g_oscBridge = b; }
 
 // ---- post-FX state (read by FluxusScene's PostFX) --------------------------
 namespace {

@@ -5,6 +5,8 @@
 #include "FluxusScene.h"
 #include "IScriptHost.h"
 #include "AudioHost.h"
+#include "MidiHost.h"
+#include "OscHost.h"
 #include "ControlServer.h"
 #include "FluxusCommands.h"   // mouse/camera
 
@@ -65,6 +67,10 @@ FluxusComponent::FluxusComponent(ScriptHostFactory mh, juce::String starter)
 
   audio = makeJuceAudioHost();   // CoreAudio mic -> FFT bands for (gh n)/(gain)
   audio->start();
+  midi = makeJuceMidiHost();     // MIDI in -> (midi-cc)/(midi-ccn)/(midi-note)
+  midi->start();
+  osc = makeJuceOscHost();       // OSC in/out -> (osc-source)/(osc)/(osc-send)
+  osc->start();
 
   // localhost control server (remote/MCP live-coding). Off unless a port is set:
   // export FLUXUS_CONTROL_PORT=8020 before launch, then point the MCP server at it.
@@ -83,6 +89,8 @@ FluxusComponent::FluxusComponent(ScriptHostFactory mh, juce::String starter)
 
 FluxusComponent::~FluxusComponent() {
   if (audio) audio->stop();
+  if (midi)  midi->stop();
+  if (osc)   osc->stop();
   stopTimer();
   ctx.detach();
 }

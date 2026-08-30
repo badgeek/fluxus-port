@@ -3,6 +3,8 @@
 #include "EditorOverlay.h"
 #include "IScriptHost.h"
 #include "AudioHost.h"
+#include "MidiHost.h"
+#include "OscHost.h"
 #include "FluxusCommands.h"   // mouse/camera
 #include <juce_gui_basics/juce_gui_basics.h>   // SystemClipboard
 
@@ -44,12 +46,18 @@ FluxusGLComponent::FluxusGLComponent(ScriptHostFactory mh) : makeHost(std::move(
 
   audio = makeJuceAudioHost();
   audio->start();
+  midi = makeJuceMidiHost();
+  midi->start();
+  osc = makeJuceOscHost();
+  osc->start();
   startTimerHz(30);                        // ~30 fps is plenty; halves render CPU
 }
 
 FluxusGLComponent::~FluxusGLComponent() {
   stopTimer();
   if (audio) audio->stop();
+  if (midi)  midi->stop();
+  if (osc)   osc->stop();
   ctx.detach();
 }
 
