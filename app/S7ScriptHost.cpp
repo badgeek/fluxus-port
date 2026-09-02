@@ -375,6 +375,15 @@ s7_pointer f_shader_set_int(s7_scheme* sc, s7_pointer a) {
 s7_pointer f_post_shader(s7_scheme* sc, s7_pointer a) { if (s7_is_pair(a)) flux_post_shader(s7_string(s7_car(a))); return s7_nil(sc); }
 s7_pointer f_post_off(s7_scheme* sc, s7_pointer)      { flux_post_off(); return s7_nil(sc); }
 s7_pointer f_blur(s7_scheme* sc, s7_pointer a)        { if (s7_is_pair(a)) flux_blur(s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+s7_pointer f_ntsc(s7_scheme* sc, s7_pointer a)            { int on = s7_is_pair(a) ? (s7_boolean(sc, s7_car(a)) ? 1 : 0) : 1; flux_ntsc(on); return s7_nil(sc); }
+s7_pointer f_ntsc_noise(s7_scheme* sc, s7_pointer a)      { if (s7_is_pair(a)) flux_ntsc_noise((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+s7_pointer f_ntsc_hue(s7_scheme* sc, s7_pointer a)        { if (s7_is_pair(a)) flux_ntsc_hue((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+s7_pointer f_ntsc_saturation(s7_scheme* sc, s7_pointer a) { if (s7_is_pair(a)) flux_ntsc_saturation((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+s7_pointer f_ntsc_brightness(s7_scheme* sc, s7_pointer a) { if (s7_is_pair(a)) flux_ntsc_brightness((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+s7_pointer f_ntsc_contrast(s7_scheme* sc, s7_pointer a)   { if (s7_is_pair(a)) flux_ntsc_contrast((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+s7_pointer f_ntsc_scanlines(s7_scheme* sc, s7_pointer a)  { int on = s7_is_pair(a) ? (s7_boolean(sc, s7_car(a)) ? 1 : 0) : 1; flux_ntsc_scanlines(on); return s7_nil(sc); }
+s7_pointer f_ntsc_monochrome(s7_scheme* sc, s7_pointer a) { int on = s7_is_pair(a) ? (s7_boolean(sc, s7_car(a)) ? 1 : 0) : 1; flux_ntsc_monochrome(on); return s7_nil(sc); }
+s7_pointer f_ntsc_blend(s7_scheme* sc, s7_pointer a)      { int on = s7_is_pair(a) ? (s7_boolean(sc, s7_car(a)) ? 1 : 0) : 1; flux_ntsc_blend(on); return s7_nil(sc); }
 s7_pointer f_antialias(s7_scheme* sc, s7_pointer a)   { int on = s7_is_pair(a) ? (s7_boolean(sc, s7_car(a)) ? 1 : 0) : 1; flux_set_antialias(on); return s7_nil(sc); }
 s7_pointer f_shader_set_vec(s7_scheme* sc, s7_pointer a) {    // (shader-set-vec! name vec)
   if (s7_is_pair(a) && s7_is_pair(s7_cdr(a))) {
@@ -653,6 +662,15 @@ void S7ScriptHost::init() {
   def("post-shader",          f_post_shader,          1, 0, false);
   def("post-off",             f_post_off,             0, 0, false);
   def("blur",                 f_blur,                 1, 0, false);
+  def("ntsc",                 f_ntsc,                 0, 0, true);
+  def("ntsc-noise",           f_ntsc_noise,           1, 0, false);
+  def("ntsc-hue",             f_ntsc_hue,             1, 0, false);
+  def("ntsc-saturation",      f_ntsc_saturation,      1, 0, false);
+  def("ntsc-brightness",      f_ntsc_brightness,      1, 0, false);
+  def("ntsc-contrast",        f_ntsc_contrast,        1, 0, false);
+  def("ntsc-scanlines",       f_ntsc_scanlines,       0, 0, true);
+  def("ntsc-monochrome",      f_ntsc_monochrome,      0, 0, true);
+  def("ntsc-blend",           f_ntsc_blend,           0, 0, true);
   def("anti-alias",           f_antialias,            0, 0, true);
   def("hint-anti-alias",      f_antialias,            0, 0, true);
   def("grab",         f_grab,         0, 0, true);

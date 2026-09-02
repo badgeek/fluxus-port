@@ -41,6 +41,15 @@ target_include_directories(s7 PUBLIC ${s7_SOURCE_DIR})
 target_compile_definitions(s7 PRIVATE WITH_C_LOADER=0 WITH_SYSTEM_EXTRAS=0)
 target_compile_options(s7 PRIVATE -w)
 
+# --- NTSC-CRT (LMP88959/NTSC-CRT) final-stage composite filter --------------
+# Vendored integer-only NTSC encode/decode (CRT_SYSTEM_NTSC). Header marked
+# SYSTEM so its C89 warnings don't leak; app/NTSCEffect.cpp drives it.
+add_library(ntsc_crt STATIC
+    vendor/ntsc-crt/crt_core.c
+    vendor/ntsc-crt/crt_ntsc.c)
+target_include_directories(ntsc_crt SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/vendor/ntsc-crt)
+target_compile_options(ntsc_crt PRIVATE -w)
+
 # --- bundled example sketches ----------------------------------------------
 # Copy the upstream fluxus examples into <App>.app/Contents/Resources/examples;
 # FluxusMenu lists them under File > Examples (AppMenu.h). ~370 KB, so unlike the
@@ -67,6 +76,7 @@ target_sources(FluxusApp PRIVATE
     app/ControlServer.cpp
     app/FluxusScene.cpp
     app/PostFX.cpp
+    app/NTSCEffect.cpp
     app/TextureLoader.cpp
     app/FluxusCommands.cpp
       app/AudioHost.cpp
@@ -85,6 +95,7 @@ target_compile_definitions(FluxusApp PRIVATE
 target_link_libraries(FluxusApp PRIVATE
     libfluxus_min
     s7
+    ntsc_crt
     juce::juce_opengl
     juce::juce_gui_extra
     juce::juce_audio_utils
@@ -140,6 +151,7 @@ target_sources(FluxusGLApp PRIVATE
     app/EditorOverlay.cpp
     app/FluxusScene.cpp
     app/PostFX.cpp
+    app/NTSCEffect.cpp
     app/TextureLoader.cpp
     app/FluxusCommands.cpp
       app/AudioHost.cpp
@@ -159,6 +171,7 @@ target_compile_definitions(FluxusGLApp PRIVATE
 target_link_libraries(FluxusGLApp PRIVATE
     libfluxus_min
     s7
+    ntsc_crt
     fluxus_editor
     juce::juce_opengl
     juce::juce_gui_extra
@@ -209,6 +222,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       app/ControlServer.cpp
       app/FluxusScene.cpp
       app/PostFX.cpp
+      app/NTSCEffect.cpp
       app/TextureLoader.cpp
       app/FluxusCommands.cpp
       app/AudioHost.cpp
@@ -230,6 +244,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
 
   target_link_libraries(FluxusRacketApp PRIVATE
       libfluxus_min
+      ntsc_crt
       juce::juce_opengl
       juce::juce_gui_extra
     juce::juce_audio_utils
@@ -260,6 +275,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       app/EditorOverlay.cpp
       app/FluxusScene.cpp
       app/PostFX.cpp
+      app/NTSCEffect.cpp
       app/TextureLoader.cpp
       app/FluxusCommands.cpp
       app/AudioHost.cpp

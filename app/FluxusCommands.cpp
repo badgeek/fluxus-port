@@ -50,7 +50,11 @@ struct BuildCtx {
   std::vector<std::pair<dMatrix, dColour>> stack;
   double    time  = 0.0;
   int       frame = 0;
-  int       hints = 0;      // extra State hints OR'd onto built prims
+  int       hints = 0;      // hints turned ON for newly built prims
+  int       hintsOff = 0;   // hints turned OFF (e.g. (hint-solid #f) clears the
+                            // primitive's default HINT_SOLID — OR alone can't)
+  bool      wireColSet = false;   // (wire-colour) outside a grab colours the
+  dColour   wireCol{1, 1, 1, 1};  // next-built prims (same asymmetry as hints)
   float     lineWidth = 2.0f;
   Primitive* grabbed = nullptr;   // current pdata target
   int        grabbedId = -1;      // its scene-graph id (for scene-graph queries / save)
@@ -239,7 +243,8 @@ int addPrim(Primitive* p) {
   State* s = p->GetState();
   s->Transform = g_ctx.tx;
   s->Colour    = g_ctx.col;
-  s->Hints    |= g_ctx.hints;
+  s->Hints     = (s->Hints | g_ctx.hints) & ~g_ctx.hintsOff;
+  if (g_ctx.wireColSet) s->WireColour = g_ctx.wireCol;
   s->LineWidth = g_ctx.lineWidth;
   if (g_ctx.shader) setStateShader(s, g_ctx.shader);
   if (g_ctx.texture) s->Textures[0] = g_ctx.texture;
@@ -280,6 +285,8 @@ void flux_frame_begin(double t, int frame) {
   g_ctx.col   = dColour(1, 1, 1, 1);
   g_ctx.stack.clear();
   g_ctx.hints = 0;
+  g_ctx.hintsOff = 0;
+  g_ctx.wireColSet = false;
   g_ctx.lineWidth = 2.0f;
   g_ctx.grabbed = nullptr;
   g_ctx.grabbedId = -1;
@@ -387,7 +394,8 @@ int flux_build_particles(int n) {
 
 static void setHint(int bit, int on) {
   if (State* s = grabbedState()) { if (on) s->Hints |= bit; else s->Hints &= ~bit; }
-  else                           { if (on) g_ctx.hints |= bit; else g_ctx.hints &= ~bit; }
+  else if (on) { g_ctx.hints |= bit;  g_ctx.hintsOff &= ~bit; }
+  else         { g_ctx.hints &= ~bit; g_ctx.hintsOff |= bit;  }
 }
 void flux_hint_wire(int on)  { setHint(HINT_WIRE,  on); }
 void flux_hint_solid(int on) { setHint(HINT_SOLID, on); }
@@ -396,7 +404,10 @@ void flux_line_width(double w) {
 }
 void flux_opacity(double o)      { if (State* s = grabbedState()) s->Opacity = (float) o; }
 void flux_wire_opacity(double o) { if (State* s = grabbedState()) s->WireOpacity = (float) o; }
-void flux_wire_colour(double r, double g, double b) { if (State* s = grabbedState()) s->WireColour = makeCol(r, g, b); }
+void flux_wire_colour(double r, double g, double b) {
+  if (State* s = grabbedState()) s->WireColour = makeCol(r, g, b);
+  else { g_ctx.wireCol = makeCol(r, g, b); g_ctx.wireColSet = true; }
+}
 void flux_backfacecull(int on)   { if (State* s = grabbedState()) s->Cull = on != 0; }
 
 // ---- more builders ---------------------------------------------------------
@@ -520,7 +531,7 @@ void flux_normal_colour(double r, double g, double b) { if (State* s = grabbedSt
 void flux_point_width(double w)                       { if (State* s = grabbedState()) s->PointWidth = (float) w; }
 
 // ---- render hints ----------------------------------------------------------
-void flux_hint_none(void)          { if (State* s = grabbedState()) s->Hints = 0; else g_ctx.hints = 0; }
+void flux_hint_none(void)          { if (State* s = grabbedState()) s->Hints = 0; else { g_ctx.hints = 0; g_ctx.hintsOff = ~0; } }
 void flux_hint_normal(int on)      { setHint(HINT_NORMAL, on); }
 void flux_hint_points(int on)      { setHint(HINT_POINTS, on); }
 void flux_hint_unlit(int on)       { setHint(HINT_UNLIT, on); }
@@ -1109,6 +1120,56 @@ bool flux_post_state(std::string& frag, double& feedback, bool& dirty) {
   dirty = g_postDirty;
   g_postDirty = false;
   return g_postEnabled;
+}
+
+// ---- final-stage NTSC/CRT filter state (read by FluxusScene's NTSCEffect) --
+// Scripts push monitor knobs here from the GL thread; FluxusScene reads them
+// each frame. A plain mutex mirrors the post-FX block above.
+namespace {
+std::mutex  g_ntscMutex;
+bool        g_ntscEnabled = false;
+NtscParams  g_ntsc;   // defaults in the struct match crt_reset()
+}
+extern "C" void flux_ntsc(int on) {
+  std::lock_guard<std::mutex> lk(g_ntscMutex);
+  g_ntscEnabled = (on != 0);
+}
+extern "C" void flux_ntsc_noise(int n) {
+  std::lock_guard<std::mutex> lk(g_ntscMutex);
+  g_ntsc.noise = n < 0 ? 0 : n;
+}
+extern "C" void flux_ntsc_hue(int deg) {
+  std::lock_guard<std::mutex> lk(g_ntscMutex);
+  g_ntsc.hue = ((deg % 360) + 360) % 360;
+}
+extern "C" void flux_ntsc_saturation(int s) {
+  std::lock_guard<std::mutex> lk(g_ntscMutex);
+  g_ntsc.saturation = s < 0 ? 0 : s;
+}
+extern "C" void flux_ntsc_brightness(int b) {
+  std::lock_guard<std::mutex> lk(g_ntscMutex);
+  g_ntsc.brightness = b;
+}
+extern "C" void flux_ntsc_contrast(int c) {
+  std::lock_guard<std::mutex> lk(g_ntscMutex);
+  g_ntsc.contrast = c < 0 ? 0 : c;
+}
+extern "C" void flux_ntsc_scanlines(int on) {
+  std::lock_guard<std::mutex> lk(g_ntscMutex);
+  g_ntsc.scanlines = (on != 0);
+}
+extern "C" void flux_ntsc_monochrome(int on) {
+  std::lock_guard<std::mutex> lk(g_ntscMutex);
+  g_ntsc.monochrome = (on != 0);
+}
+extern "C" void flux_ntsc_blend(int on) {
+  std::lock_guard<std::mutex> lk(g_ntscMutex);
+  g_ntsc.blend = (on != 0);
+}
+bool flux_ntsc_state(NtscParams& out) {
+  std::lock_guard<std::mutex> lk(g_ntscMutex);
+  out = g_ntsc;
+  return g_ntscEnabled;
 }
 
 std::string flux_last_error() {

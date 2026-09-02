@@ -70,8 +70,14 @@ Racket CS runtime is bundled inside them, so downloads need nothing installed
 (pdata-size) (pdata-ref "p" i) (pdata-set! "p" i v) (recalc-normals)
 ; time
 (time) (frame)
+; final-stage post FX (whole finished frame)
+(post-shader frag) (post-off) (blur amt)
+(ntsc #t) (ntsc-noise n) (ntsc-hue deg) (ntsc-saturation s)
+(ntsc-brightness b) (ntsc-contrast c) (ntsc-scanlines #t) (ntsc-monochrome #f) (ntsc-blend #t)
 ```
-`v` is `(vector x y z)`. On Racket, the real fluxus `building-blocks.ss` adds
+`v` is `(vector x y z)`. `(ntsc …)` runs a software composite-NTSC/CRT filter over
+the finished frame (scene + any `post-shader`), so screenshots/recordings capture
+it too — see below. On Racket, the real fluxus `building-blocks.ss` adds
 `pdata-map!`, `pdata-index-map!`, `pdata-fold`, `vx`/`vy`/`vz`, etc; `maths.ss`
 and `shapes.ss` add `vmix`, `build-circle-points`, …
 
@@ -119,6 +125,7 @@ cmake/libfluxus_min.cmake minimal libfluxus static lib (no external deps but Ope
 app/                      host seam + components + script hosts + shared commands
 racket-lib/               fluxus .ss library wired to the engine via FFI (see its README)
 vendor/fluxus/            vendored fluxus source (minimally edited; grep "fluxus->JUCE port")
+vendor/ntsc-crt/          vendored NTSC-CRT filter (© EMMIR) behind (ntsc …)
 spikes/                   proof spikes: s7, Lua/sol2, embedded Racket (embed + Racket-calls-C)
 DESIGN.md                 full analysis, seams, phased plan, GL-porting playbook
 ROADMAP.md                what's next + per-feature library/dependency notes
@@ -154,6 +161,10 @@ the copyleft dependencies it builds on:
   (permissive).
 - **Racket** — bundled runtime (LGPL/MIT/Apache); the `.ss` library files under
   `racket-lib/` are GPL, derived from fluxus.
+- **[NTSC-CRT](https://github.com/LMP88959/NTSC-CRT)** (`vendor/ntsc-crt/`, © EMMIR)
+  — the software composite-NTSC/CRT filter behind `(ntsc …)`. Integer-only, no
+  dependencies; the author asks only for a credit, given here. Driven by
+  `app/NTSCEffect.cpp`.
 
 AGPLv3 is the only license compatible with all of the above for the distributed
 binary (GPL-2-or-later relicenses upward to be combinable with AGPLv3). To ship a

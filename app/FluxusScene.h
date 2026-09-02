@@ -5,6 +5,7 @@
 #include <string>
 #include <thread>
 #include "PostFX.h"
+#include "NTSCEffect.h"
 
 struct SharedScript;
 namespace Fluxus { class Renderer; }
@@ -33,6 +34,7 @@ private:
   int           resW = 0, resH = 0;
   bool          committedOnce = false;   // retained mode: has the buffer been eval'd yet
   PostFX        postfx;       // optional full-screen post-processing pass
+  NTSCEffect    ntsc;         // optional final-stage software NTSC/CRT filter
   float         prevVP[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};   // last frame view-proj
   long long     lastRenderMs = 0;
 

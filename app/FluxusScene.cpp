@@ -235,6 +235,12 @@ void FluxusScene::renderFrame() {
     renderer->Render();
   }
 
+  // final stage: run the whole finished frame (scene + post pass) through the
+  // software NTSC/CRT filter, in place on the default framebuffer. Kept BEFORE
+  // the grab below so screenshots/recordings/exports capture the filtered image.
+  NtscParams np;
+  if (flux_ntsc_state(np) && resW > 0 && resH > 0) ntsc.apply(resW, resH, np);
+
   // grab the finished default framebuffer (post pass included, i.e. exactly what's
   // on screen) to a PNG. Used by both the one-shot (screenshot …) and recording.
   if (resW > 0 && resH > 0) {

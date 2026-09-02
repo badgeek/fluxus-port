@@ -226,6 +226,20 @@ extern "C" {
   void flux_post_shader(const char* frag);   // enable + set fragment source
   void flux_post_off(void);
   void flux_blur(double amount);             // built-in feedback motion-blur (0..~0.97)
+
+  // final-stage NTSC/CRT filter (software, LMP88959/NTSC-CRT). Runs AFTER the
+  // scene + any post-shader, over the finished framebuffer, so screenshots and
+  // recordings capture it too. See app/NTSCEffect. Toggle + tune monitor knobs.
+  void flux_ntsc(int on);                     // enable/disable the NTSC pass
+  void flux_ntsc_noise(int n);                // signal noise (0..inf), default 12
+  void flux_ntsc_hue(int deg);                // 0-359
+  void flux_ntsc_saturation(int s);           // default 10
+  void flux_ntsc_brightness(int b);           // default 0
+  void flux_ntsc_contrast(int c);             // default 180
+  void flux_ntsc_scanlines(int on);           // gaps between scanlines
+  void flux_ntsc_monochrome(int on);          // 0 = full colour, 1 = mono
+  void flux_ntsc_blend(int on);               // blend field onto previous frame
+
   void flux_set_antialias(int on);           // GL line/polygon smoothing
   void flux_set_retained(int on);            // retained mode: build once, per-frame thunk only
 
@@ -385,6 +399,21 @@ void flux_osc_install_bridge(const FluxOscBridge& bridge);
 // returns true if post is enabled; fills frag + feedback; sets dirty=true (and
 // clears it) when the fragment source changed since the last call.
 bool flux_post_state(std::string& frag, double& feedback, bool& dirty);
+
+// C++-side NTSC-filter state for FluxusScene (not FFI). Common CRT monitor knobs
+// plus the software-lib flags; defaults match crt_reset(). flux_ntsc_state fills
+// `out` and returns true when the final NTSC pass is enabled.
+struct NtscParams {
+  int  noise      = 12;
+  int  hue        = 0;    // 0-359
+  int  saturation = 10;
+  int  brightness = 0;
+  int  contrast   = 180;
+  bool scanlines  = true;
+  bool blend      = true;
+  bool monochrome = false;
+};
+bool flux_ntsc_state(NtscParams& out);
 
 // C++-side: whether the script asked for anti-aliasing (line/polygon smoothing).
 bool flux_antialias_on();
