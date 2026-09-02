@@ -819,7 +819,10 @@ void flux_set_camera_position(double x, double y, double z) {
   g_camAppliedMat = g_camOverrideMat;
   if (Camera* c = cam0()) c->SetMatrix(g_camOverrideMat);
 }
-void flux_camera_reset(void) { g_camOverride = false; }
+void flux_camera_reset(void) {
+  g_camOverride = false;   // back to the mouse orbit...
+  g_cam = CamState();      // ...at its default yaw/pitch/dist (undo drag+zoom)
+}
 
 // build the frustum for a vertical fov + aspect (w/h) on the given camera
 static void applyFrustum(Camera* c, double vfovDeg, double aspect) {

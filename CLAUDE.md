@@ -109,7 +109,10 @@ editor (JUCE TextEditor | fluxus GLEditor)
   IG; a `540 960` window grabs at `1080x1920` on retina). `(screenshot "path")`
   writes the finished framebuffer to a PNG, **once per path** (safe to call every
   frame). `(set-aspect ratio)` letterboxes to a locked AR. Use these + the
-  **fluxus-calibrate skill** to draw → screenshot → Read → adjust in a loop.
+  **fluxus-calibrate skill** to calibrate layout. When the user is present,
+  prefer the skill's **human-verdict mode** (they watch the live window and
+  answer one-line questions; `cli/fluxus load` reloads in place) — the
+  screenshot → Read → adjust loop is the fallback for unattended work.
 - **The grab genuinely captures the on-screen frame** (post-shader + MSAA
   included). If a screenshot is black it's almost always gotcha #5 (`eval` wiped
   the sketch), NOT the capture. Correct loop: put `(screenshot "/tmp/x.png")`

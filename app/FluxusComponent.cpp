@@ -191,6 +191,11 @@ void FluxusComponent::timerCallback() {
 void FluxusComponent::mouseDown(const juce::MouseEvent& e) {
   lastMouse = e.position;
   flux_set_mouse(e.position.x, e.position.y, 1);
+  // Clicking the art area moves keyboard focus HERE. With focus in the code
+  // TextEditor, plain letters are consumed as typing before our KeyListener sees
+  // them, so script hotkeys ((key-poll) — e.g. R) only fire via this component's
+  // own keyPressed. Click canvas = hotkeys; click editor = typing.
+  grabKeyboardFocus();
 }
 void FluxusComponent::mouseDrag(const juce::MouseEvent& e) {
   auto d = e.position - lastMouse;

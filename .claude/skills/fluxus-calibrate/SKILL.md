@@ -6,7 +6,10 @@ description: >
   size / aspect ratio — especially vertical Instagram (9:16) content — or when
   the request is to "screenshot the app and check it looks right", "make the
   text/terrain line up", "verify positioning", "resize the window from code", or
-  to iterate on a drawing until it matches an intended frame.
+  to iterate on a drawing until it matches an intended frame. Has two modes:
+  human-verdict (user watches the live window and answers one-line questions —
+  the cheap default when the user is present) and self-Read (agent reads
+  screenshots — fallback when the user is away or asks for self-verification).
 ---
 
 # Fluxus visual self-calibration
@@ -14,6 +17,46 @@ description: >
 The engine can resize its own window and grab its own framebuffer from Scheme, so
 you can close the loop: **draw → screenshot from code → Read the PNG → adjust →
 repeat**, with no external screen capture and no window-focus problems.
+
+## MODE CHOICE — human-verdict first (cheap), self-Read second (expensive)
+
+Each screenshot Read costs ~1.1–1.6k tokens and a typical calibration takes 5–15
+rounds. When the user is present, their eyes are free — so **default to
+human-verdict mode** and only fall back to Reading PNGs yourself when they are
+away or explicitly ask you to self-verify.
+
+### Human-verdict loop
+
+1. Launch the app once with the sketch (section 3 below, but SKIP the screenshot
+   plumbing — no `(screenshot …)` in the sketch, no `rm`/stat-poll, no Read).
+   Keep the window visible on the user's screen. Launch with
+   `FLUXUS_CONTROL_PORT=8020` so step 2's live reload works.
+2. After each edit, reload in place — `cli/fluxus load <file>` (never `eval`) —
+   so the change appears live in ~a second. No relaunch.
+3. Ask the user for a verdict in ONE line, and make the question concrete so the
+   answer is actionable: not "does it look right?" but
+   "Check the live window: (a) title baseline on the top-third line? (b) terrain
+   band clipped at either edge? (c) circle resting on the horizon?"
+4. Translate the verdict into a numeric edit (positions are deterministic —
+   calibrate by construction, section on lessons below), reload, ask again.
+5. Repeat until the user says good. **Zero PNG Reads for the whole loop.**
+   Optionally finish with a single confirming screenshot+Read if the result must
+   be archived or the task demands machine verification.
+
+Verdict prompts work best when the user can answer with a direction + rough
+magnitude ("title ~10% too low", "clips on the left"). If an answer is vague
+("looks off"), ask for ONE specific: which element, which direction.
+
+When several parameter values are plausible, render them side by side in ONE
+frame (offset each variant along x) and ask "left, middle, or right?" — one
+verdict replaces a whole convergence loop.
+
+### Self-Read loop (fallback — user away / explicit ask)
+
+Use the original screenshot→Read cycle below, and keep it cheap: iterate at the
+small window size (540x960), crop mentally to the element under adjustment, and
+stop as soon as the layout constraint is met rather than polishing pixels you
+were not asked about.
 
 ## 1. Size the canvas from code
 
@@ -79,6 +122,12 @@ Prefer the in-engine `(screenshot …)` — exact pixels, no chrome.
 - **Positioning is deterministic, so calibrate by construction.** E.g. to rest a
   circle of radius r on a horizon line at height y, set its centre to `y + r` —
   don't eyeball it. Screenshot only to confirm.
+- **Ribbon strokes are CENTRELINE geometry and "w" is the HALF-width** (the
+  stroke extends w to each side of the path). So two ribbon shapes tangent at
+  their paths visually overlap by a full stroke; for an outline circle (radius r,
+  width wc) resting ON a rule (width wr), the centre is `rule_y + r + wc + wr` —
+  not `+ r`, and not `+ half` of each. Verified by human verdict on
+  examples/high-risk.scm (sank at +0, still sank at +halves, sat at +full).
 
 ## Worked example
 
