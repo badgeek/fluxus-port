@@ -68,6 +68,17 @@ editor (JUCE TextEditor | fluxus GLEditor)
 6. **`hint-solid` defaults ON for a freshly built prim.** For a see-through
    wireframe you MUST `(hint-solid #f)` explicitly — otherwise a solid fill draws
    in the current `(colour …)` (looked like "black/orange blobs" not wireframe).
+7. **`with-state` does NOT restore hints/wire-colour → wire prims LEAK into later
+   prims.** Build a `(hint-wire)` cube and every prim built AFTER it inherits
+   `HINT_WIRE` + the last `WireColour`. A ribbon's solid pass uses `State.Colour`
+   only when `HINT_WIRE` is OFF; otherwise it draws a wire in `State.WireColour`, so
+   ribbons come out the wrong colour (burned a session: cyan/yellow marks rendered
+   red — only the geometry built *before* the wire cubes was correct). Fix: pin
+   `(hint-solid #t)(hint-wire #f)` before `(colour …)` on each prim that must be
+   solid. Related: `concat` is a **no-op stub** here, so `(concat (get-inv-camera-
+   transform))` HUD billboards silently do nothing — a real billboard needs manual
+   camera-basis math (`camera-yaw`/`pitch`/`dist`). Full writeup + 9 drawing/
+   positioning gotchas in `examples/DRAWING.md`.
 
 ## Performance (measure before "optimizing")
 - **Startup was ~25s; it's now ~4s — don't undo the fix.** The embedded Racket
