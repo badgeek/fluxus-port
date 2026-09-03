@@ -311,6 +311,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
   target_link_libraries(FluxusGLRacketApp PRIVATE
       libfluxus_min
       fluxus_editor
+      ntsc_crt
       juce::juce_opengl
       juce::juce_gui_extra
     juce::juce_audio_utils
