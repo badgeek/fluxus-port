@@ -12,6 +12,7 @@ class IScriptHost;
 struct IAudioHost;
 struct IMidiHost;
 struct IOscHost;
+struct IHandHost;
 class ControlServer;
 using ScriptHostFactory = std::function<std::unique_ptr<IScriptHost>()>;
 
@@ -64,6 +65,7 @@ private:
   std::unique_ptr<IAudioHost>  audio;
   std::unique_ptr<IMidiHost>   midi;
   std::unique_ptr<IOscHost>    osc;
+  std::unique_ptr<IHandHost>   hands;
   ScriptHostFactory makeHost;
   SharedScript shared;
 

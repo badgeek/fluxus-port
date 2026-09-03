@@ -154,6 +154,14 @@ std::map<std::string, std::vector<double>> g_oscMsgs;
 std::string g_oscLastAddr;
 FluxOscBridge g_oscBridge;
 
+// Hand-tracking state: nHands x landmarksPerHand x 3 (x,y,z), pushed by HandHost
+std::mutex         g_handMutex;
+int                g_handCount = 0;
+int                g_handPer   = 21;
+std::vector<float> g_handXYZ;
+std::mutex         g_handBridgeMutex;
+FluxHandBridge     g_handBridge;
+
 // persistent script state (GL thread only, but guard anyway)
 std::mutex                                  g_stateMutex;
 std::map<std::string, std::vector<double>>  g_state;
@@ -782,6 +790,38 @@ void flux_osc_send(const char* addr, const double* args, int n) {
   if (g_oscBridge.send) g_oscBridge.send(addr ? addr : "", std::vector<double>(args, args + (n > 0 ? n : 0)));
 }
 
+// ---- Hand tracking ----------------------------------------------------------
+void flux_set_hands(int nHands, const float* xyz, int per) {
+  std::lock_guard<std::mutex> lk(g_handMutex);
+  if (nHands < 0) nHands = 0;
+  if (per <= 0)   per = g_handPer;
+  g_handCount = nHands; g_handPer = per;
+  size_t n = (size_t) nHands * per * 3;
+  if (xyz && n) g_handXYZ.assign(xyz, xyz + n); else g_handXYZ.clear();
+}
+int flux_hand_count(void) { std::lock_guard<std::mutex> lk(g_handMutex); return g_handCount; }
+double flux_hand_joint(int hand, int joint, int axis) {
+  std::lock_guard<std::mutex> lk(g_handMutex);
+  if (hand < 0 || hand >= g_handCount || joint < 0 || joint >= g_handPer || axis < 0 || axis > 2) return 0.0;
+  size_t idx = (((size_t) hand * g_handPer) + joint) * 3 + axis;
+  return idx < g_handXYZ.size() ? (double) g_handXYZ[idx] : 0.0;
+}
+double flux_hand_pinch(int hand) {
+  std::lock_guard<std::mutex> lk(g_handMutex);
+  if (hand < 0 || hand >= g_handCount) return 0.0;
+  auto at = [&](int j, int a) -> float {
+    size_t i = (((size_t) hand * g_handPer) + j) * 3 + a;
+    return i < g_handXYZ.size() ? g_handXYZ[i] : 0.f;
+  };
+  float dx = at(4,0) - at(8,0), dy = at(4,1) - at(8,1), dz = at(4,2) - at(8,2);
+  return std::sqrt(dx*dx + dy*dy + dz*dz);
+}
+void flux_hand_tracking(int on) {
+  std::function<void(bool)> f;
+  { std::lock_guard<std::mutex> lk(g_handBridgeMutex); f = g_handBridge.enable; }
+  if (f) f(on != 0);
+}
+
 void flux_set_mouse(double x, double y, int button) { g_mouseX = x; g_mouseY = y; g_mouseButton = button; }
 double flux_mouse_x(void)     { return g_mouseX; }
 double flux_mouse_y(void)     { return g_mouseY; }
@@ -1067,6 +1107,9 @@ void flux_report_error(const char* msg) {
 // OSC send transport bridge (C++ linkage — takes FluxOscBridge, so it lives
 // outside the extern "C" block). OscHost installs its lambdas here at start.
 void flux_osc_install_bridge(const FluxOscBridge& b) { g_oscBridge = b; }
+void flux_hand_install_bridge(const FluxHandBridge& b) {
+  std::lock_guard<std::mutex> lk(g_handBridgeMutex); g_handBridge = b;
+}
 
 // ---- post-FX state (read by FluxusScene's PostFX) --------------------------
 namespace {

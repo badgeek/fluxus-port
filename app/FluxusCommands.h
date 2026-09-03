@@ -378,6 +378,15 @@ extern "C" {
   void   flux_osc_destination(const char* host, int port);// set the send target
   void   flux_osc_send(const char* addr, const double* args, int n); // send float args
 
+  // ---- Hand tracking (HandHost pushes landmarks on a capture thread) --------
+  // 21 landmarks/hand, MediaPipe order (0 wrist, thumb, index, ...); x,y in 0..1
+  // image space, z relative depth (0 on 2D backends like Apple Vision).
+  void   flux_set_hands(int nHands, const float* xyz, int landmarksPerHand); // host push
+  int    flux_hand_count(void);                          // tracked hand count
+  double flux_hand_joint(int hand, int joint, int axis); // axis 0=x 1=y 2=z (0 if absent)
+  double flux_hand_pinch(int hand);                      // thumb-tip(4)..index-tip(8) distance
+  void   flux_hand_tracking(int on);                     // script: enable/disable capture (via bridge)
+
   // scripts report an error string back to the host (or "" to clear)
   void flux_report_error(const char* msg);
 }
@@ -394,6 +403,14 @@ struct FluxOscBridge {
   std::function<void(const std::string&, const std::vector<double>&)> send; // (addr, args)
 };
 void flux_osc_install_bridge(const FluxOscBridge& bridge);
+
+// C++-side: HandHost installs its capture control here so the script-facing
+// flux_hand_tracking can start/stop it without FluxusCommands depending on the
+// platform camera stack. enable may be null (no hand host wired / null backend).
+struct FluxHandBridge {
+  std::function<void(bool)> enable;   // (on) -> open/close the camera + tracker
+};
+void flux_hand_install_bridge(const FluxHandBridge& bridge);
 
 // C++-side post-FX accessors for FluxusScene (not FFI).
 // returns true if post is enabled; fills frag + feedback; sets dirty=true (and

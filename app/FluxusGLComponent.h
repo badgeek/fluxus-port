@@ -12,6 +12,7 @@ class IScriptHost;
 struct IAudioHost;
 struct IMidiHost;
 struct IOscHost;
+struct IHandHost;
 using ScriptHostFactory = std::function<std::unique_ptr<IScriptHost>()>;
 
 // Variant host that uses fluxus's OWN GL text editor (GLEditor) as the code
@@ -50,6 +51,7 @@ private:
   std::unique_ptr<IAudioHost>    audio;
   std::unique_ptr<IMidiHost>     midi;
   std::unique_ptr<IOscHost>      osc;
+  std::unique_ptr<IHandHost>     hands;
   ScriptHostFactory makeHost;
   SharedScript shared;
   juce::Point<float> lastMouse;

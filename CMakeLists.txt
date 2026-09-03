@@ -16,8 +16,19 @@ include(FetchContent)
 # (OpenGL comes in via juce_opengl). Applied to every app target below.
 set(FLUXUS_VIDEO_FRAMEWORKS
     "-framework AVFoundation" "-framework CoreVideo"
-    "-framework CoreMedia"    "-framework QuartzCore")
+    "-framework CoreMedia"    "-framework QuartzCore"
+    "-framework Vision")      # Vision: hand-pose tracking (app/HandHostVision.mm)
 set_source_files_properties(app/VideoHost.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+
+# --- hand tracking host (adapter; cross-platform) --------------------------
+# Apple Vision backend on macOS (GPU/ANE); a null no-op backend elsewhere so the
+# build + script bindings are identical on every platform. Added to all targets.
+if(APPLE)
+  set(FLUXUS_HAND_SRC app/HandHostVision.mm)
+  set_source_files_properties(app/HandHostVision.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+else()
+  set(FLUXUS_HAND_SRC app/HandHostNull.cpp)
+endif()
 
 # --- JUCE ------------------------------------------------------------------
 set(JUCE_TAG "8.0.4" CACHE STRING "JUCE git tag")
@@ -82,6 +93,7 @@ target_sources(FluxusApp PRIVATE
       app/AudioHost.cpp
       app/MidiHost.cpp
       app/OscHost.cpp
+      ${FLUXUS_HAND_SRC}
       app/VideoHost.mm
     app/S7ScriptHost.cpp)
 
@@ -157,6 +169,7 @@ target_sources(FluxusGLApp PRIVATE
       app/AudioHost.cpp
       app/MidiHost.cpp
       app/OscHost.cpp
+      ${FLUXUS_HAND_SRC}
       app/VideoHost.mm
     app/S7ScriptHost.cpp)
 
@@ -228,6 +241,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       app/AudioHost.cpp
       app/MidiHost.cpp
       app/OscHost.cpp
+      ${FLUXUS_HAND_SRC}
       app/VideoHost.mm
       app/RacketScriptHost.cpp)
 
@@ -281,6 +295,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       app/AudioHost.cpp
       app/MidiHost.cpp
       app/OscHost.cpp
+      ${FLUXUS_HAND_SRC}
       app/VideoHost.mm
       app/RacketScriptHost.cpp)
   target_include_directories(FluxusGLRacketApp PRIVATE "${RACKET_DIR}/include/racket")

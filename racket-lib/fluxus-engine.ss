@@ -625,6 +625,17 @@
   (let ((buf (make-bytes 256 0)))
     (let ((n (_oscmsg buf 256))) (bytes->string/utf-8 (subbytes buf 0 (max 0 (min n 255))) #\?))))
 
+;; ---- hand tracking (HandHost: Apple Vision on macOS, null elsewhere) --------
+(define _hcount (cfun "flux_hand_count"    (_fun -> _int)                 (lambda () 0)))
+(define _hjoint (cfun "flux_hand_joint"    (_fun _int _int _int -> _double) (lambda (h j a) 0.0)))
+(define _hpinch (cfun "flux_hand_pinch"    (_fun _int -> _double)         (lambda (h) 0.0)))
+(define _htrack (cfun "flux_hand_tracking" (_fun _int -> _void)           (lambda (o) (void))))
+(define (hand-count) (_hcount))
+(define (hand-joint h j axis) (_hjoint h j axis))
+(define (hand-pinch h) (_hpinch h))
+(define (hand-tracking (on #t)) (_htrack (if on 1 0)))
+(define (hand h j) (vector (_hjoint h j 0) (_hjoint h j 1) (_hjoint h j 2)))  ; landmark -> #(x y z)
+
 ;; ---- fog / parent / select / shadows ---------------------------------------
 (define _fog (cfun "flux_fog" (_fun _double _double _double _double _double _double -> _void) (lambda (a b c d e f) (void))))
 (define (fog col density start end)

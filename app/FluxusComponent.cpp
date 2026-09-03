@@ -8,6 +8,7 @@
 #include "AudioHost.h"
 #include "MidiHost.h"
 #include "OscHost.h"
+#include "HandHost.h"
 #include "ControlServer.h"
 #include "FluxusCommands.h"   // mouse/camera
 
@@ -72,6 +73,8 @@ FluxusComponent::FluxusComponent(ScriptHostFactory mh, juce::String starter)
   midi->start();
   osc = makeJuceOscHost();       // OSC in/out -> (osc-source)/(osc)/(osc-send)
   osc->start();
+  hands = makeHandHost();        // hand tracking -> (hand-tracking #t)/(hand h j); opt-in
+  hands->start();                // installs the enable bridge only (no camera yet)
 
   // localhost control server (remote/MCP live-coding). Off unless a port is set:
   // export FLUXUS_CONTROL_PORT=8020 before launch, then point the MCP server at it.
@@ -92,6 +95,7 @@ FluxusComponent::~FluxusComponent() {
   if (audio) audio->stop();
   if (midi)  midi->stop();
   if (osc)   osc->stop();
+  if (hands) hands->stop();
   stopTimer();
   ctx.detach();
 }
