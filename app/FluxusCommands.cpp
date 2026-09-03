@@ -41,6 +41,7 @@
 #include <string>
 #include <set>
 #include <atomic>
+#include <utility>
 
 using namespace Fluxus;
 
@@ -200,6 +201,11 @@ static bool g_winReqPending = false;
 static std::mutex g_edMutex;
 static bool g_edSet = false;
 static int  g_edVisible = 1, g_edFull = 0;
+// script-requested tweak-panel visibility ((show-tweaks)/(hide-tweaks)). Same
+// deal: polled on the message thread, untouched until a script asks.
+static std::mutex g_tweakVisMutex;
+static bool g_tweakVisSet = false;
+static int  g_tweakVis = 1;
 // frame-recording state: while on, the scene grabs each rendered frame to
 // g_recDir/fNNNNN.png (g_recFrame auto-increments on the GL thread).
 static std::mutex g_recMutex;
@@ -1060,6 +1066,16 @@ int flux_get_editor(int* visible, int* full) {
   if (full)    *full    = g_edFull;
   return 1;
 }
+void flux_set_tweaks_visible(int visible) {
+  std::lock_guard<std::mutex> lk(g_tweakVisMutex);
+  g_tweakVis = visible ? 1 : 0; g_tweakVisSet = true;
+}
+int flux_get_tweaks_visible(int* visible) {
+  std::lock_guard<std::mutex> lk(g_tweakVisMutex);
+  if (!g_tweakVisSet) return 0;
+  if (visible) *visible = g_tweakVis;
+  return 1;
+}
 
 void flux_set_recording(int on, const char* dir) {
   std::lock_guard<std::mutex> lk(g_recMutex);
@@ -1340,6 +1356,49 @@ bool flux_ntsc_state(NtscParams& out) {
   std::lock_guard<std::mutex> lk(g_ntscMutex);
   out = g_ntsc;
   return g_ntscEnabled;
+}
+
+// ---- live tweak registry (script reads, tweak panel writes) ----------------
+// A flat vector rather than a map: a sketch declares tens of tweaks at most, and
+// this keeps them in declaration order, which is the order the panel lists them
+// in. State lives at file scope so slider values survive every re-eval.
+namespace {
+std::mutex            g_tweakMutex;
+std::vector<TweakVar> g_tweaks;
+
+TweakVar* findTweak(const char* name) {
+  for (auto& t : g_tweaks)
+    if (t.name == name) return &t;
+  return nullptr;
+}
+inline double clampTweak(double v, double lo, double hi) {
+  return v < lo ? lo : (v > hi ? hi : v);
+}
+}
+extern "C" double flux_tweak(const char* name, double def, double lo, double hi) {
+  if (!name) return def;
+  if (hi < lo) std::swap(lo, hi);
+  std::lock_guard<std::mutex> lk(g_tweakMutex);
+  if (TweakVar* t = findTweak(name)) {
+    t->lo = lo; t->hi = hi;                      // the script owns the range: re-apply it
+    t->value = clampTweak(t->value, lo, hi);     // (a narrowed range pulls the value in)
+    return t->value;
+  }
+  g_tweaks.push_back({ name, clampTweak(def, lo, hi), lo, hi });
+  return g_tweaks.back().value;
+}
+void flux_tweak_list(std::vector<TweakVar>& out) {
+  std::lock_guard<std::mutex> lk(g_tweakMutex);
+  out = g_tweaks;
+}
+void flux_tweak_set(const char* name, double value) {
+  if (!name) return;
+  std::lock_guard<std::mutex> lk(g_tweakMutex);
+  if (TweakVar* t = findTweak(name)) t->value = clampTweak(value, t->lo, t->hi);
+}
+void flux_tweak_clear() {
+  std::lock_guard<std::mutex> lk(g_tweakMutex);
+  g_tweaks.clear();
 }
 
 std::string flux_last_error() {

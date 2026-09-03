@@ -43,6 +43,14 @@ public:
   // opt-in View -> Set Export Audio…: pick a soundtrack the export reacts to + muxes.
   void setExportAudioCallback(LoadFn onPick) { onSetExportAudio = std::move(onPick); hasView = true; }
 
+  // opt-in View -> Show Tweaks: the ImGui slider panel over any (tweak …) vars.
+  // `isOn` reads the live state rather than caching it — the G key and a script's
+  // (show-tweaks) can flip the panel behind the menu's back.
+  using StateFn = std::function<bool()>;
+  void setTweaksCallback(ToggleFn onShow, StateFn isOn) {
+    onShowTweaks = std::move(onShow); tweaksState = std::move(isOn); hasView = true;
+  }
+
   // --- aspect-ratio presets: label + the content pixel size to resize to.
   //     ratio<=0 (the first row) unlocks / restores free resizing. -------------
   struct Aspect { const char* name; int w, h; };
@@ -76,6 +84,7 @@ public:
     } else if (name == "View") {
       m.addItem(kShowEditor, "Show Editor",       true, editorVisible);
       m.addItem(kFullWidth,  "Editor Full Width", true, editorFull);
+      if (onShowTweaks) m.addItem(kShowTweaks, "Show Tweaks", true, tweaksOn());
       if (onRecord) {
         m.addSeparator();
         m.addItem(kRecord, recording ? "Stop Recording" : "Record Frames", true, recording);
@@ -103,6 +112,7 @@ public:
       case kLoadAudio: openAudio(); break;
       case kShowEditor: editorVisible = !editorVisible; if (onShowEditor) onShowEditor(editorVisible); break;
       case kFullWidth:  editorFull    = !editorFull;    if (onFullWidth)  onFullWidth(editorFull);     break;
+      case kShowTweaks: if (onShowTweaks) onShowTweaks(!tweaksOn()); break;
       case kRecord:     recording     = !recording;     if (onRecord)     onRecord(recording);         break;
       case kExport:     exporting     = !exporting;     if (onExport)     onExport(exporting);         break;
       case kSetExportAudio: pickExportAudio(); break;
@@ -127,6 +137,7 @@ public:
 private:
   enum { kOpen = 1, kSave, kSaveAs, kLoadAudio, kAspectBase = 100, kViewBase = 200,
          kShowEditor = kViewBase, kFullWidth, kRecord, kExport, kSetExportAudio,
+         kShowTweaks,
          kExampleBase = 1000 };
 
   // --- bundled examples ------------------------------------------------------
@@ -260,7 +271,10 @@ private:
   LoadFn load;
   TextFn text;
   LoadFn audioLoad;
-  ToggleFn onShowEditor, onFullWidth, onRecord, onExport;
+  bool tweaksOn() const { return tweaksState && tweaksState(); }
+
+  ToggleFn onShowEditor, onFullWidth, onRecord, onExport, onShowTweaks;
+  StateFn  tweaksState;
   LoadFn   onSetExportAudio;
   bool hasView = false, editorVisible = true, editorFull = false, recording = false, exporting = false;
   juce::File currentFile;

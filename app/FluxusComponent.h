@@ -8,6 +8,7 @@
 #include "SharedScript.h"
 
 class FluxusScene;
+class ImguiOverlay;
 class IScriptHost;
 struct IAudioHost;
 struct IMidiHost;
@@ -42,6 +43,8 @@ public:
   void setExport(bool on);                     // View -> Export 60fps (offline, frame-locked)
   bool isExporting() const { return exporting; }
   void setExportAudioFile(const juce::File& f);  // soundtrack the export reacts to + muxes
+  void setTweaksVisible(bool v);              // View -> Show Tweaks (ImGui slider panel)
+  bool areTweaksVisible() const { return tweaksVisible; }
 
   void newOpenGLContextCreated() override;
   void renderOpenGL() override;
@@ -49,11 +52,14 @@ public:
 
   void resized() override;
   void mouseDown(const juce::MouseEvent&) override;
+  void mouseUp(const juce::MouseEvent&) override;
+  void mouseMove(const juce::MouseEvent&) override;
   void mouseDrag(const juce::MouseEvent&) override;
   void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
 private:
   void timerCallback() override;
+  bool forwardToTweaks(const juce::MouseEvent&);   // true = the panel took it
   bool keyPressed(const juce::KeyPress& key, juce::Component* origin) override;  // KeyListener: fires when `code` has focus
   bool keyPressed(const juce::KeyPress& key) override;  // Component: fires when the editor is hidden (component holds focus)
   bool handleKey(const juce::KeyPress& key);  // shared: eval keys + push char to scripts
@@ -61,7 +67,8 @@ private:
   void pushScript();
 
   juce::OpenGLContext ctx;
-  std::unique_ptr<FluxusScene> scene;
+  std::unique_ptr<FluxusScene>  scene;
+  std::unique_ptr<ImguiOverlay> tweaks;   // GL-thread slider panel over the scene
   std::unique_ptr<IAudioHost>  audio;
   std::unique_ptr<IMidiHost>   midi;
   std::unique_ptr<IOscHost>    osc;
@@ -72,6 +79,7 @@ private:
   juce::Point<float> lastMouse;
   bool editorVisible   = true;
   bool editorFullWidth = false;   // false = left half, true = full width
+  bool tweaksVisible   = true;    // the panel draws only when the sketch has tweaks
   bool recording       = false;
   juce::File recDir;              // where Record Frames writes the PNG sequence
   bool exporting       = false;

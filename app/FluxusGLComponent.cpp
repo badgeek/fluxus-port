@@ -2,6 +2,7 @@
 #include "FluxusGLComponent.h"
 #include "FluxusScene.h"
 #include "EditorOverlay.h"
+#include "ImguiOverlay.h"
 #include "IScriptHost.h"
 #include "AudioHost.h"
 #include "MidiHost.h"
@@ -66,19 +67,28 @@ FluxusGLComponent::~FluxusGLComponent() {
   ctx.detach();
 }
 
-void FluxusGLComponent::timerCallback() { ctx.triggerRepaint(); }
+void FluxusGLComponent::timerCallback() {
+  ctx.triggerRepaint();
+  // script-driven tweak-panel visibility ((show-tweaks)/(hide-tweaks))
+  int tv = 0;
+  if (flux_get_tweaks_visible(&tv) && (bool) tv != tweaksVisible) setTweaksVisible(tv != 0);
+}
 
 void FluxusGLComponent::newOpenGLContextCreated() {
   scene = std::make_unique<FluxusScene>(&shared, makeHost());
   scene->init();
   overlay = std::make_unique<EditorOverlay>();
   overlay->init(std::string(FLUXUS_FONT_PATH), kStarter);
+  tweaks = std::make_unique<ImguiOverlay>();
+  tweaks->init();
+  tweaks->setVisible(tweaksVisible);
   fontReady = true;
   // commit the starter program once (Ctrl+E / Shift+Enter re-commits after edits)
   { std::lock_guard<std::mutex> lk(shared.m); shared.pending = kStarter; }
 }
 
 void FluxusGLComponent::openGLContextClosing() {
+  tweaks.reset();
   overlay.reset();
   scene.reset();
   fontReady = false;
@@ -98,11 +108,19 @@ void FluxusGLComponent::renderOpenGL() {
     overlay->reshape(pw, ph);
     overlay->render();           // fluxus GL text over the scene
   }
+
+  if (tweaks) {
+    tweaks->setDisplay(getWidth(), getHeight(), s);
+    tweaks->render();            // slider panel on top of everything
+  }
 }
 
 void FluxusGLComponent::loadScript(const juce::String& text) {
   const std::string t = text.toStdString();
   if (overlay) overlay->setText(t);          // show it in the GL editor
+  // A different sketch brings its own tweaks. Not done on a plain Ctrl+E re-eval,
+  // which must KEEP the values you just dialled in.
+  flux_tweak_clear();
   std::lock_guard<std::mutex> lk(shared.m);  // commit + run (like Ctrl+E)
   shared.pending = t;
   shared.dirty = true;                       // force a re-eval (retained mode re-commits)
@@ -127,18 +145,46 @@ void FluxusGLComponent::parentHierarchyChanged() {
   if (isShowing()) grabKeyboardFocus();
 }
 
+// The tweak panel sees every mouse event first; when the pointer is over it, the
+// event stops there so dragging a slider doesn't also orbit the camera.
+bool FluxusGLComponent::forwardToTweaks(const juce::MouseEvent& e) {
+  if (!tweaks) return false;
+  tweaks->onMouseMove(e.position.x, e.position.y);
+  return tweaks->wantsMouse();
+}
+
 void FluxusGLComponent::mouseDown(const juce::MouseEvent& e) {
   lastMouse = e.position;
+  if (tweaks) tweaks->onMouseButton(0, true);
+  if (forwardToTweaks(e)) return;
   flux_set_mouse(e.position.x, e.position.y, 1);
+}
+void FluxusGLComponent::mouseUp(const juce::MouseEvent& e) {
+  if (tweaks) tweaks->onMouseButton(0, false);
+  forwardToTweaks(e);
+}
+void FluxusGLComponent::mouseMove(const juce::MouseEvent& e) {
+  forwardToTweaks(e);   // keeps hover (and so wantsMouse) live between clicks
 }
 void FluxusGLComponent::mouseDrag(const juce::MouseEvent& e) {
   auto d = e.position - lastMouse;
   lastMouse = e.position;
+  if (forwardToTweaks(e)) return;
   flux_camera_drag(d.x, -d.y);
   flux_set_mouse(e.position.x, e.position.y, 1);
 }
-void FluxusGLComponent::mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& w) {
+void FluxusGLComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w) {
+  if (tweaks) tweaks->onMouseWheel(w.deltaX, w.deltaY);
+  if (forwardToTweaks(e)) return;
   flux_camera_zoom(-w.deltaY * 8.0);
+}
+
+void FluxusGLComponent::setTweaksVisible(bool v) {
+  tweaksVisible = v;
+  if (tweaks) tweaks->setVisible(v);
+  // Keep the shared state in step so the key/menu and a script's (show-tweaks)/
+  // (hide-tweaks) don't fight over the timer poll.
+  flux_set_tweaks_visible(v ? 1 : 0);
 }
 
 bool FluxusGLComponent::keyPressed(const juce::KeyPress& k) {
@@ -196,6 +242,10 @@ bool FluxusGLComponent::keyPressed(const juce::KeyPress& k) {
                            // Ctrl+E edits were silently ignored in retained mode
     return true;   // don't forward to the editor
   }
+
+  // expose the keystroke to scripts ((key-poll)) as well as typing it, so a sketch
+  // can bind its own hotkeys — e.g. G to (show-tweaks)/(hide-tweaks).
+  if (auto c = k.getTextCharacter()) flux_set_key((int) c);
 
   int key = 0, special = 0;
   if      (kc == juce::KeyPress::leftKey)      special = K_LEFT;

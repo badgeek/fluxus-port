@@ -135,6 +135,28 @@ editor (JUCE TextEditor | fluxus GLEditor)
   frame-locked MP4 render; drive start/stop from a hotkey + a rendered-FRAME
   counter (frame-locked `(time)`-based auto-stop is unreliable), and keep the
   window visible while it renders.
+- **`(tweak "name" default lo hi)` returns a live slider value** — an ImGui panel
+  (`app/ImguiOverlay`, vendored `vendor/imgui`, OpenGL2 backend) lists every
+  registered tweak top-right. The registry (`flux_tweak*` in FluxusCommands) is
+  mutex-guarded file-scope state, so a dialled-in value SURVIVES the per-frame
+  re-eval and Ctrl+E; only `loadScript` (File → Open) clears it. Workflow: drag
+  until it looks right, then bake the numbers back into the source. The panel
+  draws only when a sketch declares tweaks (otherwise ImGui is skipped entirely —
+  zero GL calls), renders AFTER `renderFrame` returns so it never lands in
+  screenshots/recordings/exports, and swallows mouse events while hovered so a
+  slider drag doesn't also orbit the camera. Show/hide it from View → Show Tweaks
+  or `(show-tweaks)`/`(hide-tweaks)`; there is deliberately **no built-in hotkey**
+  — sketches bind their own via `(key-poll)` (see `examples/tweak-demo.scm`), which
+  keeps every letter free for typing in the editor. Menu and script share one
+  state (`flux_*_tweaks_visible`, polled on the message thread like
+  `flux_get_editor`) and the menu writes back into it, or the poll would undo the
+  toggle a tick later. `(key-poll)` now works in the GLEditor apps too.
+  **Measured cost** (324-cube sketch, `sample` on the GL thread): panel open = 28
+  of 698 samples ≈ **4%**, hidden ≈ 0.15%. Of that 4%, the OpenGL2 backend's draw
+  is only ~0.4% — the cost is ImGui's CPU-side layout in `NewFrame`, NOT the
+  legacy-GL state churn you'd expect from the `glPushAttrib` bracket. So don't
+  bother swapping in a GL3/shader backend to "fix" state dispatch; it isn't the
+  problem. `ps` alone can't see this (run-to-run spread swamps it) — profile.
 
 ## Building optimized visual sketches (patterns that worked)
 Reference impl: `examples/iso-city.scm` (an audio-agnostic, self-evolving generative

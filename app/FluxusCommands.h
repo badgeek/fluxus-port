@@ -259,6 +259,17 @@ extern "C" {
   void flux_set_antialias(int on);           // GL line/polygon smoothing
   void flux_set_retained(int on);            // retained mode: build once, per-frame thunk only
 
+  // live-tweakable variable, surfaced as a slider in the on-screen tweak panel.
+  // Registers `name` with its range on the first call; every later call returns
+  // whatever the slider holds — that is what makes an edit survive immediate
+  // mode's per-frame re-eval of the whole buffer.
+  double flux_tweak(const char* name, double def, double lo, double hi);
+
+  // tweak-panel visibility ((show-tweaks)/(hide-tweaks)), polled by the component
+  // on the message thread exactly like flux_get_editor above.
+  void   flux_set_tweaks_visible(int visible);
+  int    flux_get_tweaks_visible(int* visible);   // 0 if no script ever set it
+
   // ---- maths primitives (pure; no engine state) ---------------------------
   // Canonical fluxus maths, reimplemented on the engine's dVector/dMatrix/dQuat.
   // Vectors are double[3], matrices double[16] (dMatrix arr() order), quats
@@ -447,6 +458,19 @@ struct NtscParams {
   bool monochrome = false;
 };
 bool flux_ntsc_state(NtscParams& out);
+
+// C++-side tweak-registry accessors for the ImGui tweak panel (not FFI). Scripts
+// register variables with flux_tweak (above); the panel enumerates them here and
+// pushes slider edits back through flux_tweak_set. Deliberately NOT bound into
+// either script host — the script only ever reads a tweak, the UI only ever
+// writes one.
+struct TweakVar {
+  std::string name;
+  double      value = 0.0, lo = 0.0, hi = 1.0;
+};
+void flux_tweak_list(std::vector<TweakVar>& out);     // snapshot, in declaration order
+void flux_tweak_set(const char* name, double value);  // clamped to the script's [lo,hi]
+void flux_tweak_clear();                              // drop all (a different sketch was loaded)
 
 // C++-side: whether the script asked for anti-aliasing (line/polygon smoothing).
 bool flux_antialias_on();

@@ -77,6 +77,24 @@ target_include_directories(vterm PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor/libv
 set_target_properties(vterm PROPERTIES C_STANDARD 99)
 target_compile_options(vterm PRIVATE -w)
 
+# --- Dear ImGui (ocornut/imgui) on-screen tweak panel ----------------------
+# Vendored core + the fixed-function OpenGL2 renderer backend, which is the one
+# that matches libfluxus's own legacy GL. No platform backend: app/ImguiOverlay
+# hand-feeds input from JUCE, the same way EditorOverlay drives fluxus's GLEditor.
+# Include dirs marked SYSTEM so its warnings stay out of our sources.
+add_library(imgui STATIC
+    vendor/imgui/imgui.cpp
+    vendor/imgui/imgui_draw.cpp
+    vendor/imgui/imgui_tables.cpp
+    vendor/imgui/imgui_widgets.cpp
+    vendor/imgui/backends/imgui_impl_opengl2.cpp)
+target_include_directories(imgui SYSTEM PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui/backends)
+target_compile_definitions(imgui PRIVATE GL_SILENCE_DEPRECATION)
+target_compile_options(imgui PRIVATE -w)
+target_link_libraries(imgui PUBLIC "-framework OpenGL")
+
 # --- bundled example sketches ----------------------------------------------
 # Copy the upstream fluxus examples into <App>.app/Contents/Resources/examples;
 # FluxusMenu lists them under File > Examples (AppMenu.h). ~370 KB, so unlike the
@@ -101,6 +119,7 @@ target_sources(FluxusApp PRIVATE
     app/Main.cpp
     app/GlyphAtlas.cpp
     app/FluxusComponent.cpp
+    app/ImguiOverlay.cpp
     app/ControlServer.cpp
     app/FluxusScene.cpp
     app/PostFX.cpp
@@ -126,6 +145,7 @@ target_link_libraries(FluxusApp PRIVATE
     s7
     ntsc_crt
     vterm
+    imgui
     juce::juce_opengl
     juce::juce_gui_extra
     juce::juce_audio_utils
@@ -179,6 +199,7 @@ target_sources(FluxusGLApp PRIVATE
     app/MainGL.cpp
     app/GlyphAtlas.cpp
     app/FluxusGLComponent.cpp
+    app/ImguiOverlay.cpp
     app/EditorOverlay.cpp
     app/FluxusScene.cpp
     app/PostFX.cpp
@@ -205,6 +226,7 @@ target_link_libraries(FluxusGLApp PRIVATE
     s7
     ntsc_crt
     vterm
+    imgui
     fluxus_editor
     juce::juce_opengl
     juce::juce_gui_extra
@@ -253,6 +275,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       app/MainRacket.cpp
       app/GlyphAtlas.cpp
       app/FluxusComponent.cpp
+      app/ImguiOverlay.cpp
       app/ControlServer.cpp
       app/FluxusScene.cpp
       app/PostFX.cpp
@@ -281,6 +304,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       libfluxus_min
       ntsc_crt
       vterm
+      imgui
       juce::juce_opengl
       juce::juce_gui_extra
     juce::juce_audio_utils
@@ -309,6 +333,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       app/MainGLRacket.cpp
       app/GlyphAtlas.cpp
       app/FluxusGLComponent.cpp
+      app/ImguiOverlay.cpp
       app/EditorOverlay.cpp
       app/FluxusScene.cpp
       app/PostFX.cpp
@@ -336,6 +361,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       fluxus_editor
       ntsc_crt
       vterm
+      imgui
       juce::juce_opengl
       juce::juce_gui_extra
     juce::juce_audio_utils

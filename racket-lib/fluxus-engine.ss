@@ -450,6 +450,14 @@
 (define (blend-mode src dst) (_blend (blend-enum src) (blend-enum dst)))
 (define _mtex (cfun "flux_multitexture" (_fun _int _int -> _void) (lambda (a b) (void))))
 (define (multitexture unit id) (_mtex unit id))
+;; live-tweakable variable: (tweak "radius" 1.0 0.0 5.0) registers a slider in the
+;; tweak panel and returns whatever it holds, so an edit survives the re-eval.
+(define _tweak (cfun "flux_tweak" (_fun _string _double _double _double -> _double)
+                     (lambda (n d lo hi) d)))
+(define (tweak name def lo hi) (_tweak name (->fl def) (->fl lo) (->fl hi)))
+(define _tweak-vis (cfun "flux_set_tweaks_visible" (_fun _int -> _void) (lambda (v) (void))))
+(define (show-tweaks) (_tweak-vis 1))
+(define (hide-tweaks) (_tweak-vis 0))
 ;; full-screen post-processing (FBO): (post-shader fragsrc) / (post-off)
 (define _post-src (cfun "flux_post_shader" (_fun _string -> _void) (lambda (a) (void))))
 (define _post-off (cfun "flux_post_off"    (_fun -> _void) (lambda () (void))))

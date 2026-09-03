@@ -30,6 +30,8 @@ public:
           [comp](const juce::File& f) { comp->loadFile(f); },
           [comp] { return comp->getScript(); });
       menu->setAudioCallback([comp](const juce::File& f) { comp->loadAudio(f); });
+      menu->setTweaksCallback([comp](bool v) { comp->setTweaksVisible(v); },
+                              [comp] { return comp->areTweaksVisible(); });  // View -> Show Tweaks
       menu->attach(this);
       centreWithSize(1100, 720);
       setResizable(true, false);

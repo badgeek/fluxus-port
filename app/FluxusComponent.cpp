@@ -4,6 +4,7 @@
 #include <vector>
 #include "FluxusComponent.h"
 #include "FluxusScene.h"
+#include "ImguiOverlay.h"
 #include "IScriptHost.h"
 #include "AudioHost.h"
 #include "MidiHost.h"
@@ -103,9 +104,13 @@ FluxusComponent::~FluxusComponent() {
 void FluxusComponent::newOpenGLContextCreated() {
   scene = std::make_unique<FluxusScene>(&shared, makeHost());
   scene->init();
+  tweaks = std::make_unique<ImguiOverlay>();
+  tweaks->init();
+  tweaks->setVisible(tweaksVisible);
 }
 
 void FluxusComponent::openGLContextClosing() {
+  tweaks.reset();
   scene.reset();
 }
 
@@ -114,10 +119,20 @@ void FluxusComponent::renderOpenGL() {
   const float s = (float) ctx.getRenderingScale();
   scene->setResolution((int) (getWidth() * s), (int) (getHeight() * s));
   scene->renderFrame();
+
+  // after the scene (and its post/NTSC passes), so the panel isn't fed through
+  // the CRT filter or captured by screenshots/exports.
+  if (tweaks) {
+    tweaks->setDisplay(getWidth(), getHeight(), s);
+    tweaks->render();
+  }
 }
 
 void FluxusComponent::loadScript(const juce::String& text) {
   code.setText(text, juce::dontSendNotification);
+  // A different sketch brings its own tweaks. Only here, not in pushScript: a
+  // plain Ctrl+E re-eval must KEEP the values you just dialled in.
+  flux_tweak_clear();
   pushScript();   // commit + run immediately (same as Ctrl+E)
 }
 
@@ -184,6 +199,10 @@ void FluxusComponent::timerCallback() {
     if ((bool) ef != editorFullWidth) setEditorFullWidth(ef != 0);
   }
 
+  // script-driven tweak-panel visibility ((show-tweaks)/(hide-tweaks))
+  int tv = 0;
+  if (flux_get_tweaks_visible(&tv) && (bool) tv != tweaksVisible) setTweaksVisible(tv != 0);
+
   juce::String err;
   { std::lock_guard<std::mutex> lk(shared.m); err = juce::String(shared.lastError); }
   if (err != lastShown) {
@@ -192,8 +211,18 @@ void FluxusComponent::timerCallback() {
   }
 }
 
+// The tweak panel sees every mouse event first; when the pointer is over it, the
+// event stops there so dragging a slider doesn't also orbit the camera.
+bool FluxusComponent::forwardToTweaks(const juce::MouseEvent& e) {
+  if (!tweaks) return false;
+  tweaks->onMouseMove(e.position.x, e.position.y);
+  return tweaks->wantsMouse();
+}
+
 void FluxusComponent::mouseDown(const juce::MouseEvent& e) {
   lastMouse = e.position;
+  if (tweaks) tweaks->onMouseButton(0, true);
+  if (forwardToTweaks(e)) return;
   flux_set_mouse(e.position.x, e.position.y, 1);
   // Clicking the art area moves keyboard focus HERE. With focus in the code
   // TextEditor, plain letters are consumed as typing before our KeyListener sees
@@ -201,14 +230,33 @@ void FluxusComponent::mouseDown(const juce::MouseEvent& e) {
   // own keyPressed. Click canvas = hotkeys; click editor = typing.
   grabKeyboardFocus();
 }
+void FluxusComponent::mouseUp(const juce::MouseEvent& e) {
+  if (tweaks) tweaks->onMouseButton(0, false);
+  forwardToTweaks(e);
+}
+void FluxusComponent::mouseMove(const juce::MouseEvent& e) {
+  forwardToTweaks(e);   // keeps hover (and so wantsMouse) live between clicks
+}
 void FluxusComponent::mouseDrag(const juce::MouseEvent& e) {
   auto d = e.position - lastMouse;
   lastMouse = e.position;
+  if (forwardToTweaks(e)) return;
   flux_camera_drag(d.x, -d.y);           // drag to orbit
   flux_set_mouse(e.position.x, e.position.y, 1);
 }
-void FluxusComponent::mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& w) {
+void FluxusComponent::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w) {
+  if (tweaks) tweaks->onMouseWheel(w.deltaX, w.deltaY);
+  if (forwardToTweaks(e)) return;
   flux_camera_zoom(-w.deltaY * 8.0);     // wheel to dolly
+}
+
+void FluxusComponent::setTweaksVisible(bool v) {
+  tweaksVisible = v;
+  if (tweaks) tweaks->setVisible(v);
+  // Push it back into the shared state too, so the G key / menu and a script's
+  // (show-tweaks)/(hide-tweaks) agree — otherwise the timer poll below would
+  // immediately undo whatever the user just pressed.
+  flux_set_tweaks_visible(v ? 1 : 0);
 }
 
 void FluxusComponent::setEditorVisible(bool v) {

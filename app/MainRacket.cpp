@@ -45,6 +45,8 @@ public:
           [comp](bool v) { comp->setEditorVisible(v); },
           [comp](bool f) { comp->setEditorFullWidth(f); },
           comp->isEditorVisible(), comp->isEditorFullWidth());
+      menu->setTweaksCallback([comp](bool v) { comp->setTweaksVisible(v); },
+                              [comp] { return comp->areTweaksVisible(); });  // View -> Show Tweaks
       menu->setRecordCallback([comp](bool on) { comp->setRecording(on); },
                               comp->isRecording());               // View -> Record Frames
       menu->setExportCallback([comp](bool on) { comp->setExport(on); },

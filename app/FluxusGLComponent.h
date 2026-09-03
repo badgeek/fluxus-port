@@ -8,6 +8,7 @@
 
 class FluxusScene;
 class EditorOverlay;
+class ImguiOverlay;
 class IScriptHost;
 struct IAudioHost;
 struct IMidiHost;
@@ -35,9 +36,14 @@ public:
   void renderOpenGL() override;
   void openGLContextClosing() override;
 
+  void setTweaksVisible(bool v);               // View -> Show Tweaks (Ctrl+T here)
+  bool areTweaksVisible() const { return tweaksVisible; }
+
   bool keyPressed(const juce::KeyPress& k) override;
   void parentHierarchyChanged() override;
   void mouseDown(const juce::MouseEvent&) override;
+  void mouseUp(const juce::MouseEvent&) override;
+  void mouseMove(const juce::MouseEvent&) override;
   void mouseDrag(const juce::MouseEvent&) override;
   void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
   void paint(juce::Graphics&) override {}
@@ -45,9 +51,11 @@ public:
 
 private:
   void timerCallback() override;   // 30 Hz repaint (cap fps; see .cpp)
+  bool forwardToTweaks(const juce::MouseEvent&);   // true = the panel took it
   juce::OpenGLContext ctx;
   std::unique_ptr<FluxusScene>   scene;
   std::unique_ptr<EditorOverlay> overlay;
+  std::unique_ptr<ImguiOverlay>  tweaks;   // GL-thread slider panel over the scene
   std::unique_ptr<IAudioHost>    audio;
   std::unique_ptr<IMidiHost>     midi;
   std::unique_ptr<IOscHost>      osc;
@@ -57,6 +65,7 @@ private:
   juce::Point<float> lastMouse;
   bool fontReady = false;
   bool overlayVisible = true;   // Ctrl+H toggles the code overlay
+  bool tweaksVisible  = true;   // Ctrl+T hides it; it draws only if the sketch has tweaks
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FluxusGLComponent)
 };

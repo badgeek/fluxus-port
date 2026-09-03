@@ -378,6 +378,13 @@ s7_pointer f_shader_set_int(s7_scheme* sc, s7_pointer a) {
     flux_shader_set_int(s7_string(s7_car(a)), (int) s7_number_to_real(sc, s7_cadr(a)));
   return s7_nil(sc);
 }
+s7_pointer f_tweak(s7_scheme* sc, s7_pointer a) {
+  const char* name = s7_is_pair(a) && s7_is_string(s7_car(a)) ? s7_string(s7_car(a)) : nullptr;
+  const double def = argReal(sc, a, 1);
+  return s7_make_real(sc, flux_tweak(name, def, argReal(sc, a, 2), argReal(sc, a, 3)));
+}
+s7_pointer f_show_tweaks(s7_scheme* sc, s7_pointer a) { (void) a; flux_set_tweaks_visible(1); return s7_nil(sc); }
+s7_pointer f_hide_tweaks(s7_scheme* sc, s7_pointer a) { (void) a; flux_set_tweaks_visible(0); return s7_nil(sc); }
 s7_pointer f_post_shader(s7_scheme* sc, s7_pointer a) { if (s7_is_pair(a)) flux_post_shader(s7_string(s7_car(a))); return s7_nil(sc); }
 s7_pointer f_post_off(s7_scheme* sc, s7_pointer)      { flux_post_off(); return s7_nil(sc); }
 s7_pointer f_blur(s7_scheme* sc, s7_pointer a)        { if (s7_is_pair(a)) flux_blur(s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
@@ -682,6 +689,9 @@ void S7ScriptHost::init() {
   def("shader-set-int!",      f_shader_set_int,       2, 0, false);
   def("blend-mode",           f_blend_mode,           2, 0, false);
   def("multitexture",         f_multitexture,         2, 0, false);
+  def("tweak",                f_tweak,                4, 0, false);
+  def("show-tweaks",          f_show_tweaks,          0, 0, false);
+  def("hide-tweaks",          f_hide_tweaks,          0, 0, false);
   def("post-shader",          f_post_shader,          1, 0, false);
   def("post-off",             f_post_off,             0, 0, false);
   def("blur",                 f_blur,                 1, 0, false);
