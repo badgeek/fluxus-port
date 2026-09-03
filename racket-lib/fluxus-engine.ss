@@ -700,6 +700,20 @@
 ;; render-to-texture, so the optional args are accepted and ignored (see the
 ;; PixelPrimitive note in ROADMAP.md).
 (define (build-pixels w h (renderer #f) (ntex 1)) (_mkpix w h))
+;; terminal (libvterm): author ANSI in Racket, render as a glyph-atlas cell grid.
+;; See ansi.ss for string helpers. Grab-aware like pixels-upload.
+(define _mkterm  (cfun "flux_build_terminal" (_fun _int _int -> _int)  (lambda (c r) 0)))
+(define _twrite  (cfun "flux_terminal_write" (_fun _string -> _void)   (lambda (s) (void))))
+(define _tclear  (cfun "flux_terminal_clear" (_fun -> _void)           (lambda () (void))))
+(define _tdraw   (cfun "flux_terminal_draw"  (_fun -> _void)           (lambda () (void))))
+(define _tcols   (cfun "flux_terminal_cols"  (_fun -> _int)            (lambda () 0)))
+(define _trows   (cfun "flux_terminal_rows"  (_fun -> _int)            (lambda () 0)))
+(define (build-terminal (cols 40) (rows 20)) (_mkterm cols rows))
+(define (terminal-write str) (_twrite str))
+(define (terminal-clear) (_tclear))
+(define (terminal-draw) (_tdraw))
+(define (terminal-cols) (_tcols))
+(define (terminal-rows) (_trows))
 ;; planetarium.ss engine prims
 (define (current-camera . _) 0)
 (define (pixels->texture . _) 0)

@@ -187,6 +187,18 @@ with failure-thunk fallbacks so the files also load standalone on the racket CLI
 — on `already required X in Y.ss` drop `X` from `Y.ss`'s provide; on unbound `X`
 add a stub to `fluxus-engine.ss`; on `already defined` add to its `except-out`.
 Skip `scheme/class`-based files (frisbee/gui/drflux/itchy/joylisten/tricks).
+- **After editing ANY `.ss`, `make precompile` before running a Racket app — a stale
+  `.zo` silently shadows your source.** The host pins `use-compiled-file-check` to
+  `'exists` (the startup win), so Racket loads `racket-lib/compiled/<name>_ss.zo`
+  whenever it exists, IGNORING mtime. Symptom that burned a session: a freshly added
+  binding reports `undefined` at runtime though the `.ss` clearly defines it. Add any
+  NEW `.ss` to the Makefile `LIBSS` list so it gets a `.zo` (and bundles).
+- **Sketch source is UTF-8 → the host decodes it with `Sstring_utf8`, NOT `Sstring`.**
+  Chez `Sstring` reads a `char*` as Latin-1, so any non-ASCII in a sketch (box-drawing/
+  block/emoji glyphs, accents) mangles to per-byte U+FFFD BEFORE your command sees it.
+  If unicode arrives as a run of `ef bf bd`, this is why — the fix is at the eval seam
+  (`RacketScriptHost::eval`/`eval_cstr`), not in your command. Runtime-built strings are
+  fine once the source decodes correctly (`_string` FFI marshals back to UTF-8).
 
 ## Conventions
 - **Racket runtime: dev builds point at the brew install; release builds bundle it.**

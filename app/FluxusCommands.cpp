@@ -29,6 +29,8 @@
 #include "SkinWeightsToVertColsPrimFunc.h"
 #include "SkinningPrimFunc.h"
 
+#include <vterm.h>       // VT/ANSI parser + screen model for (build-terminal …)
+
 #include <vector>
 #include <deque>
 #include <mutex>
@@ -134,6 +136,11 @@ GLSLShader* builtinTextShader() {
 // pixels primitives: plane id -> {GL texture, dims} for (build-pixels)/(pixels-upload)
 struct PixBuf { unsigned tex = 0; int w = 0, h = 0; };
 std::map<Primitive*, PixBuf> g_pixels;
+
+// terminal primitives: grid prim -> its libvterm parser + screen for (build-terminal)
+// & friends. The prim renders a glyph-atlas quad grid rebuilt from the screen state.
+struct TerminalState { VTerm* vt = nullptr; VTermScreen* vs = nullptr; int cols = 0, rows = 0; };
+std::map<Primitive*, TerminalState> g_terminals;
 
 std::mutex  g_errMutex;
 std::string g_err;
@@ -273,7 +280,7 @@ void flux_set_renderer(void* renderer) { g_ctx.r = static_cast<Renderer*>(render
 // (clear) itself at the top of its every-frame thunk. Retained + (clear) lets a
 // heavy sketch compile once and only re-run its thunk (no per-frame re-parse of
 // the whole program), which is far cheaper than immediate mode.
-void flux_scene_clear(void) { if (g_ctx.r) g_ctx.r->Clear(); }
+void flux_scene_clear(void) { flux_free_terminals(); if (g_ctx.r) g_ctx.r->Clear(); }
 
 // (destroy id): remove one primitive by id. Lets a RETAINED sketch keep static
 // geometry alive across frames while destroying + rebuilding only its animated
@@ -282,7 +289,15 @@ void flux_scene_clear(void) { if (g_ctx.r) g_ctx.r->Clear(); }
 // (the renderer clears its own m_Grabbed inside RemovePrimitive).
 void flux_destroy(int id) {
   if (!g_ctx.r) return;
-  if (g_ctx.grabbed && g_ctx.r->GetPrimitive(id) == g_ctx.grabbed) g_ctx.grabbed = nullptr;
+  Primitive* p = g_ctx.r->GetPrimitive(id);
+  if (g_ctx.grabbed && p == g_ctx.grabbed) g_ctx.grabbed = nullptr;
+  if (p) {
+    // free per-prim resources we own (else they leak — the renderer only frees the
+    // Primitive itself). g_pixels' GL texture is left to GL teardown as before.
+    auto ti = g_terminals.find(p);
+    if (ti != g_terminals.end()) { if (ti->second.vt) vterm_free(ti->second.vt); g_terminals.erase(ti); }
+    g_pixels.erase(p);
+  }
   g_ctx.r->RemovePrimitive(id);
 }
 
@@ -529,6 +544,118 @@ void flux_pixels_upload(void) {
 }
 int flux_pixels_width(void)  { auto it = g_pixels.find(g_ctx.grabbed); return it == g_pixels.end() ? 0 : it->second.w; }
 int flux_pixels_height(void) { auto it = g_pixels.find(g_ctx.grabbed); return it == g_pixels.end() ? 0 : it->second.h; }
+
+// ---- terminal (libvterm) ---------------------------------------------------
+// A terminal prim is one PolyPrimitive(QUADS) with HINT_VERTCOLS so per-cell colour
+// reaches builtinTexShader (texture2D * gl_Color). The mesh is a grid of quads: a
+// background quad per cell (samples the atlas' reserved white cell 0 -> colour is the
+// per-vertex bg), then a foreground glyph quad per non-blank cell (samples its glyph
+// cell -> fg colour * coverage), nudged toward the camera so it draws over the bg.
+// One draw call. Rebuilt from the libvterm screen on every (terminal-draw).
+static const float kTermPitchX = 0.5f, kTermPitchY = 0.9f;
+
+static TerminalState* grabbedTerminal() {
+  auto it = g_terminals.find(g_ctx.grabbed);
+  return it == g_terminals.end() ? nullptr : &it->second;
+}
+
+static void terminalRebuild(PolyPrimitive* p, TerminalState& ts) {
+  p->Clear();
+  const dVector N(0, 0, 1);
+  const float PX = kTermPitchX, PY = kTermPitchY;
+  float bs0, bt0, bs1, bt1;
+  flux_glyph_cell(0, &bs0, &bt0, &bs1, &bt1);           // reserved opaque-white cell
+
+  auto emitQuad = [&](float x0, float x1, float y0, float y1, float z,
+                      const dColour& c, float s0, float t0, float s1, float t1) {
+    p->AddVertex(dVertex(dVector(x0, y1, z), N, c, s0, t1));   // bottom-left
+    p->AddVertex(dVertex(dVector(x1, y1, z), N, c, s1, t1));   // bottom-right
+    p->AddVertex(dVertex(dVector(x1, y0, z), N, c, s1, t0));   // top-right
+    p->AddVertex(dVertex(dVector(x0, y0, z), N, c, s0, t0));   // top-left
+  };
+  auto toRGB = [&](VTermColor c) {
+    vterm_screen_convert_color_to_rgb(ts.vs, &c);
+    return dColour(c.rgb.red / 255.f, c.rgb.green / 255.f, c.rgb.blue / 255.f, 1.f);
+  };
+
+  // pass A: background quads (opaque)
+  for (int row = 0; row < ts.rows; ++row)
+    for (int col = 0; col < ts.cols; ) {
+      VTermPos pos; pos.row = row; pos.col = col;
+      VTermScreenCell cell; vterm_screen_get_cell(ts.vs, pos, &cell);
+      const int w = cell.width > 0 ? cell.width : 1;
+      VTermColor bg = cell.attrs.reverse ? cell.fg : cell.bg;
+      const dColour bgc = toRGB(bg);
+      const float x0 = col * PX, x1 = (col + w) * PX, y0 = -row * PY, y1 = y0 - PY;
+      emitQuad(x0, x1, y0, y1, 0.0f, bgc, bs0, bt0, bs1, bt1);
+      col += w;
+    }
+  // pass B: foreground glyph quads (over the bg, toward the camera)
+  for (int row = 0; row < ts.rows; ++row)
+    for (int col = 0; col < ts.cols; ) {
+      VTermPos pos; pos.row = row; pos.col = col;
+      VTermScreenCell cell; vterm_screen_get_cell(ts.vs, pos, &cell);
+      const int w = cell.width > 0 ? cell.width : 1;
+      const uint32_t cp = cell.chars[0];
+      if (cp != 0 && cp != 32) {
+        VTermColor fg = cell.attrs.reverse ? cell.bg : cell.fg;
+        const dColour fgc = toRGB(fg);
+        float s0, t0, s1, t1; flux_glyph_cell(cp, &s0, &t0, &s1, &t1);
+        const float x0 = col * PX, x1 = (col + w) * PX, y0 = -row * PY, y1 = y0 - PY;
+        emitQuad(x0, x1, y0, y1, 0.001f, fgc, s0, t0, s1, t1);
+      }
+      col += w;
+    }
+  p->BumpPDataVersion();   // vertex count changed -> re-upload the VBO
+}
+
+int flux_build_terminal(int cols, int rows) {
+  if (cols < 1) cols = 1; if (rows < 1) rows = 1;
+  PolyPrimitive* p = new PolyPrimitive(PolyPrimitive::QUADS);
+  int id = addPrim(p);
+  State* s = p->GetState();
+  s->Textures[0] = flux_glyph_atlas_texture();
+  setStateShader(s, builtinTexShader());
+  s->Hints |= HINT_VERTCOLS | HINT_UNLIT;
+
+  VTerm* vt = vterm_new(rows, cols);              // NOTE: (rows, cols)
+  vterm_set_utf8(vt, 1);
+  VTermScreen* vs = vterm_obtain_screen(vt);
+  VTermState*  st = vterm_obtain_state(vt);
+  VTermColor fg, bg;
+  vterm_color_rgb(&fg, 220, 220, 220);
+  vterm_color_rgb(&bg, 0, 0, 0);
+  vterm_state_set_default_colors(st, &fg, &bg);
+  vterm_screen_reset(vs, 1);                       // hard reset — required before use
+
+  TerminalState& ts = (g_terminals[p] = TerminalState{ vt, vs, cols, rows });
+  terminalRebuild(p, ts);                          // initial (empty) grid
+  return id;
+}
+
+void flux_terminal_write(const char* bytes) {
+  TerminalState* ts = grabbedTerminal();
+  if (ts && bytes) vterm_input_write(ts->vt, bytes, strlen(bytes));
+}
+void flux_terminal_clear(void) {
+  TerminalState* ts = grabbedTerminal();
+  if (ts) vterm_screen_reset(ts->vs, 1);
+}
+void flux_terminal_draw(void) {
+  TerminalState* ts = grabbedTerminal();
+  if (ts) terminalRebuild((PolyPrimitive*) g_ctx.grabbed, *ts);
+}
+int flux_terminal_cols(void) { TerminalState* ts = grabbedTerminal(); return ts ? ts->cols : 0; }
+int flux_terminal_rows(void) { TerminalState* ts = grabbedTerminal(); return ts ? ts->rows : 0; }
+
+// Free every terminal's vterm and drop the map. Called before a full scene wipe
+// (immediate-mode Clear in FluxusScene, and the (clear) command) so the parsers
+// don't leak and no stale Primitive* key survives into the next frame. Retained
+// sketches keep their terminal because they build it once and never wipe the scene.
+void flux_free_terminals(void) {
+  for (auto& kv : g_terminals) if (kv.second.vt) vterm_free(kv.second.vt);
+  g_terminals.clear();
+}
 
 // ---- material (grabbed primitive) ------------------------------------------
 void flux_specular(double r, double g, double b)      { if (State* s = grabbedState()) s->Specular = dColour((float) r, (float) g, (float) b, 1); }

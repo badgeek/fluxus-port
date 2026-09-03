@@ -76,7 +76,9 @@ ptr sym(const char* s) { return Sstring_to_symbol(s); }
 
 // eval a C string of Scheme: (eval (read (open-input-string "<code>")))
 ptr eval_cstr(const char* code) {
-  ptr ois = Scons(sym("open-input-string"), Scons(Sstring(code), Snil));
+  // Sstring_utf8 (not Sstring) so multibyte source is decoded as UTF-8 — otherwise
+  // Chez reads the bytes as Latin-1 and unicode (box-drawing/blocks for build-terminal) mangles.
+  ptr ois = Scons(sym("open-input-string"), Scons(Sstring_utf8(code, -1), Snil));
   ptr rd  = Scons(sym("read"), Scons(ois, Snil));
   ptr ev  = Scons(sym("eval"), Scons(rd, Snil));
   return racket_eval(ev);
@@ -120,6 +122,7 @@ std::string requireLibForm() {
          "         (file \"" + lib + "/pixels-tools.ss\")"     // pixels-circle/dodge/burn
          "         (file \"" + lib + "/voxels-tools.ss\")"     // voxels-index/pos/sphere
          "         (file \"" + lib + "/planetarium.ss\")"      // dome-* projection helpers
+         "         (file \"" + lib + "/ansi.ss\")"             // ANSI string helpers for build-terminal
          "         (file \"" + lib + "/collada-import.ss\"))"; // collada-import
 }
 } // namespace
@@ -204,7 +207,7 @@ void RacketScriptHost::setFrameInfo(double t, int frame) { flux_frame_begin(t, f
 bool RacketScriptHost::eval(const std::string& code, std::string& errorOut) {
   // (flux-run-guarded "<code>") — the string is passed as a Chez/Racket string,
   // so no escaping needed. Errors are reported via flux_report_error.
-  ptr call = Scons(sym("flux-run-guarded"), Scons(Sstring(code.c_str()), Snil));
+  ptr call = Scons(sym("flux-run-guarded"), Scons(Sstring_utf8(code.c_str(), (iptr) code.size()), Snil));
   racket_eval(call);
   errorOut = flux_last_error();
   return errorOut.empty();

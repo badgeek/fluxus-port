@@ -61,6 +61,22 @@ add_library(ntsc_crt STATIC
 target_include_directories(ntsc_crt SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/vendor/ntsc-crt)
 target_compile_options(ntsc_crt PRIVATE -w)
 
+# --- libvterm (neovim/libvterm) VT/ANSI parser ------------------------------
+# Vendored C99 terminal-sequence parser + screen model. Feeds the (build-terminal
+# …) primitive: scripts emit ANSI, libvterm maintains the cell grid, FluxusCommands
+# renders it as a glyph-atlas quad grid. Pre-generated encoding .inc tables are
+# vendored so no Perl step is needed. include/ marked SYSTEM (its warnings stay in).
+add_library(vterm STATIC
+    vendor/libvterm/src/encoding.c vendor/libvterm/src/keyboard.c
+    vendor/libvterm/src/mouse.c    vendor/libvterm/src/parser.c
+    vendor/libvterm/src/pen.c      vendor/libvterm/src/screen.c
+    vendor/libvterm/src/state.c    vendor/libvterm/src/unicode.c
+    vendor/libvterm/src/vterm.c)
+target_include_directories(vterm SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/vendor/libvterm/include)
+target_include_directories(vterm PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor/libvterm/src)
+set_target_properties(vterm PROPERTIES C_STANDARD 99)
+target_compile_options(vterm PRIVATE -w)
+
 # --- bundled example sketches ----------------------------------------------
 # Copy the upstream fluxus examples into <App>.app/Contents/Resources/examples;
 # FluxusMenu lists them under File > Examples (AppMenu.h). ~370 KB, so unlike the
@@ -83,6 +99,7 @@ juce_add_gui_app(FluxusApp PRODUCT_NAME "FluxusApp"
 
 target_sources(FluxusApp PRIVATE
     app/Main.cpp
+    app/GlyphAtlas.cpp
     app/FluxusComponent.cpp
     app/ControlServer.cpp
     app/FluxusScene.cpp
@@ -108,6 +125,7 @@ target_link_libraries(FluxusApp PRIVATE
     libfluxus_min
     s7
     ntsc_crt
+    vterm
     juce::juce_opengl
     juce::juce_gui_extra
     juce::juce_audio_utils
@@ -159,6 +177,7 @@ juce_add_gui_app(FluxusGLApp PRODUCT_NAME "FluxusGLApp"
 
 target_sources(FluxusGLApp PRIVATE
     app/MainGL.cpp
+    app/GlyphAtlas.cpp
     app/FluxusGLComponent.cpp
     app/EditorOverlay.cpp
     app/FluxusScene.cpp
@@ -185,6 +204,7 @@ target_link_libraries(FluxusGLApp PRIVATE
     libfluxus_min
     s7
     ntsc_crt
+    vterm
     fluxus_editor
     juce::juce_opengl
     juce::juce_gui_extra
@@ -231,6 +251,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
 
   target_sources(FluxusRacketApp PRIVATE
       app/MainRacket.cpp
+      app/GlyphAtlas.cpp
       app/FluxusComponent.cpp
       app/ControlServer.cpp
       app/FluxusScene.cpp
@@ -259,6 +280,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
   target_link_libraries(FluxusRacketApp PRIVATE
       libfluxus_min
       ntsc_crt
+      vterm
       juce::juce_opengl
       juce::juce_gui_extra
     juce::juce_audio_utils
@@ -285,6 +307,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
     CAMERA_PERMISSION_TEXT "Fluxus uses the camera as a live video texture.")
   target_sources(FluxusGLRacketApp PRIVATE
       app/MainGLRacket.cpp
+      app/GlyphAtlas.cpp
       app/FluxusGLComponent.cpp
       app/EditorOverlay.cpp
       app/FluxusScene.cpp
@@ -312,6 +335,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       libfluxus_min
       fluxus_editor
       ntsc_crt
+      vterm
       juce::juce_opengl
       juce::juce_gui_extra
     juce::juce_audio_utils

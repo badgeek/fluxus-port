@@ -174,6 +174,7 @@ void FluxusScene::renderFrame() {
   const bool commit = isDirty || !committedOnce;
   std::string err;
   if (commit) {
+    flux_free_terminals();                // free any terminal parsers before the wipe
     renderer->Clear();
     renderer->SetBGColour(dColour(0.08f, 0.09f, 0.12f, 1.0f));
     flux_set_retained(0);                 // script re-declares (retained) if it wants it
@@ -184,6 +185,7 @@ void FluxusScene::renderFrame() {
     host->setFrameInfo(t, frameCount);    // update time + camera, keep the scene
     host->runFrame(err);
   } else {
+    flux_free_terminals();                // free any terminal parsers before the wipe
     renderer->Clear();
     renderer->SetBGColour(dColour(0.08f, 0.09f, 0.12f, 1.0f));
     host->setFrameInfo(t, frameCount);

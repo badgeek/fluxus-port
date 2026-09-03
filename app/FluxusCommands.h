@@ -97,6 +97,22 @@ extern "C" {
   int  flux_pixels_width(void);
   int  flux_pixels_height(void);
 
+  // growing unicode glyph atlas (GlyphAtlas.cpp): lazily bakes any codepoint; cell 0
+  // is a reserved opaque-white square (used for terminal background quads).
+  unsigned flux_glyph_atlas_texture(void);
+  void     flux_glyph_cell(unsigned codepoint, float* s0, float* t0, float* s1, float* t1);
+
+  // terminal: script emits ANSI/VT, libvterm keeps the cell grid, we render it as a
+  // glyph-atlas quad grid (per-cell fg/bg colour). build- returns a prim id; the rest
+  // are grab-aware (operate on the grabbed terminal), like pixels-upload.
+  int  flux_build_terminal(int cols, int rows);
+  void flux_terminal_write(const char* bytes);   // feed ANSI bytes to the grabbed terminal
+  void flux_terminal_clear(void);                 // reset the grabbed terminal's screen
+  void flux_terminal_draw(void);                  // rebuild the mesh from the screen state
+  int  flux_terminal_cols(void);
+  int  flux_terminal_rows(void);
+  void flux_free_terminals(void);   // free all terminal vterms (before a scene wipe)
+
   // pdata — vertex-level access on a grabbed primitive (fluxus signature feature)
   void   flux_grab(int id);
   void   flux_ungrab(void);
