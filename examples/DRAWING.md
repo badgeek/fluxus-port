@@ -188,6 +188,26 @@ slope down-right when +X=right and +Z=down), never only the axes. Even simpler
 when you can: build the bar from its two explicit endpoints via a segment helper
 that only needs to *span* `a→b` — direction sign then can't bite you.
 
+**11. `State.Cull` defaults ON — a curved / double-sided mesh renders "rim-only".**
+Every prim's `State.Cull` is `true` by default (back-face culling). A FLAT prim
+hides this: its one face points at the camera, so it draws whether cull is on or
+off. Wrap that same grid onto a **sphere** (or any closed/curved surface) and the
+near hemisphere is back-facing → culled → you see the *far* wall through it, with
+anything you lifted "outward" now behind it. The signature is **only the silhouette
+rim draws, the front face is blank** (it reads as a depth/extrude bug — it is NOT).
+Fix: make the prim double-sided — `s->Cull = false` in C, or `(backfacecull #f)` in
+script — before blaming winding or z-fighting. (This is why the terminal-on-sphere
+showed an empty teal globe until Cull was cleared.) Burned several rebuild cycles.
+
+**12. Frustum aspect ≠ pixel viewport → a true sphere renders as an EGG.** The
+camera builds its frustum from an aspect that does NOT auto-track the window
+(default ~`720/576 ≈ 1.25`). On a *square* window that squishes X by ~1.25, so a
+geometrically perfect sphere (verify: `x²+y²+z² = r²`) draws as a vertical ellipse.
+It is a projection artefact, not your geometry, and **`(set-aspect 1.0)` did NOT fix
+it** in practice. The reliable cure is to counter it in the transform: widen X by the
+mismatch, e.g. `(scale (vector (* s 1.25) s s))` — tune the factor by eye against a
+round reference. Any circle/sphere on a non-matching window aspect needs this.
+
 ---
 
 ## 4. Verify visually, every step
