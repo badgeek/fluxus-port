@@ -172,6 +172,22 @@ angles and position/orient each label yourself (the iso-city HUD pattern). For a
 on-axis calibration pose, a plain z=0 overlay is screen-correct and far simpler —
 just don't call it "billboarded", and know it swims if the camera orbits.
 
+**10. Y-rotating a bar to a heading: use `atan2(dx, dz)`, NOT the compass
+bearing.** To orient a cube-as-line along a direction `d=(dx,0,dz)`, a `(rotate
+(vector 0 θ 0))` maps the prim's local **+Z** axis to world `(sinθ, 0, cosθ)`.
+So the angle that makes local +Z point along `d` is `θ = (deg (atan dx dz))`
+(Racket `atan` is 2-arg `atan2`). The trap: a *navigational bearing* is
+`atan2(dx, -dz)` (north = −Z = 0°, clockwise) — reusing that for the rotate
+**mirrors the bar across the X-axis**. Axis-aligned and symmetric segments hide
+the bug (a bar and its X-mirror occupy the same line), so a grid/border looks
+perfect while every **diagonal** heading leader renders at the reflected angle —
+reads as "pointing the wrong way / almost perpendicular". Keep the two separate:
+`bearing` (display compass number) uses `atan2(dx,-dz)`; the geometry rotate uses
+`atan2(dx,dz)`. Calibrate with ONE diagonal (e.g. a leader for `d=(+,+)` must
+slope down-right when +X=right and +Z=down), never only the axes. Even simpler
+when you can: build the bar from its two explicit endpoints via a segment helper
+that only needs to *span* `a→b` — direction sign then can't bite you.
+
 ---
 
 ## 4. Verify visually, every step
