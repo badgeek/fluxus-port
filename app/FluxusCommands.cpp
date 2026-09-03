@@ -141,7 +141,8 @@ std::map<Primitive*, PixBuf> g_pixels;
 // terminal primitives: grid prim -> its libvterm parser + screen for (build-terminal)
 // & friends. The prim renders a glyph-atlas quad grid rebuilt from the screen state.
 struct TerminalState { VTerm* vt = nullptr; VTermScreen* vs = nullptr; int cols = 0, rows = 0;
-                       int shape = 0; float radius = 8.0f; };   // shape: 0 flat, 1 sphere
+                       int shape = 0; float radius = 8.0f;      // shape: 0 flat, 1 sphere
+                       float bgAlpha = 1.0f; };                  // <=0 skips bg (see-through)
 std::map<Primitive*, TerminalState> g_terminals;
 
 std::mutex  g_errMutex;
@@ -607,16 +608,19 @@ static void terminalRebuild(PolyPrimitive* p, TerminalState& ts) {
   };
   const float fgEx = ts.shape == 1 ? ts.radius * 0.006f : 0.001f;   // lift glyphs off the bg
 
-  // pass A: background quads (opaque)
-  for (int row = 0; row < ts.rows; ++row)
-    for (int col = 0; col < ts.cols; ) {
-      VTermPos pos; pos.row = row; pos.col = col;
-      VTermScreenCell cell; vterm_screen_get_cell(ts.vs, pos, &cell);
-      const int w = cell.width > 0 ? cell.width : 1;
-      VTermColor bg = cell.attrs.reverse ? cell.fg : cell.bg;
-      emitCell(col, row, w, 0.0f, toRGB(bg), bs0, bt0, bs1, bt1);
-      col += w;
-    }
+  // pass A: background quads (skipped entirely when bgAlpha<=0 so you can see THROUGH
+  // the mesh — e.g. through a sphere to the glyphs on its far side).
+  if (ts.bgAlpha > 0.004f)
+    for (int row = 0; row < ts.rows; ++row)
+      for (int col = 0; col < ts.cols; ) {
+        VTermPos pos; pos.row = row; pos.col = col;
+        VTermScreenCell cell; vterm_screen_get_cell(ts.vs, pos, &cell);
+        const int w = cell.width > 0 ? cell.width : 1;
+        VTermColor bg = cell.attrs.reverse ? cell.fg : cell.bg;
+        dColour bgc = toRGB(bg); bgc.a = ts.bgAlpha;
+        emitCell(col, row, w, 0.0f, bgc, bs0, bt0, bs1, bt1);
+        col += w;
+      }
   // pass B: foreground glyph quads (lifted off the bg toward the viewer/outward)
   for (int row = 0; row < ts.rows; ++row)
     for (int col = 0; col < ts.cols; ) {
@@ -681,6 +685,14 @@ void flux_terminal_shape(int mode, double radius) {
   if (!ts) return;
   ts->shape = mode;
   ts->radius = radius > 0 ? (float) radius : ts->cols * kTermPitchX / 6.2831853f;
+  terminalRebuild((PolyPrimitive*) g_ctx.grabbed, *ts);
+}
+// set the grabbed terminal's background opacity: 1 = opaque (default), 0 = skip the
+// bg quads entirely (see-through — glyphs float on the surface), in between = tint.
+void flux_terminal_bg_alpha(double a) {
+  TerminalState* ts = grabbedTerminal();
+  if (!ts) return;
+  ts->bgAlpha = (float) a;
   terminalRebuild((PolyPrimitive*) g_ctx.grabbed, *ts);
 }
 

@@ -12,6 +12,7 @@
 (define t (build-terminal W H))
 (with-primitive t
   (terminal-shape 1)                 ; wrap the grid onto a sphere (auto radius)
+  (terminal-bg-alpha 0.0)            ; see-through: skip bg quads, glyphs float on the globe
   (scale (vector 0.62 0.62 0.62))    ; uniform — frustum now tracks window aspect, stays round
   (rotate (vector 16 0 0)))          ; slight tilt so the poles aren't dead-on
 
@@ -293,4 +294,4 @@
     (terminal-clear)
     (terminal-write (build-frame))
     (terminal-draw)
-    (screenshot "/tmp/sphA.png")))
+    (screenshot "/tmp/sphT.png")))

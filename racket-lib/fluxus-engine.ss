@@ -725,6 +725,9 @@
 (define (terminal-rows) (_trows))
 ;; (terminal-shape mode [radius]) — 0 flat, 1 sphere (radius<=0 auto-fits the grid).
 (define (terminal-shape mode (radius 0.0)) (_tshape mode (exact->inexact radius)))
+;; (terminal-bg-alpha a) — bg opacity: 1 opaque (default), 0 see-through, between = tint.
+(define _tbga (cfun "flux_terminal_bg_alpha" (_fun _double -> _void) (lambda (a) (void))))
+(define (terminal-bg-alpha a) (_tbga (exact->inexact a)))
 ;; planetarium.ss engine prims
 (define (current-camera . _) 0)
 (define (pixels->texture . _) 0)

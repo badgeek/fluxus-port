@@ -112,6 +112,7 @@ extern "C" {
   int  flux_terminal_cols(void);
   int  flux_terminal_rows(void);
   void flux_terminal_shape(int mode, double radius);   // 0 flat, 1 sphere (radius<=0 = auto)
+  void flux_terminal_bg_alpha(double a);               // bg opacity: 1 opaque, 0 see-through
   void flux_free_terminals(void);   // free all terminal vterms (before a scene wipe)
 
   // pdata — vertex-level access on a grabbed primitive (fluxus signature feature)
