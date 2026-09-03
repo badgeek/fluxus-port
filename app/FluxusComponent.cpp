@@ -166,7 +166,10 @@ bool FluxusComponent::isEvalKey(const juce::KeyPress& key) const {
 bool FluxusComponent::handleKey(const juce::KeyPress& key) {
   if (isEvalKey(key)) { pushScript(); return true; }   // consume, don't type it
   if (auto c = key.getTextCharacter()) flux_set_key((int) c);  // expose to scripts (key-poll)
-  return false;                                        // everything else = normal editing
+  // When the editor is hidden the sketch owns the keyboard (WASD flight etc): CONSUME
+  // the key so macOS doesn't beep at an unhandled keystroke. When the editor is up,
+  // let it through (return false) so typing code still works.
+  return !editorVisible;
 }
 
 // KeyListener path: the editor `code` has keyboard focus and forwards its keys here.
@@ -202,6 +205,22 @@ void FluxusComponent::timerCallback() {
   // script-driven tweak-panel visibility ((show-tweaks)/(hide-tweaks))
   int tv = 0;
   if (flux_get_tweaks_visible(&tv) && (bool) tv != tweaksVisible) setTweaksVisible(tv != 0);
+
+  // mirror LIVE physical key up/down into flux for (key-down? c) — smooth
+  // hold-to-move controls (survives the OS key-repeat delay that stutters key-poll).
+  // Poll only when the editor is hidden so the sketch owns the keyboard; while the
+  // code editor is up, WASD is for typing, not flying. JUCE key codes for letters
+  // are the UPPERCASE ascii; isKeyCurrentlyDown reads global OS state (focus-free).
+  if (!editorVisible) {
+    for (int c = 'a'; c <= 'z'; ++c)   // OR upper+lower: JUCE letter key codes vary by platform
+      flux_set_key_down(c, (juce::KeyPress::isKeyCurrentlyDown(c - 'a' + 'A')
+                            || juce::KeyPress::isKeyCurrentlyDown(c)) ? 1 : 0);
+    for (int c = '0'; c <= '9'; ++c)
+      flux_set_key_down(c, juce::KeyPress::isKeyCurrentlyDown(c) ? 1 : 0);
+    flux_set_key_down((int) ' ', juce::KeyPress::isKeyCurrentlyDown((int) ' ') ? 1 : 0);
+  } else {
+    flux_clear_keys_down();
+  }
 
   juce::String err;
   { std::lock_guard<std::mutex> lk(shared.m); err = juce::String(shared.lastError); }

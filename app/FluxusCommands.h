@@ -160,6 +160,9 @@ extern "C" {
   int    flux_mouse_button(void);
   void   flux_set_key(int c);           // app pushes last-pressed char
   int    flux_get_key(void);            // (key-poll): consume it (0 if none)
+  void   flux_set_key_down(int code, int down);  // app mirrors live physical key up/down
+  int    flux_key_is_down(int code);    // (key-down? c): live held state (0/1)
+  void   flux_clear_keys_down(void);    // release all (e.g. when the editor takes focus)
   void   flux_camera_drag(double dx, double dy);   // orbit
   void   flux_camera_zoom(double d);               // dolly
   double flux_camera_dist(void);                   // wheel-accumulated dolly distance

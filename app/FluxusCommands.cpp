@@ -41,6 +41,7 @@
 #include <string>
 #include <set>
 #include <atomic>
+#include <array>
 #include <utility>
 
 using namespace Fluxus;
@@ -1007,6 +1008,15 @@ int    flux_mouse_button(void){ return g_mouseButton; }
 static std::atomic<int> g_key{0};
 void flux_set_key(int c) { g_key = c; }
 int  flux_get_key(void)  { return g_key.exchange(0); }
+
+// held-key channel: unlike the consume-once key-poll above, this mirrors the LIVE
+// physical up/down state of each key (indexed by char code). The app's message
+// thread polls the OS every frame and writes here; a script reads (key-down? c)
+// every frame for smooth hold-to-move FPS controls. JUCE-free: just an atomic array.
+static std::array<std::atomic<uint8_t>, 256> g_keyDown{};
+void flux_set_key_down(int code, int down) { if (code >= 0 && code < 256) g_keyDown[(size_t) code] = down ? 1 : 0; }
+int  flux_key_is_down(int code)            { return (code >= 0 && code < 256) ? (int) g_keyDown[(size_t) code].load() : 0; }
+void flux_clear_keys_down(void)            { for (auto& k : g_keyDown) k = 0; }
 void flux_camera_drag(double dx, double dy) {
   g_cam.yaw   += dx * 0.5;
   g_cam.pitch += dy * 0.5;

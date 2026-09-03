@@ -93,6 +93,14 @@ static s7_pointer f_opacity(s7_scheme* sc, s7_pointer a){ if(s7_is_pair(a)) flux
 static s7_pointer f_wire_opacity(s7_scheme* sc, s7_pointer a){ if(s7_is_pair(a)) flux_wire_opacity(s7_number_to_real(sc,s7_car(a))); return s7_nil(sc); }
 static s7_pointer f_wire_colour(s7_scheme* sc, s7_pointer a){ double x,y,z; if(vec3(sc,a,x,y,z)) flux_wire_colour(x,y,z); return s7_nil(sc); }
 static s7_pointer f_key_poll(s7_scheme* sc, s7_pointer){ return s7_make_integer(sc, flux_get_key()); }
+// (key-down? c) — live physical held state; c may be a char, 1-char string, or code.
+static s7_pointer f_key_down(s7_scheme* sc, s7_pointer a){
+  int code = 0; if (s7_is_pair(a)) { s7_pointer v = s7_car(a);
+    if (s7_is_character(v)) code = s7_character(v);
+    else if (s7_is_string(v) && s7_string_length(v) > 0) code = (unsigned char) s7_string(v)[0];
+    else code = (int) s7_number_to_real(sc, v); }
+  return s7_make_boolean(sc, flux_key_is_down(code) != 0);
+}
 static s7_pointer f_set_export(s7_scheme* sc, s7_pointer a){ int on = s7_boolean(sc,s7_car(a))?1:0; const char* p = s7_is_string(s7_cadr(a))?s7_string(s7_cadr(a)):""; int fps = (int) s7_number_to_real(sc,s7_caddr(a)); flux_set_export(on,p,fps); return s7_nil(sc); }
 // s7-parity sweep: engine-backed commands the s7 host still lacked
 static int argInt(s7_scheme* sc, s7_pointer a, int i, int dflt){ for(int k=0;k<i && s7_is_pair(a);++k) a=s7_cdr(a); return s7_is_pair(a)?(int)s7_number_to_real(sc,s7_car(a)):dflt; }
@@ -762,6 +770,7 @@ void S7ScriptHost::init() {
   def("wire-colour",    f_wire_colour,    1, 0, false);
   def("wire-color",     f_wire_colour,    1, 0, false);
   def("key-poll",       f_key_poll,       0, 0, false);
+  def("key-down?",      f_key_down,       1, 0, false);
   def("set-export",     f_set_export,     3, 0, false);
   def("build-nurbs-plane",  f_build_nurbs_plane,  0, 2, false);
   def("build-nurbs-sphere", f_build_nurbs_sphere, 0, 2, false);

@@ -111,6 +111,13 @@
 ;; (key-poll): consume the last-pressed char code (0 if none) — simple hotkeys.
 (define _keypoll (cfun "flux_get_key" (_fun -> _int) (lambda () 0)))
 (define (key-poll) (_keypoll))
+;; (key-down? c): live physical held state (c = char / 1-char string / code) — poll
+;; every frame for smooth hold-to-move controls (no OS key-repeat stutter).
+(define _keydown (cfun "flux_key_is_down" (_fun _int -> _int) (lambda (c) 0)))
+(define (key-down? c)
+  (> (_keydown (cond ((char? c) (char->integer c))
+                     ((string? c) (if (> (string-length c) 0) (char->integer (string-ref c 0)) 0))
+                     (else c))) 0))
 ;; (set-export on path fps): offline frame-locked render straight to MP4.
 (define _setexport (cfun "flux_set_export" (_fun _int _string _int -> _void) (lambda (a b c) (void))))
 (define (set-export on path fps) (_setexport (if on 1 0) path fps))
