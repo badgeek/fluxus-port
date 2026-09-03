@@ -208,6 +208,35 @@ it** in practice. The reliable cure is to counter it in the transform: widen X b
 mismatch, e.g. `(scale (vector (* s 1.25) s s))` — tune the factor by eye against a
 round reference. Any circle/sphere on a non-matching window aspect needs this.
 
+**13. `hint-wire` on a SOLID prim z-fights → the grid is invisible (not "wire is
+broken").** Turning on `(hint-wire)` while the solid fill is still on draws the wire
+at the *same* depth as the face; the fill wins the depth test and you see no lines —
+raising `wire-opacity`/`line-width` does nothing. Two real fixes: (a) pure wireframe
+— `(hint-solid #f)(hint-wire)` (the iso-city look), but then the wire is a single
+`wire-colour`, NOT the per-vertex `"c"` gradient; or (b) **grid-on-fill** — build a
+SECOND prim of the same geometry, wire-only, lifted just off the surface so it can't
+z-fight (`fps-terrain.scm`: `+LIFT` on the height, ~0.01 local ≈ 0.1 world). You
+cannot get a per-vertex-coloured wireframe over a gradient fill from one prim.
+
+**14. A translucent prim blends against what's ALREADY in the framebuffer → build
+the backdrop FIRST.** `(terminal-bg-alpha 0.4)` (or any alpha vertcols) is a normal
+`SRC_ALPHA/ONE_MINUS_SRC_ALPHA` blend: it mixes with whatever was drawn *before* it,
+not with prims built later. Build a translucent terminal/plane before the bright
+object behind it and the "tint" blends over BLACK → reads as solid black, looking
+like the alpha did nothing. Build the backdrop earlier in the sketch (lower prim id
+= drawn first) and the tint shows correctly. Alpha `0` (bg quads skipped) is
+immune — that path is a branch, not a blend.
+
+**15. Custom FPS / fly camera: feed `set-camera-transform` a gluLookAt VIEW matrix
+(world→eye), column-major.** `dMatrix` stores translation at `arr[12,13,14]` — the
+standard OpenGL column-major layout — so the canonical gluLookAt array drops straight
+in (`fps-terrain.scm` `look-at`): rows `s|u|-f`, translation `(-dot(s,eye)
+-dot(u,eye) dot(f,eye) 1)`, where `f=normalize(tgt-eye)`, `s=normalize(f×up)`,
+`u=s×f`. Default cam is `eye=(0,0,10)` looking −Z, which yields `translate(0,0,-10)`
+— check any hand-built matrix against that. To lay a `build-seg-plane` (local XY,
++Z normal) flat as ground, `(rotate (vector -90 0 0))`: local **z becomes world Y**
+(height), local y becomes world −Z (depth) — displace height in pdata `"p"` z.
+
 ---
 
 ## 4. Verify visually, every step

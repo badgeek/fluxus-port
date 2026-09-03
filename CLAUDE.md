@@ -131,7 +131,29 @@ editor (JUCE TextEditor | fluxus GLEditor)
   a beat, `Read /tmp/x.png`, adjust the file, reload. Do NOT `eval` the screenshot.
 - `(key-poll)` returns the last-pressed char code (0 if none), consumed once —
   poll it in the thunk for hotkeys. Keys reach scripts even with `(hide-editor)`
-  (the component grabs focus). `(set-export on "path" fps)` does an offline
+  (the component grabs focus). **For hold-to-move (WASD flight etc) use
+  `(key-down? c)`, NOT `(key-poll)`** — `key-poll` is discrete and rides OS
+  key-repeat (a ~0.5 s gap after the first press → stutter). `(key-down? c)` (c =
+  char / 1-char string / code) is the LIVE physical up/down state: the message
+  thread polls `KeyPress::isKeyCurrentlyDown` each frame into a JUCE-free atomic
+  array (`flux_*_key_down` in FluxusCommands), read every frame for smooth
+  continuous input. Polled only when the editor is hidden (sketch owns the
+  keyboard); `handleKey` consumes keys then so macOS doesn't beep. Note: on the
+  Racket JUCE-editor app the key *events* route to the GL view (script-side
+  `key-poll` may not fire with the editor hidden), but `key-down?` reads global OS
+  state so it works regardless. Wired in FluxusComponent only — the GLEditor apps
+  still lack the held-key poll. See `examples/fps-terrain.scm`.
+- **s7 immediate host wraps each frame's sketch in `(catch (lambda () …))` → a
+  plain top-level `(define *x* …)` is LOCAL to that lambda and RESETS every frame.**
+  Cross-frame state (steer, accumulators) silently reverts to its init each frame;
+  `(time)`-driven motion still works, which masks it. Fix on s7: bind into the
+  global rootlet once — `(if (not (defined? '*x* (rootlet))) (varlet (rootlet) '*x*
+  …))` then `vector-set!` the persistent object. The RACKET host has no lambda wrap
+  (it `eval`s each form at namespace top level), and the clean answer there is
+  `(retained)` + `every-frame`: state lives in the thunk's CLOSURE for free, and
+  geometry builds once instead of re-parsing the whole script each frame
+  (`fps-terrain.scm`). Burned a session chasing "why does drift snap back".
+- `(set-export on "path" fps)` does an offline
   frame-locked MP4 render; drive start/stop from a hotkey + a rendered-FRAME
   counter (frame-locked `(time)`-based auto-stop is unreliable), and keep the
   window visible while it renders.
