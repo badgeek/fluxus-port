@@ -111,6 +111,7 @@ extern "C" {
   void flux_terminal_draw(void);                  // rebuild the mesh from the screen state
   int  flux_terminal_cols(void);
   int  flux_terminal_rows(void);
+  void flux_terminal_shape(int mode, double radius);   // 0 flat, 1 sphere (radius<=0 = auto)
   void flux_free_terminals(void);   // free all terminal vterms (before a scene wipe)
 
   // pdata — vertex-level access on a grabbed primitive (fluxus signature feature)

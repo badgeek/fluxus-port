@@ -512,6 +512,11 @@ s7_pointer f_terminal_clear(s7_scheme* sc, s7_pointer)   { flux_terminal_clear()
 s7_pointer f_terminal_draw(s7_scheme* sc, s7_pointer)    { flux_terminal_draw();  return s7_nil(sc); }
 s7_pointer f_terminal_cols(s7_scheme* sc, s7_pointer)    { return s7_make_integer(sc, flux_terminal_cols()); }
 s7_pointer f_terminal_rows(s7_scheme* sc, s7_pointer)    { return s7_make_integer(sc, flux_terminal_rows()); }
+s7_pointer f_terminal_shape(s7_scheme* sc, s7_pointer a) {
+  int mode = 0; double r = 0;
+  if (s7_is_pair(a)) { mode = (int) s7_number_to_real(sc, s7_car(a)); if (s7_is_pair(s7_cdr(a))) r = s7_number_to_real(sc, s7_cadr(a)); }
+  flux_terminal_shape(mode, r); return s7_nil(sc);
+}
 
 s7_pointer f_grab(s7_scheme* sc, s7_pointer a)  { if (s7_is_pair(a)) flux_grab((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
 s7_pointer f_ungrab(s7_scheme* sc, s7_pointer)  { flux_ungrab(); return s7_nil(sc); }
@@ -645,6 +650,7 @@ void S7ScriptHost::init() {
   def("terminal-draw",     f_terminal_draw,    0, 0, false);
   def("terminal-cols",     f_terminal_cols,    0, 0, false);
   def("terminal-rows",     f_terminal_rows,    0, 0, false);
+  def("terminal-shape",    f_terminal_shape,   1, 1, false);
   def("pixels-height",     f_pixels_height,    0, 0, false);
   def("draw-cube",    f_build_cube,   0, 0, false);   // immediate draw = build here
   def("draw-plane",   f_build_plane,  0, 0, false);

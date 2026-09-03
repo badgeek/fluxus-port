@@ -716,12 +716,15 @@
 (define _tdraw   (cfun "flux_terminal_draw"  (_fun -> _void)           (lambda () (void))))
 (define _tcols   (cfun "flux_terminal_cols"  (_fun -> _int)            (lambda () 0)))
 (define _trows   (cfun "flux_terminal_rows"  (_fun -> _int)            (lambda () 0)))
+(define _tshape  (cfun "flux_terminal_shape" (_fun _int _double -> _void) (lambda (m r) (void))))
 (define (build-terminal (cols 40) (rows 20)) (_mkterm cols rows))
 (define (terminal-write str) (_twrite str))
 (define (terminal-clear) (_tclear))
 (define (terminal-draw) (_tdraw))
 (define (terminal-cols) (_tcols))
 (define (terminal-rows) (_trows))
+;; (terminal-shape mode [radius]) — 0 flat, 1 sphere (radius<=0 auto-fits the grid).
+(define (terminal-shape mode (radius 0.0)) (_tshape mode (exact->inexact radius)))
 ;; planetarium.ss engine prims
 (define (current-camera . _) 0)
 (define (pixels->texture . _) 0)

@@ -140,7 +140,8 @@ std::map<Primitive*, PixBuf> g_pixels;
 
 // terminal primitives: grid prim -> its libvterm parser + screen for (build-terminal)
 // & friends. The prim renders a glyph-atlas quad grid rebuilt from the screen state.
-struct TerminalState { VTerm* vt = nullptr; VTermScreen* vs = nullptr; int cols = 0, rows = 0; };
+struct TerminalState { VTerm* vt = nullptr; VTermScreen* vs = nullptr; int cols = 0, rows = 0;
+                       int shape = 0; float radius = 8.0f; };   // shape: 0 flat, 1 sphere
 std::map<Primitive*, TerminalState> g_terminals;
 
 std::mutex  g_errMutex;
@@ -567,22 +568,44 @@ static TerminalState* grabbedTerminal() {
 
 static void terminalRebuild(PolyPrimitive* p, TerminalState& ts) {
   p->Clear();
-  const dVector N(0, 0, 1);
   const float PX = kTermPitchX, PY = kTermPitchY;
+  const float TAU = 6.2831853f, PI = 3.14159265f;
   float bs0, bt0, bs1, bt1;
   flux_glyph_cell(0, &bs0, &bt0, &bs1, &bt1);           // reserved opaque-white cell
 
-  auto emitQuad = [&](float x0, float x1, float y0, float y1, float z,
-                      const dColour& c, float s0, float t0, float s1, float t1) {
-    p->AddVertex(dVertex(dVector(x0, y1, z), N, c, s0, t1));   // bottom-left
-    p->AddVertex(dVertex(dVector(x1, y1, z), N, c, s1, t1));   // bottom-right
-    p->AddVertex(dVertex(dVector(x1, y0, z), N, c, s1, t0));   // top-right
-    p->AddVertex(dVertex(dVector(x0, y0, z), N, c, s0, t0));   // top-left
+  // place a grid corner (fractional col cf, row rf) with an outward extrude ex.
+  // shape 0 = flat plane; shape 1 = wrap the grid onto a sphere (col->longitude,
+  // row->latitude, radial normal) so the terminal reads as a globe/CRT ball.
+  auto corner = [&](float cf, float rf, float ex, dVector& pos, dVector& nrm) {
+    if (ts.shape == 1) {
+      // negate longitude so increasing column runs screen-LEFT->RIGHT on the near
+      // face (otherwise the parametrization mirrors the text horizontally).
+      const float th = -(cf / ts.cols) * TAU, ph = (rf / ts.rows) * PI;
+      const float sp = std::sin(ph), cph = std::cos(ph), sth = std::sin(th), cth = std::cos(th);
+      nrm = dVector(sp * cth, cph, sp * sth);
+      const float r = ts.radius + ex;
+      pos = dVector(r * sp * cth, r * cph, r * sp * sth);
+    } else {
+      nrm = dVector(0, 0, 1);
+      pos = dVector(cf * PX, -rf * PY, ex);
+    }
+  };
+  auto emitCell = [&](int col, int row, int w, float ex, const dColour& c,
+                      float s0, float t0, float s1, float t1) {
+    const float cl = (float) col, cr = (float) (col + w), rt = (float) row, rb = (float) (row + 1);
+    dVector p0, n0, p1, n1, p2, n2, p3, n3;
+    corner(cl, rb, ex, p0, n0);  corner(cr, rb, ex, p1, n1);
+    corner(cr, rt, ex, p2, n2);  corner(cl, rt, ex, p3, n3);
+    p->AddVertex(dVertex(p0, n0, c, s0, t1));   // bottom-left
+    p->AddVertex(dVertex(p1, n1, c, s1, t1));   // bottom-right
+    p->AddVertex(dVertex(p2, n2, c, s1, t0));   // top-right
+    p->AddVertex(dVertex(p3, n3, c, s0, t0));   // top-left
   };
   auto toRGB = [&](VTermColor c) {
     vterm_screen_convert_color_to_rgb(ts.vs, &c);
     return dColour(c.rgb.red / 255.f, c.rgb.green / 255.f, c.rgb.blue / 255.f, 1.f);
   };
+  const float fgEx = ts.shape == 1 ? ts.radius * 0.006f : 0.001f;   // lift glyphs off the bg
 
   // pass A: background quads (opaque)
   for (int row = 0; row < ts.rows; ++row)
@@ -591,12 +614,10 @@ static void terminalRebuild(PolyPrimitive* p, TerminalState& ts) {
       VTermScreenCell cell; vterm_screen_get_cell(ts.vs, pos, &cell);
       const int w = cell.width > 0 ? cell.width : 1;
       VTermColor bg = cell.attrs.reverse ? cell.fg : cell.bg;
-      const dColour bgc = toRGB(bg);
-      const float x0 = col * PX, x1 = (col + w) * PX, y0 = -row * PY, y1 = y0 - PY;
-      emitQuad(x0, x1, y0, y1, 0.0f, bgc, bs0, bt0, bs1, bt1);
+      emitCell(col, row, w, 0.0f, toRGB(bg), bs0, bt0, bs1, bt1);
       col += w;
     }
-  // pass B: foreground glyph quads (over the bg, toward the camera)
+  // pass B: foreground glyph quads (lifted off the bg toward the viewer/outward)
   for (int row = 0; row < ts.rows; ++row)
     for (int col = 0; col < ts.cols; ) {
       VTermPos pos; pos.row = row; pos.col = col;
@@ -605,10 +626,8 @@ static void terminalRebuild(PolyPrimitive* p, TerminalState& ts) {
       const uint32_t cp = cell.chars[0];
       if (cp != 0 && cp != 32) {
         VTermColor fg = cell.attrs.reverse ? cell.bg : cell.fg;
-        const dColour fgc = toRGB(fg);
         float s0, t0, s1, t1; flux_glyph_cell(cp, &s0, &t0, &s1, &t1);
-        const float x0 = col * PX, x1 = (col + w) * PX, y0 = -row * PY, y1 = y0 - PY;
-        emitQuad(x0, x1, y0, y1, 0.001f, fgc, s0, t0, s1, t1);
+        emitCell(col, row, w, fgEx, toRGB(fg), s0, t0, s1, t1);
       }
       col += w;
     }
@@ -623,6 +642,8 @@ int flux_build_terminal(int cols, int rows) {
   s->Textures[0] = flux_glyph_atlas_texture();
   setStateShader(s, builtinTexShader());
   s->Hints |= HINT_VERTCOLS | HINT_UNLIT;
+  s->Cull = false;   // double-sided: a sphere-wrapped grid needs its near hemisphere
+                     // to render (State defaults Cull=true, which culls it)
 
   VTerm* vt = vterm_new(rows, cols);              // NOTE: (rows, cols)
   vterm_set_utf8(vt, 1);
@@ -653,6 +674,15 @@ void flux_terminal_draw(void) {
 }
 int flux_terminal_cols(void) { TerminalState* ts = grabbedTerminal(); return ts ? ts->cols : 0; }
 int flux_terminal_rows(void) { TerminalState* ts = grabbedTerminal(); return ts ? ts->rows : 0; }
+// map the grabbed terminal onto a shape: mode 0 = flat plane, 1 = sphere. radius<=0
+// picks a default so the sphere's circumference matches the flat grid width.
+void flux_terminal_shape(int mode, double radius) {
+  TerminalState* ts = grabbedTerminal();
+  if (!ts) return;
+  ts->shape = mode;
+  ts->radius = radius > 0 ? (float) radius : ts->cols * kTermPitchX / 6.2831853f;
+  terminalRebuild((PolyPrimitive*) g_ctx.grabbed, *ts);
+}
 
 // Free every terminal's vterm and drop the map. Called before a full scene wipe
 // (immediate-mode Clear in FluxusScene, and the (clear) command) so the parsers
