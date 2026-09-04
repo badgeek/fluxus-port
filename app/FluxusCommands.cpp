@@ -281,6 +281,40 @@ int addPrim(Primitive* p) {
 }
 } // namespace
 
+// --- pdata FFI channel cache -------------------------------------------------
+// Script pdata access crosses the FFI once per COMPONENT ((pdata-ref "p" i) is
+// 3 calls), and each call paid a string alloc + two string-keyed map lookups
+// (GetDataInfo + GetData). Cache the resolved TypedPData per channel name for
+// the duration of a grab. The PData object pointer survives Resize (only
+// AddData/CopyData/RemoveDataVec delete the object), so size is read live from
+// the PData; the cache is dropped on grab/ungrab/frame-begin/destroy/clear and
+// on structural channel changes (pdata-add / pdata-copy).
+namespace {
+struct PDataCacheEntry { std::string name; PData* pd = nullptr; char type = 'v'; };
+PDataCacheEntry g_pdCache[4];
+int g_pdCacheN = 0;
+
+void pdataCacheClear() {
+  g_pdCacheN = 0;
+  for (auto& e : g_pdCache) { e.pd = nullptr; e.name.clear(); }
+}
+
+PDataCacheEntry* pdataResolve(const char* name) {
+  Primitive* p = g_ctx.grabbed;
+  if (!p || !name) return nullptr;
+  for (int i = 0; i < g_pdCacheN; ++i)
+    if (g_pdCache[i].name == name) return &g_pdCache[i];
+  std::string n(name);
+  char type = 'v'; unsigned size = 0;
+  if (!p->GetDataInfo(n, type, size)) return nullptr;
+  PData* pd = p->GetDataRaw(n);
+  if (!pd) return nullptr;
+  PDataCacheEntry& e = g_pdCache[g_pdCacheN < 4 ? g_pdCacheN++ : 0];
+  e.name = std::move(n); e.pd = pd; e.type = type;
+  return &e;
+}
+} // namespace
+
 extern "C" {
 
 void flux_set_renderer(void* renderer) { g_ctx.r = static_cast<Renderer*>(renderer); }
@@ -291,7 +325,7 @@ void flux_set_renderer(void* renderer) { g_ctx.r = static_cast<Renderer*>(render
 // (clear) itself at the top of its every-frame thunk. Retained + (clear) lets a
 // heavy sketch compile once and only re-run its thunk (no per-frame re-parse of
 // the whole program), which is far cheaper than immediate mode.
-void flux_scene_clear(void) { flux_free_terminals(); if (g_ctx.r) g_ctx.r->Clear(); }
+void flux_scene_clear(void) { flux_free_terminals(); pdataCacheClear(); if (g_ctx.r) g_ctx.r->Clear(); }
 
 // (destroy id): remove one primitive by id. Lets a RETAINED sketch keep static
 // geometry alive across frames while destroying + rebuilding only its animated
@@ -301,7 +335,7 @@ void flux_scene_clear(void) { flux_free_terminals(); if (g_ctx.r) g_ctx.r->Clear
 void flux_destroy(int id) {
   if (!g_ctx.r) return;
   Primitive* p = g_ctx.r->GetPrimitive(id);
-  if (g_ctx.grabbed && p == g_ctx.grabbed) g_ctx.grabbed = nullptr;
+  if (g_ctx.grabbed && p == g_ctx.grabbed) { g_ctx.grabbed = nullptr; pdataCacheClear(); }
   if (p) {
     // free per-prim resources we own (else they leak — the renderer only frees the
     // Primitive itself). g_pixels' GL texture is left to GL teardown as before.
@@ -324,6 +358,7 @@ void flux_frame_begin(double t, int frame) {
   g_ctx.lineWidth = 2.0f;
   g_ctx.grabbed = nullptr;
   g_ctx.grabbedId = -1;
+  pdataCacheClear();
   g_ctx.shader  = nullptr;
   g_ctx.parent  = -1;
   g_ctx.texture = 0;
@@ -769,8 +804,8 @@ void flux_texture(int id) {
 }
 
 // ---- pdata (grabbed primitive) --------------------------------------------
-void flux_grab(int id)   { g_ctx.grabbed = g_ctx.r ? g_ctx.r->GetPrimitive(id) : nullptr; g_ctx.grabbedId = g_ctx.grabbed ? id : -1; }
-void flux_ungrab(void)   { g_ctx.grabbed = nullptr; g_ctx.grabbedId = -1; }
+void flux_grab(int id)   { g_ctx.grabbed = g_ctx.r ? g_ctx.r->GetPrimitive(id) : nullptr; g_ctx.grabbedId = g_ctx.grabbed ? id : -1; pdataCacheClear(); }
+void flux_ungrab(void)   { g_ctx.grabbed = nullptr; g_ctx.grabbedId = -1; pdataCacheClear(); }
 
 int flux_pdata_size(void) {
   if (!g_ctx.grabbed) return 0;
@@ -870,37 +905,82 @@ void flux_pdata_add(const char* name, const char* type) {
   else if (t == 'f') pd = new TypedPData<float>(sz);
   else               pd = new TypedPData<dVector>(sz);
   p->AddData(name, pd);
+  pdataCacheClear();
 }
 void flux_pdata_copy(const char* src, const char* dst) {
-  if (g_ctx.grabbed && src && dst) g_ctx.grabbed->CopyData(src, dst);
+  if (g_ctx.grabbed && src && dst) { g_ctx.grabbed->CopyData(src, dst); pdataCacheClear(); }
 }
 
 double flux_pdata_get(const char* name, int i, int comp) {
-  Primitive* p = g_ctx.grabbed;
-  if (!p || !name) return 0.0;
-  std::string n(name);
-  char type = 'v'; unsigned size = 0;
-  p->GetDataInfo(n, type, size);
-  if (i < 0 || (unsigned) i >= size) return 0.0;
-  if (comp < 0 || comp > 3) return 0.0;
+  PDataCacheEntry* c = pdataResolve(name);
+  if (!c || i < 0 || comp < 0 || comp > 3) return 0.0;
   const unsigned ui = (unsigned) i;
-  if (type == 'c') return p->GetData<dColour>(n, ui).arr()[comp];
-  if (type == 'f') return p->GetData<float>(n, ui);
-  return p->GetData<dVector>(n, ui).arr()[comp];   // 'v' positions/normals/texcoords
+  if (c->type == 'c') { auto& d = static_cast<TypedPData<dColour>*>(c->pd)->m_Data; return ui < d.size() ? d[ui].arr()[comp] : 0.0; }
+  if (c->type == 'f') { auto& d = static_cast<TypedPData<float>*>(c->pd)->m_Data;   return ui < d.size() ? d[ui] : 0.0; }
+  auto& d = static_cast<TypedPData<dVector>*>(c->pd)->m_Data;   // 'v' positions/normals/texcoords
+  return ui < d.size() ? d[ui].arr()[comp] : 0.0;
 }
 
 void flux_pdata_set(const char* name, int i, int comp, double val) {
-  Primitive* p = g_ctx.grabbed;
-  if (!p || !name) return;
-  std::string n(name);
-  char type = 'v'; unsigned size = 0;
-  p->GetDataInfo(n, type, size);
-  if (i < 0 || (unsigned) i >= size) return;
-  if (comp < 0 || comp > 3) return;
+  PDataCacheEntry* c = pdataResolve(name);
+  if (!c || i < 0 || comp < 0 || comp > 3) return;
   const unsigned ui = (unsigned) i;
-  if (type == 'c')      { dColour v = p->GetData<dColour>(n, ui); v.arr()[comp] = (float) val; p->SetData<dColour>(n, ui, v); }
-  else if (type == 'f') { p->SetData<float>(n, ui, (float) val); }
-  else                  { dVector v = p->GetData<dVector>(n, ui); v.arr()[comp] = (float) val; p->SetData<dVector>(n, ui, v); }
+  if (c->type == 'c')      { auto& d = static_cast<TypedPData<dColour>*>(c->pd)->m_Data; if (ui >= d.size()) return; d[ui].arr()[comp] = (float) val; }
+  else if (c->type == 'f') { auto& d = static_cast<TypedPData<float>*>(c->pd)->m_Data;   if (ui >= d.size()) return; d[ui] = (float) val; }
+  else                     { auto& d = static_cast<TypedPData<dVector>*>(c->pd)->m_Data; if (ui >= d.size()) return; d[ui].arr()[comp] = (float) val; }
+  g_ctx.grabbed->BumpPDataVersion();   // keep the VBO re-upload invalidation SetData did
+}
+
+// Bulk per-vertex access: ONE FFI crossing per element instead of one per
+// COMPONENT. get3 fills out[0..2] and returns the component count — 1 for a
+// float channel (scalar: ribbon width "w", particle size "s"), 3 for
+// vec/colour — so the Scheme wrapper needs no separate type query per element.
+int flux_pdata_get3(const char* name, int i, double* out) {
+  PDataCacheEntry* c = pdataResolve(name);
+  if (!c || i < 0 || !out) return 0;
+  const unsigned ui = (unsigned) i;
+  if (c->type == 'f') {
+    auto& d = static_cast<TypedPData<float>*>(c->pd)->m_Data;
+    if (ui >= d.size()) return 0;
+    out[0] = d[ui]; out[1] = 0.0; out[2] = 0.0;
+    return 1;
+  }
+  if (c->type == 'c') {
+    auto& d = static_cast<TypedPData<dColour>*>(c->pd)->m_Data;
+    if (ui >= d.size()) return 0;
+    const float* a = d[ui].arr();
+    out[0] = a[0]; out[1] = a[1]; out[2] = a[2];
+    return 3;
+  }
+  auto& d = static_cast<TypedPData<dVector>*>(c->pd)->m_Data;
+  if (ui >= d.size()) return 0;
+  const float* a = d[ui].arr();
+  out[0] = a[0]; out[1] = a[1]; out[2] = a[2];
+  return 3;
+}
+
+void flux_pdata_set3(const char* name, int i, double x, double y, double z) {
+  PDataCacheEntry* c = pdataResolve(name);
+  if (!c || i < 0) return;
+  const unsigned ui = (unsigned) i;
+  if (c->type == 'f') {
+    // mirror the old per-component path on a float channel: comps 0/1/2 all
+    // landed on the same slot, so the last write (z) wins
+    auto& d = static_cast<TypedPData<float>*>(c->pd)->m_Data;
+    if (ui >= d.size()) return;
+    d[ui] = (float) z;
+  } else if (c->type == 'c') {
+    auto& d = static_cast<TypedPData<dColour>*>(c->pd)->m_Data;
+    if (ui >= d.size()) return;
+    float* a = d[ui].arr();
+    a[0] = (float) x; a[1] = (float) y; a[2] = (float) z;
+  } else {
+    auto& d = static_cast<TypedPData<dVector>*>(c->pd)->m_Data;
+    if (ui >= d.size()) return;
+    float* a = d[ui].arr();
+    a[0] = (float) x; a[1] = (float) y; a[2] = (float) z;
+  }
+  g_ctx.grabbed->BumpPDataVersion();
 }
 
 double flux_time(void)  { return g_ctx.time; }

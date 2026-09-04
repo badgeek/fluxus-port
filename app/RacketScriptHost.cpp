@@ -25,6 +25,12 @@ extern "C" {
 namespace {
 bool g_booted = false;
 
+// The prelude's runner procedures, resolved ONCE at init and locked against GC.
+// Calling them via racket_apply skips the per-frame expand+compile that
+// racket_eval of a call form pays (small but every frame, both modes).
+ptr g_runGuarded = nullptr;   // (flux-run-guarded "<code>")
+ptr g_runFrame   = nullptr;   // (flux-run-frame)
+
 bool dirExists(const std::string& p) {
   struct stat st;
   return !p.empty() && stat(p.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
@@ -87,16 +93,46 @@ ptr eval_cstr(const char* code) {
 // The fluxus command API now comes from the loaded fluxus .ss library (see
 // RacketScriptHost::init). Here we only add host infrastructure: an error
 // reporter + the guarded per-frame runner.
+// flux-run-guarded compiles ONCE per buffer: immediate mode re-runs the whole
+// buffer every frame, and read+EXPAND+compile dominated the frame cost (the
+// profile sat in the expander, not the drawing). The compiled forms are cached
+// keyed on the exact buffer string; an unchanged buffer just re-evals the
+// compiled code objects (defines re-run — identical semantics, no expander).
+// First pass compiles and evals form-BY-form so a sketch-local define-syntax
+// is live before later forms expand, and top-level (begin …) forms are
+// spliced first — Racket's eval expands begin bodies incrementally but
+// compile forces the whole form at once, which would break that pattern.
 const char* kHostPrelude =
 "(begin"
 "  (define _report (get-ffi-obj \"flux_report_error\" #f (_fun _string -> _void)))"
+"  (define _cc-src #f)"
+"  (define _cc '())"
+"  (define (_read-all p)"
+"    (let loop ((acc '()))"
+"      (let ((f (read p)))"
+"        (if (eof-object? f) (reverse acc) (loop (cons f acc))))))"
+"  (define (_splice-begins fs)"
+"    (cond ((null? fs) '())"
+"          ((and (pair? (car fs)) (eq? (caar fs) 'begin))"
+"           (_splice-begins (append (cdar fs) (cdr fs))))"
+"          (else (cons (car fs) (_splice-begins (cdr fs))))))"
+"  (define (_compile-run forms)"
+"    (if (null? forms) '()"
+"        (let ((c (compile (car forms))))"
+"          (eval c (current-namespace))"
+"          (cons c (_compile-run (cdr forms))))))"
 "  (define (flux-run-guarded s)"
 "    (_report \"\")"
 "    (with-handlers ((( lambda (e) #t)"
-"                     (lambda (e) (_report (string-append \"; error: \""
+"                     (lambda (e) (set! _cc-src #f)"
+"                                 (_report (string-append \"; error: \""
 "                                  (if (exn? e) (exn-message e) (format \"~a\" e)))))))"
-"      (let ((p (open-input-string s)))"
-"        (let loop () (let ((f (read p))) (unless (eof-object? f) (eval f (current-namespace)) (loop)))))))"
+"      (if (and _cc-src (string=? s _cc-src))"
+"          (for-each (lambda (c) (eval c (current-namespace))) _cc)"
+"          (begin"
+"            (set! _cc-src #f)"
+"            (set! _cc (_compile-run (_splice-begins (_read-all (open-input-string s)))))"
+"            (set! _cc-src s)))))"
 "  (define (flux-run-frame)"
 "    (_report \"\")"
 "    (with-handlers ((( lambda (e) #t)"
@@ -199,6 +235,12 @@ void RacketScriptHost::init() {
 
   eval_cstr(requireLibForm().c_str());   // load the fluxus .ss library (FFI-backed)
   eval_cstr(kHostPrelude);               // host infra (error reporter + runner)
+
+  // resolve the runners once; locked so the C globals stay valid across GCs
+  ptr rg = eval_cstr("flux-run-guarded");
+  ptr rf = eval_cstr("flux-run-frame");
+  if (Sprocedurep(rg)) { Slock_object(rg); g_runGuarded = rg; }
+  if (Sprocedurep(rf)) { Slock_object(rf); g_runFrame   = rf; }
 }
 
 void RacketScriptHost::setRenderer(Fluxus::Renderer* r) { flux_set_renderer((void*) r); }
@@ -208,14 +250,17 @@ void RacketScriptHost::setFrameInfo(double t, int frame) { flux_frame_begin(t, f
 bool RacketScriptHost::eval(const std::string& code, std::string& errorOut) {
   // (flux-run-guarded "<code>") — the string is passed as a Chez/Racket string,
   // so no escaping needed. Errors are reported via flux_report_error.
-  ptr call = Scons(sym("flux-run-guarded"), Scons(Sstring_utf8(code.c_str(), (iptr) code.size()), Snil));
-  racket_eval(call);
+  ptr str = Sstring_utf8(code.c_str(), (iptr) code.size());
+  if (g_runGuarded) racket_apply(g_runGuarded, Scons(str, Snil));
+  else racket_eval(Scons(sym("flux-run-guarded"), Scons(str, Snil)));
   errorOut = flux_last_error();
   return errorOut.empty();
 }
 
 bool RacketScriptHost::runFrame(std::string& errorOut) {
-  racket_eval(Scons(sym("flux-run-frame"), Snil));   // invoke the registered thunk
+  // invoke the registered every-frame thunk
+  if (g_runFrame) racket_apply(g_runFrame, Snil);
+  else racket_eval(Scons(sym("flux-run-frame"), Snil));
   errorOut = flux_last_error();
   return errorOut.empty();
 }

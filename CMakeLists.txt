@@ -409,3 +409,11 @@ target_link_libraries(fft_test PRIVATE
     juce::juce_dsp
     juce::juce_osc
     PUBLIC juce::juce_recommended_config_flags)
+
+# --- pdata FFI-layer benchmark + test (headless, no GL context, no JUCE) ----
+add_executable(pdata_bench
+    spikes/pdata-bench/main.cpp
+    app/FluxusCommands.cpp)
+target_include_directories(pdata_bench PRIVATE app)
+target_compile_definitions(pdata_bench PRIVATE GL_SILENCE_DEPRECATION=1)
+target_link_libraries(pdata_bench PRIVATE libfluxus_min vterm "-framework OpenGL")

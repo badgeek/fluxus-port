@@ -121,6 +121,8 @@ extern "C" {
   int    flux_pdata_size(void);
   double flux_pdata_get(const char* name, int i, int comp);       // one component
   void   flux_pdata_set(const char* name, int i, int comp, double val);
+  int    flux_pdata_get3(const char* name, int i, double* out);   // whole element; returns ncomp (1=scalar, 3=vec/colour), 0 on error
+  void   flux_pdata_set3(const char* name, int i, double x, double y, double z);
   void   flux_pdata_add(const char* name, const char* type);      // "v"/"c"/"f"
   void   flux_pdata_copy(const char* src, const char* dst);
   void   flux_recalc_normals(void);

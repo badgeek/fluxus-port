@@ -188,6 +188,16 @@
 (define _psize (cfun "flux_pdata_size" (_fun -> _int) (lambda () 0)))
 (define _pget  (cfun "flux_pdata_get"  (_fun _string _int _int -> _double) (lambda (a b c) 0.0)))
 (define _pset  (cfun "flux_pdata_set"  (_fun _string _int _int _double -> _void) (lambda (a b c d) (void))))
+;; bulk element access: ONE FFI crossing per element instead of one per
+;; component. get3 returns the engine component count (1 = scalar float
+;; channel like ribbon width "w" / particle size "s", 3 = vec/colour), so
+;; scalar detection is by actual channel TYPE, not a hardcoded name list.
+(define _pget3 (cfun "flux_pdata_get3"
+                     (_fun (name : _string) (i : _int) (out : (_vector o _double 3)) -> (n : _int)
+                           -> (if (= n 1) (vector-ref out 0) out))
+                     (lambda (a b) (vector 0.0 0.0 0.0))))
+(define _pset3 (cfun "flux_pdata_set3" (_fun _string _int _double _double _double -> _void)
+                     (lambda (a b x y z) (void))))
 (define _rn    (cfun "flux_recalc_normals" (_fun -> _void) (lambda () (void))))
 (define _padd (cfun "flux_pdata_add"  (_fun _string _string -> _void) (lambda (a b) (void))))
 (define _pcpy (cfun "flux_pdata_copy" (_fun _string _string -> _void) (lambda (a b) (void))))
@@ -195,18 +205,15 @@
 ;; Some pdata channels are SCALAR, not vec3 — ribbon width "w", particle size
 ;; "s". Upstream reads/writes those as plain numbers, so accept and return one
 ;; (a vec3 channel is unchanged). Without this a (pdata-map! (lambda (w) 0.5) "w")
-;; dies on `vector-ref: contract violation, given: 0.5`.
+;; dies on `vector-ref: contract violation, given: 0.5`. get3 reports the
+;; channel type itself, so any float channel reads as a number now (previously
+;; only "w"/"s" did, by name).
 (define (scalar-pdata? name) (member name '("w" "s")))
-(define (pdata-ref name i)
-  (if (scalar-pdata? name)
-      (_pget name i 0)
-      (vector (_pget name i 0) (_pget name i 1) (_pget name i 2))))
+(define (pdata-ref name i) (_pget3 name i))
 (define (pdata-set! name i v)
   (if (number? v)
       (_pset name i 0 (->fl v))
-      (begin (_pset name i 0 (->fl (vx v)))
-             (_pset name i 1 (->fl (vy v)))
-             (_pset name i 2 (->fl (vz v))))))
+      (_pset3 name i (->fl (vx v)) (->fl (vy v)) (->fl (vz v)))))
 (define (pdata-add name type) (_padd name type))
 (define (pdata-copy src dst) (_pcpy src dst))
 ;; upstream: (recalc-normals smooth) — 1 arg, 0=faceted 1=smooth. The port's
