@@ -123,6 +123,8 @@ extern "C" {
   void   flux_pdata_set(const char* name, int i, int comp, double val);
   int    flux_pdata_get3(const char* name, int i, double* out);   // whole element; returns ncomp (1=scalar, 3=vec/colour), 0 on error
   void   flux_pdata_set3(const char* name, int i, double x, double y, double z);
+  int    flux_pdata_read_all(const char* name, double* out, int cap);              // whole channel, packed ncomp/elem; returns ncomp
+  void   flux_pdata_write_all(const char* name, const double* in, int n, int ncomp);
   void   flux_pdata_add(const char* name, const char* type);      // "v"/"c"/"f"
   void   flux_pdata_copy(const char* src, const char* dst);
   void   flux_recalc_normals(void);

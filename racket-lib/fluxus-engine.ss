@@ -214,6 +214,78 @@
   (if (number? v)
       (_pset name i 0 (->fl v))
       (_pset3 name i (->fl (vx v)) (->fl (vy v)) (->fl (vz v)))))
+;; whole-channel bulk map — the fast path behind pdata-map!/pdata-index-map!
+;; (building-blocks.ss). Reads every channel ONCE into a f64vector (2 FFI
+;; crossings per channel per map instead of one read+write per ELEMENT), runs
+;; the proc over the buffers in Scheme, writes the result channel back in one
+;; call. Element quirks mirror pdata-ref/pdata-set!: scalar channel <-> number,
+;; number result on a vec channel writes comp 0 only, vec result on a scalar
+;; channel keeps z. Falls back to the per-element path when a channel can't be
+;; bulk-read (stub host / unknown channel). Note: procs see a SNAPSHOT — a proc
+;; that itself calls pdata-set! on a channel it also reads will diverge from
+;; the old per-element order (no known sketch does this).
+(define _prall (cfun "flux_pdata_read_all"  (_fun _string _f64vector _int -> _int) (lambda (a b c) 0)))
+(define _pwall (cfun "flux_pdata_write_all" (_fun _string _f64vector _int _int -> _void) (lambda (a b c d) (void))))
+(define (_chan-read name n)
+  (let* ((buf (make-f64vector (* 3 n) 0.0))
+         (nc (_prall name buf (* 3 n))))
+    (and (> nc 0) (cons nc buf))))
+(define (_elem-ref nc buf i)
+  (if (= nc 1)
+      (f64vector-ref buf i)
+      (vector (f64vector-ref buf (* 3 i))
+              (f64vector-ref buf (+ (* 3 i) 1))
+              (f64vector-ref buf (+ (* 3 i) 2)))))
+(define (_elem-set! nc buf i v)
+  (if (= nc 1)
+      (f64vector-set! buf i (->fl (if (number? v) v (vz v))))
+      (if (number? v)
+          (f64vector-set! buf (* 3 i) (->fl v))
+          (begin (f64vector-set! buf (* 3 i)         (->fl (vx v)))
+                 (f64vector-set! buf (+ (* 3 i) 1)   (->fl (vy v)))
+                 (f64vector-set! buf (+ (* 3 i) 2)   (->fl (vz v)))))))
+(define (_map-fallback! proc wname rnames indexed?)
+  (let ((total (pdata-size)))
+    (let loop ((i 0))
+      (when (< i total)
+        (let ((args (cons (pdata-ref wname i) (map (lambda (r) (pdata-ref r i)) rnames))))
+          (pdata-set! wname i (apply proc (if indexed? (cons i args) args))))
+        (loop (+ i 1))))))
+(define (_bulk-map! proc wname rnames indexed?)
+  (let ((n (pdata-size)))
+    (unless (zero? n)
+      (let ((w (_chan-read wname n))
+            (rs (map (lambda (r) (_chan-read r n)) rnames)))
+        (if (or (not w) (ormap not rs))
+            (_map-fallback! proc wname rnames indexed?)
+            (let ((wnc (car w)) (wbuf (cdr w)))
+              ;; specialised loops for the common arities keep per-element
+              ;; allocation to just the arg vectors (no lists, no apply)
+              (cond
+                ((null? rs)
+                 (let loop ((i 0))
+                   (when (< i n)
+                     (_elem-set! wnc wbuf i
+                       (if indexed? (proc i (_elem-ref wnc wbuf i)) (proc (_elem-ref wnc wbuf i))))
+                     (loop (+ i 1)))))
+                ((null? (cdr rs))
+                 (let ((rnc (caar rs)) (rbuf (cdar rs)))
+                   (let loop ((i 0))
+                     (when (< i n)
+                       (let ((we (_elem-ref wnc wbuf i)) (re (_elem-ref rnc rbuf i)))
+                         (_elem-set! wnc wbuf i (if indexed? (proc i we re) (proc we re))))
+                       (loop (+ i 1))))))
+                (else
+                 (let loop ((i 0))
+                   (when (< i n)
+                     (let ((args (cons (_elem-ref wnc wbuf i)
+                                       (map (lambda (rc) (_elem-ref (car rc) (cdr rc) i)) rs))))
+                       (_elem-set! wnc wbuf i (apply proc (if indexed? (cons i args) args))))
+                     (loop (+ i 1))))))
+              (_pwall wname wbuf n wnc)))))))
+(define (pdata-bulk-map! proc wname . rnames)       (_bulk-map! proc wname rnames #f))
+(define (pdata-bulk-index-map! proc wname . rnames) (_bulk-map! proc wname rnames #t))
+
 (define (pdata-add name type) (_padd name type))
 (define (pdata-copy src dst) (_pcpy src dst))
 ;; upstream: (recalc-normals smooth) — 1 arg, 0=faceted 1=smooth. The port's

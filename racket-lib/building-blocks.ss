@@ -470,17 +470,12 @@
 ;;      "p" "n")) ; lecture/ecriture du tableau pdata de positions. lecture du tableau de normales.
 ;; EndFunctionDoc
 
+;; fluxus->JUCE port: delegate to the whole-channel bulk path (fluxus-engine.ss)
+;; — 2 FFI crossings per channel per map instead of one read+write per element.
 (define-syntax pdata-map!
   (syntax-rules ()
     ((_ proc pdata-write-name pdata-read-name ...)
-     (letrec
-         ((loop (lambda (n total)
-                  (cond ((not (> n total))
-                         (pdata-set! pdata-write-name n
-                                     (proc (pdata-ref pdata-write-name n)
-                                           (pdata-ref pdata-read-name n) ...))
-                         (loop (+ n 1) total))))))
-       (loop 0 (- (pdata-size) 1))))))
+     (pdata-bulk-map! proc pdata-write-name pdata-read-name ...))))
 
 ;; StartFunctionDoc-en
 ;; pdata-index-map! procedure read/write-pdata-name read-pdata-name ...
@@ -536,17 +531,11 @@
 ;;      "p")) ; lecture/ecriture du tableau pdata de positions.
 ;; EndFunctionDoc
 
+;; fluxus->JUCE port: bulk path, see pdata-map! above.
 (define-syntax pdata-index-map!
   (syntax-rules ()
     ((_ proc pdata-write-name pdata-read-name ...)
-     (letrec
-         ((loop (lambda (n total)
-                  (cond ((not (> n total))
-                         (pdata-set! pdata-write-name n
-                                     (proc n (pdata-ref pdata-write-name n)
-                                           (pdata-ref pdata-read-name n) ...))
-                         (loop (+ n 1) total))))))
-       (loop 0 (- (pdata-size) 1))))))
+     (pdata-bulk-index-map! proc pdata-write-name pdata-read-name ...))))
 
 ;; StartFunctionDoc-en
 ;; pdata-fold procedure start-value read-pdata-name ...

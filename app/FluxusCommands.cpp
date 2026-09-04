@@ -983,6 +983,66 @@ void flux_pdata_set3(const char* name, int i, double x, double y, double z) {
   g_ctx.grabbed->BumpPDataVersion();
 }
 
+// Whole-channel copy for the Scheme pdata-map! fast path: TWO FFI crossings
+// per map (read_all + write_all) instead of read+write per element. Layout is
+// ncomp doubles per element, packed (ncomp = 1 for a float channel, 3 for
+// vec/colour). read_all returns ncomp, 0 on error/too-small cap (cap in
+// doubles). write_all ignores a ncomp mismatch (channel changed underneath).
+int flux_pdata_read_all(const char* name, double* out, int cap) {
+  PDataCacheEntry* c = pdataResolve(name);
+  if (!c || !out) return 0;
+  if (c->type == 'f') {
+    auto& d = static_cast<TypedPData<float>*>(c->pd)->m_Data;
+    if ((int) d.size() > cap) return 0;
+    for (size_t i = 0; i < d.size(); ++i) out[i] = d[i];
+    return 1;
+  }
+  if (c->type == 'c') {
+    auto& d = static_cast<TypedPData<dColour>*>(c->pd)->m_Data;
+    if ((int) (d.size() * 3) > cap) return 0;
+    for (size_t i = 0; i < d.size(); ++i) {
+      const float* a = d[i].arr();
+      out[i*3] = a[0]; out[i*3+1] = a[1]; out[i*3+2] = a[2];
+    }
+    return 3;
+  }
+  auto& d = static_cast<TypedPData<dVector>*>(c->pd)->m_Data;
+  if ((int) (d.size() * 3) > cap) return 0;
+  for (size_t i = 0; i < d.size(); ++i) {
+    const float* a = d[i].arr();
+    out[i*3] = a[0]; out[i*3+1] = a[1]; out[i*3+2] = a[2];
+  }
+  return 3;
+}
+
+void flux_pdata_write_all(const char* name, const double* in, int n, int ncomp) {
+  PDataCacheEntry* c = pdataResolve(name);
+  if (!c || !in || n < 0) return;
+  if (c->type == 'f') {
+    if (ncomp != 1) return;
+    auto& d = static_cast<TypedPData<float>*>(c->pd)->m_Data;
+    const size_t lim = std::min((size_t) n, d.size());
+    for (size_t i = 0; i < lim; ++i) d[i] = (float) in[i];
+  } else if (c->type == 'c') {
+    if (ncomp != 3) return;
+    auto& d = static_cast<TypedPData<dColour>*>(c->pd)->m_Data;
+    const size_t lim = std::min((size_t) n, d.size());
+    for (size_t i = 0; i < lim; ++i) {
+      float* a = d[i].arr();
+      a[0] = (float) in[i*3]; a[1] = (float) in[i*3+1]; a[2] = (float) in[i*3+2];
+    }
+  } else {
+    if (ncomp != 3) return;
+    auto& d = static_cast<TypedPData<dVector>*>(c->pd)->m_Data;
+    const size_t lim = std::min((size_t) n, d.size());
+    for (size_t i = 0; i < lim; ++i) {
+      float* a = d[i].arr();
+      a[0] = (float) in[i*3]; a[1] = (float) in[i*3+1]; a[2] = (float) in[i*3+2];
+    }
+  }
+  g_ctx.grabbed->BumpPDataVersion();
+}
+
 double flux_time(void)  { return g_ctx.time; }
 int    flux_frame(void) { return g_ctx.frame; }
 double flux_delta(void) { return g_ctx.r ? g_ctx.r->GetDelta() : 0.0; }
