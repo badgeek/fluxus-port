@@ -76,9 +76,10 @@ editor (JUCE TextEditor | fluxus GLEditor)
    red — only the geometry built *before* the wire cubes was correct). Fix: pin
    `(hint-solid #t)(hint-wire #f)` before `(colour …)` on each prim that must be
    solid. Related: `concat` is a **no-op stub** here, so `(concat (get-inv-camera-
-   transform))` HUD billboards silently do nothing — a real billboard needs manual
-   camera-basis math (`camera-yaw`/`pitch`/`dist`). Full writeup + 9 drawing/
-   positioning gotchas in `examples/DRAWING.md`.
+   transform))` HUD billboards silently do nothing. The clean fix now is to parent
+   HUD prims to `(camera-node)` (eye-space, see the camera-as-node note below);
+   `camera-yaw`/`pitch`/`dist` manual basis math still works as a fallback. Full
+   writeup + 20 drawing/positioning gotchas in `examples/DRAWING.md`.
 
 ## Performance (measure before "optimizing")
 - **Startup was ~25s; it's now ~4s — don't undo the fix.** The embedded Racket
@@ -161,6 +162,18 @@ editor (JUCE TextEditor | fluxus GLEditor)
   `key-poll` may not fire with the editor hidden), but `key-down?` reads global OS
   state so it works regardless. Wired in FluxusComponent only — the GLEditor apps
   still lack the held-key poll. See `examples/fps-terrain.scm`.
+- **Arrow keys**: JUCE's arrow key codes exceed the 256-slot `g_keyDown` array, so
+  the timer poll maps `leftKey/rightKey/upKey/downKey` into the low unused
+  control-char slots **1/2/3/4**. Scripts read them as `(key-down? 1)`…`(key-down? 4)`
+  (define `(key-left?)` etc. wrappers). See `examples/camera-follow.scm` (arrow-driven
+  car with velocity + steering + chase cam).
+- **`key-down?` reads GLOBAL OS key state (focus-free) → hold-to-move works even when
+  the app window is NOT frontmost, but the arrow key-DOWN events then land in whatever
+  IS frontmost (e.g. the terminal), which BEEPs on unhandled arrows ("tick tick tick").**
+  It's not a bug in the sketch — the car moving while another app beeps is the tell.
+  Fix: click the app window so it's key; then `keyPressed` consumes the arrows
+  (`return !editorVisible`) and macOS stays quiet. Burned a few minutes reading it as
+  a key-handling bug when it's just window focus.
 - **s7 immediate host wraps each frame's sketch in `(catch (lambda () …))` → a
   plain top-level `(define *x* …)` is LOCAL to that lambda and RESETS every frame.**
   Cross-frame state (steer, accumulators) silently reverts to its init each frame;

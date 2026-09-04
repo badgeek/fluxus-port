@@ -218,6 +218,13 @@ void FluxusComponent::timerCallback() {
     for (int c = '0'; c <= '9'; ++c)
       flux_set_key_down(c, juce::KeyPress::isKeyCurrentlyDown(c) ? 1 : 0);
     flux_set_key_down((int) ' ', juce::KeyPress::isKeyCurrentlyDown((int) ' ') ? 1 : 0);
+    // Arrow keys: JUCE key codes exceed the 256-slot array, so map them into the
+    // low unused control-char slots 1..4 (left/right/up/down). Scripts read them
+    // as (key-down? 1)…(key-down? 4) — see (key-left?) etc. in car sketches.
+    flux_set_key_down(1, juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::leftKey)  ? 1 : 0);
+    flux_set_key_down(2, juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::rightKey) ? 1 : 0);
+    flux_set_key_down(3, juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::upKey)    ? 1 : 0);
+    flux_set_key_down(4, juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::downKey)  ? 1 : 0);
   } else {
     flux_clear_keys_down();
   }

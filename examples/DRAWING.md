@@ -250,6 +250,40 @@ part of the field and the cloud actually churns. (The original's plume look need
 100k+ continuously-spawned particles to read; at a few thousand, volume-spawn looks
 better.) See `examples/particle-cloud.scm` / `particle-cloud-gpu.scm`.
 
+**17. `set-camera-transform` view built as `mmul(mtranslate, mrotate(vector pitch
+yaw 0))`: NEGATIVE pitch looks DOWN, and a single `rotxyz(pitch,yaw,0)` TILTS the
+horizon ("miring").** `rotxyz` bakes pitch(X) and yaw(Y) into one matrix, which
+leaves a roll component when both are non-zero → the grid horizon comes out slanted.
+Split them and apply YAW FIRST, then pitch, so the horizon stays level:
+`(mmul (mtranslate v) (mmul (mrotate (vector 0 yaw 0)) (mrotate (vector pitch 0 0))))`.
+Sign trap: POSITIVE pitch tilts the view UP (content slides off the top) — use a
+negative pitch to look down at the ground. (Feeding a gluLookAt matrix, gotcha 15,
+sidesteps both.) A hand-laid grid of thin unlit bars is a reliable ground reference
+(`quaternion-demo.scm`) when you just want a level floor plane.
+
+**18. `build-text` faces +Z and the app camera looks toward −Z, so a bare
+`(build-text …)` already reads correctly — do NOT rotate it 180° to "face the
+camera".** The 180°-about-Y flip you'd reach for makes the text VANISH: the glyph
+quads render through the builtin text shader and the flipped winding is dropped even
+with `(backfacecull #f)`. Draw text with no Y flip. It is LEFT-anchored (origin =
+left edge), so centre by shifting `-0.5·width`, `width = CW·len·h` (CW=0.44). Upright
+text seen from a pitched-down camera leans a little; tilt it back by the camera pitch
+if you need it dead-flat. (See `quaternion-demo.scm`.)
+
+**19. `node-look-at` / `node-orbit` OVERWRITE the node's whole transform → any scale
+is lost.** They write a pure rotation+translation from the aim quaternion. If the
+aimed object has a scale (a long arrow, a flat fin, a stretched cube), make the
+SCALED mesh a CHILD of a bare `(build-node)` locator and aim the LOCATOR — the child
+keeps its scale, the locator carries the orientation. Same locator-parent trick the
+`(camera-node)` HUD uses.
+
+**20. Look-at has an up-vector singularity — a target passing near straight
+overhead/below makes the aim FLIP.** A ring or field of `node-look-at` arrows
+tracking a target that moves through the ±up cone snaps ~180° as each arrow's look
+direction crosses vertical — reads as chaotic jitter/scatter. Keep the target OUT of
+that cone: orbit it in the arrows' OWN plane (same height, no latitude) so they only
+yaw, or clamp its elevation. (`node-look-at` uses world-up `(0,1,0)`.)
+
 ---
 
 ## 4. Verify visually, every step
