@@ -180,6 +180,42 @@ editor (JUCE TextEditor | fluxus GLEditor)
   bother swapping in a GL3/shader backend to "fix" state dispatch; it isn't the
   problem. `ps` alone can't see this (run-to-run spread swamps it) — profile.
 
+## GPU: shaders, geometry shaders, and GPGPU (capabilities + hard gotchas)
+The context is **legacy OpenGL 2.1 (Apple "Metal - 88.1"), GLSL 1.20** — but it's
+more capable than that sounds. PROBE at runtime before assuming a feature is missing
+(`glGetString`, `glGetIntegerv`, a trial compile/link) — I was wrong twice this way.
+- **Three shader stages exist.** `(shader-source vert frag)` binds a custom
+  vertex+fragment program to the grabbed prim (GLSL 1.20 compat builtins:
+  `gl_ModelViewProjectionMatrix`, `gl_Vertex`, `gl_Color`, `gl_MultiTexCoord0`…).
+  `(shader-source-geom vert geom frag in-type out-type max-verts)` adds a GEOMETRY
+  stage — **`GL_EXT_geometry_shader4` really works on this Metal-backed 2.1 context**
+  (verified: compile+link+render), set in/out prim type + max verts via
+  `glProgramParameteriEXT` before linking (`gl-points`/`gl-lines`/`gl-triangles` in,
+  `gl-line-strip`/`gl-triangle-strip` out). Examples: `grass-gpu.scm`,
+  `noise-grid-3d.scm` grow geometry per input primitive on the GPU. `(shader-set-*!)`
+  sets uniforms on the grabbed prim's program (Apply first).
+- **GPGPU / GPU particles: render-to-texture works, with three sharp edges.**
+  `(build-gpu-particles w h init-frag)` + `(gpu-update! update-frag)` +
+  `(gpu-draw-shaders …)` ping-pong particle state (pos+age) in RGBA32F FBO textures
+  and advect all w*h particles in a fragment shader (`particle-cloud-gpu.scm`, 65536
+  particles). Hard-won gotchas baked into the impl:
+  1. **Apple 2.1-Metal advertises 16 vertex texture units but CANNOT vertex-
+     texture-fetch a FLOAT texture** (`"unit 0 … unloadable … sampler Float …
+     using zero texture"`). So the draw pass can't sample the position texture in
+     its VS — instead `glReadPixels` the updated state back and fill the draw prim's
+     pdata. The heavy per-particle work still runs on the GPU; only a cheap readback
+     is CPU-side.
+  2. **An FBO/GPGPU texture has no mipmaps, but fluxus's default `TextureState.Min`
+     is `LINEAR_MIPMAP_LINEAR`** → the texture renders INCOMPLETE ("unloadable") and
+     samples as zero. Pin `GL_NEAREST` (+ `CLAMP_TO_EDGE`) when a shader samples a
+     non-mipmapped texture.
+  3. **Render-to-FBO needs `glDrawBuffer(GL_COLOR_ATTACHMENT0)` then restore
+     `glDrawBuffer(GL_BACK)`**, and save/restore the viewport — the update runs mid-
+     eval, before the main `Render()`; leaking that state blanks the scene.
+- **Embedded Racket's `(random)` returns a CONSTANT here** (not seeded/varying) — a
+  particle system seeded with it spawns every particle identically. Use a per-index
+  `sin`-hash (`frac(sin(i*12.9898)*43758.5453)`) for pseudo-randomness instead.
+
 ## Building optimized visual sketches (patterns that worked)
 Reference impl: `examples/iso-city.scm` (an audio-agnostic, self-evolving generative
 piece). Reuse these patterns; they keep it cheap AND readable.

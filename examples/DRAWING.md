@@ -237,6 +237,19 @@ in (`fps-terrain.scm` `look-at`): rows `s|u|-f`, translation `(-dot(s,eye)
 +Z normal) flat as ground, `(rotate (vector -90 0 0))`: local **z becomes world Y**
 (height), local y becomes world −Z (depth) — displace height in pdata `"p"` z.
 
+**16. Particle clouds: sparse 1px points are invisible, and a point-source spawn
+won't disperse.** Two traps porting a particle system: (a) a few thousand 1px
+`GL_POINTS` spread through a volume individually vanish — billboard them into soft
+sprites (a geometry shader: point → camera-facing quad + radial-falloff FS) and use
+ADDITIVE blend (`(blend-mode 'src-alpha 'one)` + `(hint-nozwrite)`) so faint
+overlaps accumulate into a visible glow; budget the per-particle alpha DOWN (≈0.1)
+or a dense additive cloud blows out to white. (b) Spawning every particle at one
+tiny point makes them all sample near-identical noise → they advect as one coherent
+CLUMP and never disperse; spawn across a VOLUME (a box) so each samples a different
+part of the field and the cloud actually churns. (The original's plume look needs
+100k+ continuously-spawned particles to read; at a few thousand, volume-spawn looks
+better.) See `examples/particle-cloud.scm` / `particle-cloud-gpu.scm`.
+
 ---
 
 ## 4. Verify visually, every step
