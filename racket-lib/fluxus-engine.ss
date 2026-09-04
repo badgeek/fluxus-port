@@ -629,6 +629,14 @@
         (else        (_polys (poly-type-num a) b))))   ; legacy: (type-num count)
 (define _copy (cfun "flux_build_copy" (_fun _int -> _int) (lambda (a) 0)))
 (define (build-copy id) (_copy id))
+;; bake a list of same-type poly prims (cubes, planes, polys) into ONE prim —
+;; one draw instead of N (the real GL lever: per-draw state dispatch dominates).
+;; Transforms + colours are baked per-vertex: render with (hint-vertcols).
+;; Sources are untouched — (for-each destroy ids) after.
+(define _bmerged (cfun "flux_build_merged"
+                       (_fun (ids : (_list i _int)) (_int = (length ids)) -> _int)
+                       (lambda (l) -1)))
+(define (build-merged ids) (_bmerged ids))
 ;; ---- turtle builder (real engine, FFI) -------------------------------------
 (define _tprim (cfun "flux_turtle_prim"     (_fun _int -> _void)    (lambda (t) (void))))
 (define _tvert (cfun "flux_turtle_vert"     (_fun -> _void)         (lambda () (void))))

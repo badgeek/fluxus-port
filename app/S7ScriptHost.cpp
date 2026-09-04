@@ -446,6 +446,12 @@ s7_pointer f_build_polygons(s7_scheme* sc, s7_pointer a) {
   return s7_make_integer(sc, flux_build_polygons(type, nv));
 }
 s7_pointer f_build_copy(s7_scheme* sc, s7_pointer a)    { return s7_make_integer(sc, flux_build_copy(s7_is_pair(a) ? (int) s7_number_to_real(sc, s7_car(a)) : -1)); }
+s7_pointer f_build_merged(s7_scheme* sc, s7_pointer a) {   // (build-merged id-list)
+  std::vector<int> ids;
+  for (s7_pointer p = s7_is_pair(a) ? s7_car(a) : s7_nil(sc); s7_is_pair(p); p = s7_cdr(p))
+    ids.push_back((int) s7_number_to_real(sc, s7_car(p)));
+  return s7_make_integer(sc, flux_build_merged(ids.data(), (int) ids.size()));
+}
 s7_pointer f_build_locator(s7_scheme* sc, s7_pointer)   { return s7_make_integer(sc, flux_build_locator()); }
 
 #define S7_VEC3(fn, cfn) s7_pointer fn(s7_scheme* sc, s7_pointer a) { double x,y,z; if (vec3(sc,a,x,y,z)) cfn(x,y,z); return s7_nil(sc); }
@@ -615,6 +621,7 @@ void S7ScriptHost::init() {
   def("build-cylinder",  f_build_cylinder,  0, 0, true);
   def("build-polygons",  f_build_polygons,  2, 0, false);
   def("build-copy",      f_build_copy,      1, 0, false);
+  def("build-merged",    f_build_merged,    1, 0, false);
   def("build-locator",   f_build_locator,   0, 0, false);
   def("specular",        f_specular,        0, 0, true);
   def("ambient",         f_ambient,         0, 0, true);

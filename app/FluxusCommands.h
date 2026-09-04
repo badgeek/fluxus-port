@@ -44,6 +44,7 @@ extern "C" {
   int  flux_build_cylinder(double h, double r, int hseg, int rseg);
   int  flux_build_polygons(int type, int nverts);    // empty mesh (0..4 = tristrip/quads/trilist/trifan/polygon)
   int  flux_build_copy(int id);                       // clone an existing primitive
+  int  flux_build_merged(const int* ids, int n);      // bake N same-type polys into ONE prim (fewer draws); use (hint-vertcols)
   int  flux_build_locator(void);                      // invisible transform node
 
   // material (grabbed primitive), like colour/opacity

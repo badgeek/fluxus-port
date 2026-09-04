@@ -505,6 +505,44 @@ int flux_build_copy(int id) {
   if (!src) return -1;
   return addPrim(src->Clone());
 }
+
+// Merge N same-type poly prims into ONE — fewer draws, which is the only real
+// lever on Metal-emulated GL where per-draw state dispatch dominates (see
+// CLAUDE.md perf notes). Bakes each source's State.Transform into positions/
+// normals and its State.Colour (× Opacity into alpha) into per-vertex colours;
+// render the merged prim with (hint-vertcols) so the baked colours are used.
+// Sources are left untouched — (destroy) them after. Only PolyPrimitives whose
+// type matches the FIRST valid source merge (QUADS with QUADS, …); indexed
+// sources are expanded through their index. Non-uniform scale slightly skews
+// baked normals (no inverse-transpose) — irrelevant for unlit/wire looks.
+int flux_build_merged(const int* ids, int n) {
+  if (!g_ctx.r || !ids || n <= 0) return -1;
+  PolyPrimitive* dst = nullptr;
+  int type = -1;
+  for (int k = 0; k < n; ++k) {
+    PolyPrimitive* p = dynamic_cast<PolyPrimitive*>(g_ctx.r->GetPrimitive(ids[k]));
+    if (!p) continue;
+    if (type == -1) { type = (int) p->GetType(); dst = new PolyPrimitive((PolyPrimitive::Type) type); }
+    if ((int) p->GetType() != type) continue;
+    const dMatrix tx = p->GetState()->Transform;
+    dColour col = p->GetState()->Colour;
+    col.a *= p->GetState()->Opacity;
+    auto* vp = p->GetDataVec<dVector>("p");
+    auto* vn = p->GetDataVec<dVector>("n");
+    auto* vt = p->GetDataVec<dVector>("t");
+    if (!vp) continue;
+    auto emit = [&](unsigned i) {
+      dVector pos = tx.transform((*vp)[i]);
+      dVector nrm(0, 1, 0);
+      if (vn && i < vn->size()) { nrm = tx.transform_no_trans((*vn)[i]); nrm.normalise(); }
+      const dVector uv = (vt && i < vt->size()) ? (*vt)[i] : dVector(0, 0, 0);
+      dst->AddVertex(dVertex(pos, nrm, col, uv.x, uv.y));
+    };
+    if (p->IsIndexed()) { for (unsigned idx : p->GetIndexConst()) if (idx < vp->size()) emit(idx); }
+    else                { for (unsigned i = 0; i < vp->size(); ++i) emit(i); }
+  }
+  return dst ? addPrim(dst) : -1;
+}
 int flux_build_locator(void) { return addPrim(new LocatorPrimitive()); }
 int flux_build_nurbs_plane(int u, int v) {
   NURBSPrimitive* p = new NURBSPrimitive();
