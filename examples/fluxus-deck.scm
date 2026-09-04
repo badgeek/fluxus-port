@@ -196,8 +196,13 @@
 ;; occasional digital glitch: per-row horizontal displacement + block tears, a
 ;; brief RGB split, scanlines. Bursts intermittently (louder audio = stronger).
 ;; Mostly leaves the clean B&W frame alone between bursts.
+;; PLUS v002 FBO "datamosh" on slide changes: the `feedback` uniform (driven per
+;; frame by (blur amt) = transition intensity) melts blocks of the PREVIOUS post
+;; frame (prev) into the new one, so slides crossfade with a P-frame mosh. Zero
+;; between transitions, so the text stays clean while it's being read.
 (define glitch "
-uniform sampler2D tex; uniform float time; uniform float audio; uniform vec2 resolution;
+uniform sampler2D tex; uniform sampler2D prev;
+uniform float time; uniform float audio; uniform float feedback; uniform vec2 resolution;
 varying vec2 uv;
 float h1(float n){ return fract(sin(n)*43758.5453); }
 float h2(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)))*43758.5453); }
@@ -214,6 +219,24 @@ void main(){
                   texture2D(tex, u).g,
                   texture2D(tex, u-vec2(ca,0.0)).b);
   col *= 0.92 + 0.08*sin(u.y*resolution.y*1.5);                          // scanlines
+
+  // v002 FBO datamosh on slide changes (feedback = transition intensity).
+  // Chunky block tearing: big, time-quantized, directional block displacement of
+  // the PREVIOUS post frame, keeping the brighter of smear-vs-current so the white
+  // marks drag visible streaks across the black field (a real P-frame melt).
+  // Melt (not tear): keep-blocks keep sampling the PREVIOUS post frame with a
+  // small per-block motion; since prev is itself already melted, the smear
+  // ACCUMULATES frame-to-frame into a flowing datamosh over the transition.
+  float mosh = feedback;
+  if (mosh > 0.001) {
+    float blocks = 16.0;
+    vec2  b    = floor(uv * blocks);
+    float keep = step(0.15, h2(b + floor(time * 2.0)));   // ~85% of blocks flow from prev
+    vec2  mv   = (vec2(h2(b + 1.7), h2(b + 9.3)) - 0.5) * 0.05;   // small -> flows, not tears
+    vec3  mold = texture2D(prev, uv + mv).rgb;
+    col = mix(col, mold, keep * clamp(mosh, 0.0, 0.95));
+  }
+
   float vig = 16.0*uv.x*uv.y*(1.0-uv.x)*(1.0-uv.y); col *= pow(vig,0.12);
   gl_FragColor = vec4(clamp(col,0.0,1.0), 1.0);
 }")
@@ -221,8 +244,23 @@ void main(){
 ;; ---- layout ----------------------------------------------------------------
 (every-frame
   (clear) (background (vector 0 0 0))    ; retained: wipe + repaint bg each frame
+  (when (= (key-poll) 114) (camera-reset))   ; R = reset the orbit camera
   (set-fov FOV) (ortho #f)
   (post-shader glitch)
+
+  ;; ---- NTSC / CRT final-pass filter (stacks OVER the glitch post-shader) -------
+  ;; Live-tweakable via the ImGui panel (top-right) — drag to dial the broadcast
+  ;; look, then bake the numbers back here. The panel never lands in screenshots /
+  ;; recordings / exports, so it's safe to leave in the finished deck.
+  (ntsc            (> (tweak "ntsc on"   1  0 1) 0.5))
+  (ntsc-noise      (tweak "ntsc noise"   8  0 40))
+  (ntsc-hue        (tweak "ntsc hue"     0  0 359))
+  (ntsc-saturation (tweak "ntsc sat"    10  0 40))
+  (ntsc-brightness (tweak "ntsc bri"     0 -50 60))
+  (ntsc-contrast   (tweak "ntsc con"   180 60 360))
+  (ntsc-scanlines  (> (tweak "ntsc scan"  1  0 1) 0.5))
+  (ntsc-blend      (> (tweak "ntsc blend" 1  0 1) 0.5))
+  (ntsc-monochrome (> (tweak "ntsc mono"  0  0 1) 0.5))
   (let* ((sz (get-screen-size))
          (asp (if (> (vy sz) 0) (/ (vx sz) (vy sz)) 0.5625))
          (hh (* CAM-DIST (tan (* 0.5 FOV DEG))))
@@ -245,6 +283,9 @@ void main(){
          (xo    (* (- 1.0 intro) (* 0.10 hw)))       ; elements settle in from the right
          (fade  (* intro (clamp01 (/ (- dur ph) 0.5)))))
     (set-box! FADE fade)
+    ; datamosh intensity -> `feedback` uniform: melt on slide changes (start surge
+    ; + end fade-out), clean (0) while the slide is settled and being read.
+    (blur (max surge (- 1.0 out)))
 
     ; --- editor slide: the final blank slide (05) is JUST the full-width code
     ; overlay so the audience sees this very deck IS a running fluxus program —
