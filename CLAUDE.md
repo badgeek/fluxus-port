@@ -212,9 +212,28 @@ more capable than that sounds. PROBE at runtime before assuming a feature is mis
   3. **Render-to-FBO needs `glDrawBuffer(GL_COLOR_ATTACHMENT0)` then restore
      `glDrawBuffer(GL_BACK)`**, and save/restore the viewport — the update runs mid-
      eval, before the main `Render()`; leaking that state blanks the scene.
+  4. **`addPrim` STOMPS the state you set on a freshly-`new`ed primitive** — it calls
+     `Renderer::AddPrimitive`, which copies the renderer's build State over the prim's,
+     then ORs in the build-context hints. So `p->GetState()->Hints = …` BEFORE
+     `addPrim(p)` is silently discarded and you inherit the default `HINT_SOLID`
+     (gotcha 6 above), unlit off, no vertcols, and `g_ctx.lineWidth`. Set engine-owned
+     prim state AFTER `addPrim` (its own comment says so). This burned a session: the
+     GPU velocity-STREAK prim lost `HINT_VERTCOLS|HINT_UNLIT`, so instead of 16k
+     coloured 2-vertex segments it drew one lit white `TriStrip` ribbon through every
+     particle — read as "blown-white vs invisible density", not as a state bug.
+     Compounding it, `PolyPrimitive::Render`'s HINT_SOLID switch had no `LINES` case
+     and fell through to `default: TriStrip`; both had to be fixed.
 - **Embedded Racket's `(random)` returns a CONSTANT here** (not seeded/varying) — a
   particle system seeded with it spawns every particle identically. Use a per-index
   `sin`-hash (`frac(sin(i*12.9898)*43758.5453)`) for pseudo-randomness instead.
+- **Curl noise lives in `racket-lib/gpu-noise.ss`, not in the sketches.**
+  `simplex-curl-glsl` (4D simplex WITH analytic derivatives, ported from
+  NoiseWorkshop's `SimplexNoiseDerivatives4D.glslinc`) gives `curlNoise(p, t)` and
+  `curlNoise(p, t, octaves, persistence)`; `value-curl-glsl` is the ~5x cheaper
+  value-noise version. `string-append` one into a fragment shader between the uniforms
+  and `main()`. Analytic gradients make a curl 3 noise evaluations instead of 18 finite
+  differences AND divergence-free to float precision, so particles never pool in sinks.
+  The 4th axis is TIME — pass `u_time`, don't scroll the field along z.
 
 ## Building optimized visual sketches (patterns that worked)
 Reference impl: `examples/iso-city.scm` (an audio-agnostic, self-evolving generative

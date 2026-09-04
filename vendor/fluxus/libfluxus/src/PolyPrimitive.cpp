@@ -255,6 +255,10 @@ void PolyPrimitive::Render()
 			case TRILIST:  rp=RPrim::Triangles; break;
 			case TRIFAN:   rp=RPrim::TriFan;    break;
 			case POLYGON:  rp=RPrim::Polygon;   break;
+			// fluxus->JUCE port: without this a LINES prim (GPU velocity streaks)
+			// falls through to TriStrip and draws one giant ribbon through every
+			// particle instead of 2-vertex line segments.
+			case LINES:    rp=RPrim::Lines;     break;
 			case TRISTRIP:
 			default:       rp=RPrim::TriStrip;  break;
 		}

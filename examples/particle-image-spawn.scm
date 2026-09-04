@@ -44,33 +44,20 @@ varying vec2 vUV;
 float h(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
 void main(){ gl_FragColor = vec4((h(vUV)-0.5)*6.0, (h(vUV+0.7)-0.5)*6.0, (h(vUV+3.1)-0.5)*6.0, h(vUV+9.2)*3.0); }")
 
-(define update-frag "
+;; The dissolve flow is the curl of a 4D-simplex noise potential — simplex-curl-glsl
+;; from racket-lib/gpu-noise.ss. Analytic derivatives make the curl 3 noise
+;; evaluations instead of 18 finite differences, and divergence-free to float
+;; precision so the swarm never collapses into sinks while it drifts. One octave is
+;; plenty here: the shape is read from the image, the noise only has to unmake it.
+(define update-frag (string-append "
 #version 120
 #extension GL_ARB_draw_buffers : enable
 varying vec2 vUV;
 uniform sampler2D u_state, u_spawnTex;
 uniform float u_time, u_dt, u_maxAge, u_mag, u_scale, u_img;
-float h3(vec3 p){ return fract(sin(dot(p, vec3(127.1,311.7,74.7)))*43758.5453); }
-// value noise with ANALYTIC derivatives -> vec4(value, d/dx, d/dy, d/dz): the
-// trilinear blend with fade u=f*f*(3-2f) is a polynomial, so its gradient is exact.
-vec4 vnd(vec3 p){
-  vec3 i=floor(p), f=fract(p);
-  vec3 u=f*f*(3.0-2.0*f), du=6.0*f*(1.0-f);
-  float a=h3(i), b=h3(i+vec3(1,0,0)), c=h3(i+vec3(0,1,0)), d=h3(i+vec3(1,1,0));
-  float e=h3(i+vec3(0,0,1)), f1=h3(i+vec3(1,0,1)), g=h3(i+vec3(0,1,1)), hh=h3(i+vec3(1,1,1));
-  float k1=b-a, k2=c-a, k3=e-a, k4=a-b-c+d, k5=a-b-e+f1, k6=a-c-e+g, k7=-a+b+c-d+e-f1-g+hh;
-  float n = a + k1*u.x + k2*u.y + k3*u.z + k4*u.x*u.y + k5*u.x*u.z + k6*u.y*u.z + k7*u.x*u.y*u.z;
-  return vec4(n,
-    du.x*(k1 + k4*u.y + k5*u.z + k7*u.y*u.z),
-    du.y*(k2 + k4*u.x + k6*u.z + k7*u.x*u.z),
-    du.z*(k3 + k5*u.x + k6*u.y + k7*u.x*u.y));
-}
-// analytic curl: 3 noise evaluations (vs 18 for finite differences), exactly
-// divergence-free so the dissolve swirls without sources or sinks.
-vec3 curl(vec3 p){
-  vec4 n1 = vnd(p), n2 = vnd(p + vec3(31.4,7.2,12.9)), n3 = vnd(p + vec3(-9.1,4.3,21.7));
-  return vec3(n3.z - n2.w, n1.w - n3.y, n2.y - n1.z);
-}
+"
+simplex-curl-glsl
+"
 void main(){
   vec4 st = texture2D(u_state, vUV); vec3 p = st.xyz; float age = st.w + u_dt;
   if(age > u_maxAge){
@@ -79,11 +66,11 @@ void main(){
     if(m > 0.4) p = vec3((vUV - 0.5) * u_img, 0.0);        // bright -> form the picture
     else        p = vec3(0.0, 0.0, 9999.0);               // dark  -> parked offscreen
   }
-  vec3 vel = curl(p*u_scale + vec3(0.0,0.0,u_time*0.1)) * u_mag;
+  vec3 vel = curlNoise(p*u_scale, u_time*0.1) * u_mag;
   p += vel * u_dt;
   gl_FragData[0] = vec4(p, age);
   gl_FragData[1] = vec4(vel, 1.0);
-}")
+}"))
 
 (define draw-vert "
 #version 120
@@ -99,7 +86,7 @@ void main(){ gl_FragColor = gl_Color; }")
 (gpu-spawn-from-pixels mask)                              ; <- spawn from the heart image
 (gpu-uniform! "u_youngR" 1.0) (gpu-uniform! "u_youngG" 0.4) (gpu-uniform! "u_youngB" 0.55)
 (gpu-uniform! "u_oldR"   0.9) (gpu-uniform! "u_oldG"   0.1) (gpu-uniform! "u_oldB"   0.3)
-(gpu-uniform! "u_alpha"  0.06)
+(gpu-uniform! "u_alpha"  0.22)   ; points draw once now (see the HINT_SOLID fix) — was 0.06
 
 ;; ---- per-frame --------------------------------------------------------------
 (every-frame

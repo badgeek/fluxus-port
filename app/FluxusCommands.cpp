@@ -1371,15 +1371,21 @@ int flux_gpu_build(int w, int h, const char* initFrag, int mode) {
       p->AddVertex(dVertex(tc, dVector(0,0,1), 0, 0));
       p->AddVertex(dVertex(tc, dVector(0,0,1), 0, 0));
     }
-    State* s = p->GetState(); s->Hints = HINT_UNLIT | HINT_VERTCOLS; s->LineWidth = 1.6f;
     id = addPrim(p); g->draw = p;
+    // AFTER addPrim — it copies the renderer's build state over the prim's, which
+    // would otherwise drop VERTCOLS/UNLIT and leave the default HINT_SOLID. The
+    // segments ARE the solid pass here (PolyPrimitive maps LINES -> GL_LINES), so
+    // keep HINT_SOLID and let the per-vertex colours through it.
+    State* s = p->GetState();
+    s->Hints = HINT_SOLID | HINT_UNLIT | HINT_VERTCOLS;
+    s->LineWidth = 1.6f;
   } else {           // POINTS: one GL_POINTS vertex per texel
     ParticlePrimitive* p = new ParticlePrimitive();
     for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x)
       p->AddParticle(dVector((x + 0.5f) / (float) w, (y + 0.5f) / (float) h, 0),
                      dColour(1,1,1,1), dVector(0.1f, 0.1f, 0));
-    State* s = p->GetState(); s->Hints = HINT_POINTS | HINT_UNLIT;
     id = addPrim(p); g->draw = p;
+    State* s = p->GetState(); s->Hints = HINT_POINTS | HINT_UNLIT;   // after addPrim, as above
   }
   g->drawId = id;
   if (initFrag && *initFrag) {   // seed the initial position/age into pos[0]

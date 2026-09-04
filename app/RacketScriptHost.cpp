@@ -123,6 +123,7 @@ std::string requireLibForm() {
          "         (file \"" + lib + "/voxels-tools.ss\")"     // voxels-index/pos/sphere
          "         (file \"" + lib + "/planetarium.ss\")"      // dome-* projection helpers
          "         (file \"" + lib + "/ansi.ss\")"             // ANSI string helpers for build-terminal
+         "         (file \"" + lib + "/gpu-noise.ss\")"        // GLSL curl-noise sources for GPU particles
          "         (file \"" + lib + "/collada-import.ss\"))"; // collada-import
 }
 } // namespace

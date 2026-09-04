@@ -35,23 +35,21 @@ varying vec2 vUV;
 float h(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
 void main(){ gl_FragColor = vec4((h(vUV)-0.5)*0.6, -1.0+h(vUV+0.7)*3.5, (h(vUV+3.1)-0.5)*0.6, h(vUV+9.2)*4.0); }")
 
-;; curl of a value-noise potential -> a swirling, divergence-free velocity field
-(define update-frag "
+;; curl of a 4D-simplex noise potential -> a swirling, divergence-free velocity
+;; field. simplex-curl-glsl comes from racket-lib/gpu-noise.ss (the port of
+;; NoiseWorkshop's SimplexNoiseDerivatives4D.glslinc): the noise returns its exact
+;; analytic gradient, so the curl is 3 evaluations and is divergence-free to float
+;; precision. The 4th axis is TIME, so the turbulence evolves in place rather than
+;; being scrolled past the plume.
+(define update-frag (string-append "
 #version 120
 #extension GL_ARB_draw_buffers : enable
 varying vec2 vUV;
 uniform sampler2D u_state;
 uniform float u_time, u_dt, u_maxAge, u_mag, u_scale, u_rise, u_spawnX, u_spawnY, u_spawnZ;
-float h3(vec3 p){ return fract(sin(dot(p, vec3(127.1,311.7,74.7)))*43758.5453); }
-float vn(vec3 p){ vec3 i=floor(p), f=fract(p); vec3 u=f*f*(3.0-2.0*f);
-  return mix(mix(mix(h3(i),h3(i+vec3(1,0,0)),u.x),mix(h3(i+vec3(0,1,0)),h3(i+vec3(1,1,0)),u.x),u.y),
-             mix(mix(h3(i+vec3(0,0,1)),h3(i+vec3(1,0,1)),u.x),mix(h3(i+vec3(0,1,1)),h3(i+vec3(1,1,1)),u.x),u.y),u.z); }
-vec3 pot(vec3 p){ return vec3(vn(p), vn(p+vec3(31.4,7.2,12.9)), vn(p+vec3(-9.1,4.3,21.7))); }
-vec3 curl(vec3 p){ float e=0.35; vec3 dx=vec3(e,0,0),dy=vec3(0,e,0),dz=vec3(0,0,e);
-  float x=(pot(p+dy).z-pot(p-dy).z)-(pot(p+dz).y-pot(p-dz).y);
-  float y=(pot(p+dz).x-pot(p-dz).x)-(pot(p+dx).z-pot(p-dx).z);
-  float z=(pot(p+dx).y-pot(p-dx).y)-(pot(p+dy).x-pot(p-dy).x);
-  return vec3(x,y,z)/(2.0*e); }
+"
+simplex-curl-glsl
+"
 float rnd(vec2 c){ return fract(sin(dot(c, vec2(12.9898,78.233)))*43758.5453); }
 void main(){
   vec4 st = texture2D(u_state, vUV); vec3 p = st.xyz; float age = st.w + u_dt;
@@ -61,11 +59,11 @@ void main(){
     p = vec3(u_spawnX,u_spawnY,u_spawnZ) + vec3(s*cos(th), s*sin(th), u) * 0.42;   // born at the emitter
   }
   // rising drift (buoyancy) + curl turbulence -> a fire/smoke plume
-  vec3 vel = vec3(0.0, u_rise, 0.0) + curl(p*u_scale + vec3(0.0, 0.0, u_time*0.15)) * u_mag;
+  vec3 vel = vec3(0.0, u_rise, 0.0) + curlNoise(p*u_scale, u_time*0.15, 3, 0.5) * u_mag;
   p += vel * u_dt;
   gl_FragData[0] = vec4(p, age);       // pos + age
   gl_FragData[1] = vec4(vel, 1.0);     // velocity (for the streak tail)
-}")
+}"))
 
 ;; ---- build + configure ------------------------------------------------------
 ;; 'streaks: each particle draws a short LINE from its position back along its
@@ -76,7 +74,7 @@ void main(){
 ;; fire palette (young yellow-white base -> old red ember, fading out)
 (gpu-uniform! "u_youngR" 1.0) (gpu-uniform! "u_youngG" 0.85) (gpu-uniform! "u_youngB" 0.35)
 (gpu-uniform! "u_oldR"   0.7) (gpu-uniform! "u_oldG"   0.06) (gpu-uniform! "u_oldB"   0.02)
-(gpu-uniform! "u_alpha"  0.045)
+(gpu-uniform! "u_alpha"  0.03)
 
 ;; ---- per-frame: emitter at the base, plume rises on the GPU -----------------
 (every-frame
@@ -91,7 +89,7 @@ void main(){
     (gpu-uniform! "u_dt"     0.05)
     (gpu-uniform! "u_maxAge" (tweak "plume height" 4.0 1.0 9.0))
     (gpu-uniform! "u_rise"   (tweak "rise speed"   1.3 0.0 3.0))
-    (gpu-uniform! "u_mag"    (tweak "turbulence"   2.4 0.0 5.0))
+    (gpu-uniform! "u_mag"    (tweak "turbulence"   0.8 0.0 3.0))
     (gpu-uniform! "u_scale"  (tweak "turb scale"   1.2 0.2 2.5))
-    (gpu-uniform! "u_streak" (tweak "streak len"   0.14 0.0 0.5))
+    (gpu-uniform! "u_streak" (tweak "streak len"   0.06 0.0 0.4))
     (gpu-update! update-frag)))

@@ -38,7 +38,7 @@ RACKET_LIB = racket-lib
 # the .ss files the Racket hosts require (see RacketScriptHost::requireLibForm)
 LIBSS = fluxus-modules building-blocks maths randomness poly-tools shapes \
         input camera mouse help tasks time pixels-tools voxels-tools planetarium \
-        collada-import ansi fluxus-engine
+        collada-import ansi gpu-noise fluxus-engine
 
 .PHONY: all configure build clean precompile dist \
         run run-s7 run-gl run-racket \
