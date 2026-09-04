@@ -495,6 +495,63 @@
 (define (get-screen-size)
   (let ((v (make-f64vector 2 0.0))) (_screen-sz v) (vector (f64vector-ref v 0) (f64vector-ref v 1) 0)))
 
+;; ---- camera as a scene-graph node (ofCamera : ofNode parity) ----------------
+;; (camera-parent id): camera rides node id (follow-cam); 0 detaches.
+;; (camera-lag amt):   0..1 smoothing on the follow.
+;; (camera-node):      an invisible node tracking the inverse view; parent HUD/
+;;                     billboard prims to it and they render in eye space.
+(define _cam-parent (cfun "flux_camera_parent" (_fun _int    -> _void) (lambda (a) (void))))
+(define _cam-lag    (cfun "flux_camera_lag"    (_fun _double -> _void) (lambda (a) (void))))
+(define _cam-node   (cfun "flux_camera_node"   (_fun         -> _int)  (lambda () -1)))
+(define (camera-parent id) (_cam-parent (inexact->exact (round id))))
+(define (camera-lag amt)   (_cam-lag (->fl amt)))
+(define (camera-node)      (_cam-node))
+
+;; ---- node transforms + quaternions (heavy math C-side; scheme just marshals) -
+;; (set-transform m): write the grabbed prim's local transform (16-elt vector).
+;; quats are (x y z w) vectors; matrices 16-elt (same convention as qtomatrix).
+(define _set-tx    (cfun "flux_set_transform"  (_fun _f64vector -> _void) (lambda (m) (void))))
+(define _q-slerp   (cfun "flux_q_slerp"        (_fun _f64vector _f64vector _double _f64vector -> _void) (lambda (a b t o) (void))))
+(define _q-rotvec  (cfun "flux_q_rotate_vec"   (_fun _f64vector _f64vector _f64vector -> _void) (lambda (q v o) (void))))
+(define _q-lookat  (cfun "flux_q_look_at"      (_fun _f64vector _f64vector _f64vector -> _void) (lambda (d u o) (void))))
+(define _q-frommat (cfun "flux_q_from_matrix"  (_fun _f64vector _f64vector -> _void) (lambda (m o) (void))))
+(define _node-look (cfun "flux_node_look_at"   (_fun _int _f64vector _f64vector -> _void) (lambda (i t u) (void))))
+(define _node-orb  (cfun "flux_node_orbit"     (_fun _int _double _double _double _f64vector -> _void) (lambda (i lo la r c) (void))))
+(define (set-transform m) (_set-tx (list->f64vector (map ->fl (vector->list m)))))
+(define (qslerp a b t)
+  (let ((o (make-f64vector 4 0.0)))
+    (_q-slerp (list->f64vector (map ->fl (vector->list a)))
+              (list->f64vector (map ->fl (vector->list b))) (->fl t) o)
+    (list->vector (f64vector->list o))))
+(define (qrotate-vec q v)
+  (let ((o (make-f64vector 3 0.0)))
+    (_q-rotvec (list->f64vector (map ->fl (vector->list q)))
+               (list->f64vector (map ->fl (list (vx v) (vy v) (vz v)))) o)
+    (vector (f64vector-ref o 0) (f64vector-ref o 1) (f64vector-ref o 2))))
+(define (qlookat dir (up (vector 0 1 0)))
+  (let ((o (make-f64vector 4 0.0)))
+    (_q-lookat (list->f64vector (map ->fl (list (vx dir) (vy dir) (vz dir))))
+               (list->f64vector (map ->fl (list (vx up) (vy up) (vz up)))) o)
+    (list->vector (f64vector->list o))))
+(define (qmatrix->q m)
+  (let ((o (make-f64vector 4 0.0)))
+    (_q-frommat (list->f64vector (map ->fl (vector->list m))) o)
+    (list->vector (f64vector->list o))))
+;; ofNode ergonomics: a locator IS a node; grab mutates it, scene graph composes it.
+(define (build-node) (build-locator))
+(define-syntax-rule (with-node id body ...) (with-primitive id body ...))
+(define (node-global-transform id) (with-primitive id (get-global-transform)))
+(define (node-global-pos id)
+  (let ((m (node-global-transform id)))
+    (vector (vector-ref m 12) (vector-ref m 13) (vector-ref m 14))))
+(define (node-look-at id target (up (vector 0 1 0)))
+  (_node-look (inexact->exact (round id))
+              (list->f64vector (map ->fl (list (vx target) (vy target) (vz target))))
+              (list->f64vector (map ->fl (list (vx up) (vy up) (vz up))))))
+(define (node-orbit id lon lat radius (center (vector 0 0 0)))
+  (_node-orb (inexact->exact (round id)) (->fl lon) (->fl lat) (->fl radius)
+             (list->f64vector (map ->fl (list (vx center) (vy center) (vz center))))))
+
 ;; ---- persistent script state (FFI) -----------------------------------------
 ;; survives the per-frame buffer re-eval, so scripts can keep mutable state
 ;; (damping/inertia) like retained-mode fluxus. Values are numeric vectors.
@@ -867,7 +924,6 @@
 (define (fullpath p) p)
 ;; viewport / ortho are wired via FFI (see camera section above)
 (define (lock-camera . _) (void))
-(define (camera-lag . _) (void))
 ;; building-blocks.ss with-pixels-renderer macro (engine prims)
 (define (renderer-grab . _) (void))
 (define (renderer-ungrab . _) (void))

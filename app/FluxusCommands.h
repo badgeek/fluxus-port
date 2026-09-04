@@ -181,6 +181,20 @@ extern "C" {
   void   flux_get_camera_transform(double* out16);
   void   flux_set_camera_position(double x, double y, double z);
   void   flux_camera_reset(void);                    // back to mouse orbit
+
+  // camera as a scene-graph node (openFrameworks ofCamera : ofNode parity).
+  //  - flux_camera_parent: the camera RIDES scene-graph node `id` (follow-cam);
+  //    the orbit/override view acts as an offset. 0 = detach.
+  //  - flux_camera_lag: 0..1 smoothing applied to the follow (engine blend).
+  //  - flux_camera_node: an invisible node whose world transform tracks the
+  //    inverse view; parent HUD/billboard prims to it and they render in eye
+  //    space (retires the manual camera-basis billboard math). Returns its id.
+  void   flux_camera_parent(int id);
+  void   flux_camera_lag(double amt);
+  int    flux_camera_node(void);
+  // render-loop hook: recompute the camera-node anchor after the script eval and
+  // before Render(), when the followed node's transform is final (exact HUD pin).
+  void   flux_camera_finalize(void);
   void   flux_set_fov(double vfovDeg);               // vertical fov -> frustum
   void   flux_set_frustum(double l, double r, double b, double t);
   void   flux_set_aspect(double ratio);              // lock render AR (w/h); <=0 = auto
@@ -393,6 +407,19 @@ extern "C" {
 
   void flux_get_transform(double out[16]);         // grabbed prim's local transform (or build ctx)
   void flux_get_global_transform(double out[16]);  // grabbed prim's world transform (scene graph)
+  void flux_set_transform(const double m16[16]);   // write grabbed prim's local transform (or build ctx)
+
+  // ---- node transforms + quaternions (heavy math C-side; scheme just calls) --
+  // Quats are (x,y,z,w); vec3 are 3 doubles; matrices 16 doubles, fluxus row-vector
+  // order (same convention as scheme qtomatrix). NOTE: these use correct math — the
+  // engine dQuat::dot/renorm/slerp are buggy, so we don't route through them.
+  void flux_q_slerp(const double a[4], const double b[4], double t, double out[4]);
+  void flux_q_rotate_vec(const double q[4], const double v[3], double out[3]);
+  void flux_q_look_at(const double dir[3], const double up[3], double out[4]);
+  void flux_q_from_matrix(const double m16[16], double out[4]);
+  // composite node ops: aim/orbit node `id` (grabs internally, restores prior grab).
+  void flux_node_look_at(int id, const double target[3], const double up[3]);
+  void flux_node_orbit(int id, double lonDeg, double latDeg, double radius, const double center[3]);
 
   // ---- primitive functions (pfunc) + skinning -------------------------------
   int  flux_pfunc_make(const char* name);  // "arithmetic"|"genskinweights"|"skinning"|"skinweights->vertcols" -> id (-1 unknown)

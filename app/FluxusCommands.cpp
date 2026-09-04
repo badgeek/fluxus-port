@@ -193,6 +193,17 @@ bool    g_camOverride = false;
 dMatrix g_camOverrideMat;
 dMatrix g_camAppliedMat;
 int     g_screenW = 720, g_screenH = 576;
+// camera-as-node (ofCamera : ofNode parity). g_camAttach: scene-graph node the
+// camera rides (0 = none), applied via Camera::LockCamera each frame since Clear()
+// recreates camera[0]. g_camNode*: an invisible locator whose world transform tracks
+// the inverse view so its children render in eye space (HUD). g_camViewInv is the
+// inverse of the full modelview base (view, incl. any follow-cam attach) recomputed
+// each frame in applyCamera(); g_camNodeId is invalidated on the immediate-mode
+// per-frame Clear() and refreshed in place in retained mode.
+int     g_camAttach = 0;
+double  g_camLag = 0.0;
+int     g_camNodeId = -1;
+dMatrix g_camViewInv;
 // script-requested window size (scheme (set-window-size w h)); the message-thread
 // component polls flux_take_window_request and resizes its window content. Defs
 // live in the extern "C" block below so they export C symbols.
@@ -246,19 +257,46 @@ Camera* cam0() {
   return cams.empty() ? nullptr : &cams[0];
 }
 
-void applyCamera() {
+// follow-cam smoothing state. We bake the follow ourselves (NOT engine LockCamera)
+// so we know the EXACT applied view and can invert it precisely for the camera-node
+// HUD anchor at any lag. g_followInit guards the first frame (snap, no blend).
+static dMatrix g_followSmoothed;
+static bool    g_followInit = false;
+
+// Compute + apply the camera view for this frame, and derive the camera-node anchor
+// (inverse of the applied view). doFollowBlend advances the follow smoothing exactly
+// once per frame — true only from flux_camera_finalize() (after the script has moved
+// the followed node); applyCamera() passes false for its provisional frame-begin set.
+static void computeAndApplyCamera(bool doFollowBlend) {
   Camera* c = cam0();
   if (!c) return;
-  dMatrix view;
+  dMatrix orbit;
   if (g_camOverride) {
-    view = g_camOverrideMat;
+    orbit = g_camOverrideMat;
   } else {
     dMatrix rot;  rot.rotxyz((float) g_cam.pitch, (float) g_cam.yaw, 0);
     dMatrix back; back.translate(0, 0, (float) -g_cam.dist);
-    view = back * rot;                // rotate world, then push back from eye
+    orbit = back * rot;               // rotate world, then push back from eye
   }
-  c->SetMatrix(view);
-  g_camAppliedMat = view;
+  dMatrix applied = orbit;
+  if (g_camAttach && g_ctx.r) {
+    dMatrix worldmat = g_ctx.r->GetGlobalTransform(g_camAttach).inverse();
+    if (doFollowBlend) {
+      if (!g_followInit || g_camLag <= 0.0) { g_followSmoothed = worldmat; g_followInit = true; }
+      else g_followSmoothed.blend(worldmat, (float) g_camLag);
+    }
+    applied = g_followSmoothed * orbit;   // ride the node, keep orbit as an offset
+  }
+  c->LockCamera(0);                    // we bake the follow ourselves
+  c->SetMatrix(applied);
+  g_camAppliedMat = applied;
+  g_camViewInv    = applied.inverse(); // eye-space anchor for the camera-node
+}
+
+void applyCamera() {
+  computeAndApplyCamera(false);        // provisional (frame begin, node not yet moved)
+  if (g_camAttach == 0) g_followInit = false;
+  if (!flux_retained_on()) g_camNodeId = -1;   // immediate mode Clear()ed the graph
 }
 
 int addPrim(Primitive* p) {
@@ -1238,6 +1276,52 @@ void flux_set_camera_position(double x, double y, double z) {
 void flux_camera_reset(void) {
   g_camOverride = false;   // back to the mouse orbit...
   g_cam = CamState();      // ...at its default yaw/pitch/dist (undo drag+zoom)
+  g_camAttach = 0;         // ...and detach any follow-cam
+  g_camLag = 0.0;
+  g_followInit = false;
+}
+
+// ---- camera as a scene-graph node ------------------------------------------
+void flux_camera_parent(int id) { g_camAttach = id; g_followInit = false; }   // 0 = detach
+void flux_camera_lag(double amt) {
+  g_camLag = amt < 0.0 ? 0.0 : (amt > 1.0 ? 1.0 : amt);
+}
+// Return an invisible locator whose world transform tracks the inverse view;
+// parenting prims to it puts them in eye space (HUD/billboard). Created lazily so
+// sketches that never ask pay nothing. applyCamera() refreshes its transform each
+// frame (retained) or invalidates the id after the per-frame Clear() (immediate).
+int flux_camera_node(void) {
+  if (!g_ctx.r) return -1;
+  // g_camViewInv is the provisional (frame-begin) anchor; flux_camera_finalize()
+  // refreshes it exactly before Render, so mid-thunk creation here is fine.
+  // reuse the existing node if it's still in the graph this frame
+  if (g_camNodeId >= 0 && g_ctx.r->GetSceneGraph().FindNode(g_camNodeId)) {
+    if (SceneNode* n = (SceneNode*) g_ctx.r->GetSceneGraph().FindNode(g_camNodeId))
+      n->Prim->GetState()->Transform = g_camViewInv;
+    return g_camNodeId;
+  }
+  // create fresh, with a clean build context so an active (parent …) / grab / tx
+  // doesn't leak onto the camera-node.
+  int savedParent = g_ctx.parent; dMatrix savedTx = g_ctx.tx;
+  g_ctx.parent = -1; g_ctx.tx = dMatrix();
+  LocatorPrimitive* loc = new LocatorPrimitive();
+  loc->SetBoundingBoxRadius(0);      // never skew scene AABB / frustum
+  int id = addPrim(loc);
+  g_ctx.parent = savedParent; g_ctx.tx = savedTx;
+  if (id >= 0) loc->GetState()->Transform = g_camViewInv;   // eye-space anchor
+  g_camNodeId = id;
+  return id;
+}
+// Called by the render loop AFTER the script eval and BEFORE Render(): the attached
+// node's transform is now final, so recompute the camera-node anchor and refresh the
+// node in place. This is what makes HUD prims pin exactly (see the ordering note).
+void flux_camera_finalize(void) {
+  computeAndApplyCamera(true);   // followed node is now final -> exact view + anchor
+  if (g_camNodeId >= 0 && g_ctx.r) {
+    if (SceneNode* n = (SceneNode*) g_ctx.r->GetSceneGraph().FindNode(g_camNodeId))
+      n->Prim->GetState()->Transform = g_camViewInv;
+    else g_camNodeId = -1;   // destroyed under us
+  }
 }
 
 // build the frustum for a vertical fov + aspect (w/h) on the given camera
@@ -2159,6 +2243,93 @@ void flux_get_global_transform(double out[16]) {
     if (n) m = g_ctx.r->GetSceneGraph().GetGlobalTransform(n);
   }
   const float* a = m.arr(); for (int i = 0; i < 16; ++i) out[i] = a[i];
+}
+void flux_set_transform(const double m16[16]) {
+  if (!m16) return;
+  dMatrix m; float* a = m.arr();
+  for (int i = 0; i < 16; ++i) a[i] = (float) m16[i];
+  if (State* s = grabbedState()) s->Transform = m; else g_ctx.tx = m;
+}
+
+// ---- quaternions + node orientation (correct math; engine dQuat::dot/renorm/
+// slerp are buggy, so we only reuse the SAFE dQuat::toMatrix / from-matrix, which
+// agree with scheme qtomatrix — both m[row][col], row-vector v' = v*M) -----------
+namespace {
+struct Quat { double x, y, z, w; };
+static Quat qn(Quat q) {
+  double m = std::sqrt(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w);
+  return (m < 1e-12) ? Quat{0,0,0,1} : Quat{q.x/m, q.y/m, q.z/m, q.w/m};
+}
+// v' = v * toMatrix(q) — row-vector rotate, consistent with node transforms
+static void qrot(const Quat& q, const double v[3], double out[3]) {
+  dMatrix M = dQuat((float)q.x,(float)q.y,(float)q.z,(float)q.w).toMatrix();
+  const float* a = M.arr();
+  out[0] = v[0]*a[0] + v[1]*a[4] + v[2]*a[8];
+  out[1] = v[0]*a[1] + v[1]*a[5] + v[2]*a[9];
+  out[2] = v[0]*a[2] + v[1]*a[6] + v[2]*a[10];
+}
+// orientation matrix: local X->right, Y->up, Z->forward (row-vector, + translation).
+static dMatrix lookMat(dVector fwd, dVector up, dVector pos) {
+  fwd.normalise();
+  dVector right = up.cross(fwd);
+  if (right.mag() < 1e-6f) { up = dVector(0,0,1); right = up.cross(fwd);
+    if (right.mag() < 1e-6f) { up = dVector(1,0,0); right = up.cross(fwd); } }
+  right.normalise();
+  dVector u = fwd.cross(right); u.normalise();
+  return dMatrix((float)right.x,(float)u.x,(float)fwd.x,(float)pos.x,
+                 (float)right.y,(float)u.y,(float)fwd.y,(float)pos.y,
+                 (float)right.z,(float)u.z,(float)fwd.z,(float)pos.z,
+                 0,0,0,1);
+}
+static void writeNodeTransform(int id, const dMatrix& m) {
+  if (!g_ctx.r) return;
+  if (Primitive* p = g_ctx.r->GetPrimitive(id)) p->GetState()->Transform = m;
+}
+} // namespace
+
+void flux_q_slerp(const double a[4], const double b[4], double t, double out[4]) {
+  Quat qa = qn({a[0],a[1],a[2],a[3]}), qb = qn({b[0],b[1],b[2],b[3]});
+  double d = qa.x*qb.x + qa.y*qb.y + qa.z*qb.z + qa.w*qb.w;   // correct dot
+  if (d < 0) { qb = {-qb.x,-qb.y,-qb.z,-qb.w}; d = -d; }
+  Quat r;
+  if (d > 0.9995) {                                          // nearly parallel -> nlerp
+    r = qn({qa.x + t*(qb.x-qa.x), qa.y + t*(qb.y-qa.y),
+            qa.z + t*(qb.z-qa.z), qa.w + t*(qb.w-qa.w)});
+  } else {
+    double ang = std::acos(d), s = std::sin(ang);
+    double wa = std::sin((1-t)*ang)/s, wb = std::sin(t*ang)/s;
+    r = {wa*qa.x + wb*qb.x, wa*qa.y + wb*qb.y, wa*qa.z + wb*qb.z, wa*qa.w + wb*qb.w};
+  }
+  out[0]=r.x; out[1]=r.y; out[2]=r.z; out[3]=r.w;
+}
+void flux_q_rotate_vec(const double q[4], const double v[3], double out[3]) {
+  qrot(qn({q[0],q[1],q[2],q[3]}), v, out);
+}
+void flux_q_look_at(const double dir[3], const double up[3], double out[4]) {
+  dMatrix M = lookMat(dVector((float)dir[0],(float)dir[1],(float)dir[2]),
+                      dVector((float)up[0],(float)up[1],(float)up[2]), dVector(0,0,0));
+  dQuat q(M); out[0]=q.x; out[1]=q.y; out[2]=q.z; out[3]=q.w;
+}
+void flux_q_from_matrix(const double m16[16], double out[4]) {
+  dMatrix m; float* a = m.arr(); for (int i = 0; i < 16; ++i) a[i] = (float) m16[i];
+  dQuat q(m); out[0]=q.x; out[1]=q.y; out[2]=q.z; out[3]=q.w;
+}
+void flux_node_look_at(int id, const double target[3], const double up[3]) {
+  if (!g_ctx.r) return;
+  Primitive* p = g_ctx.r->GetPrimitive(id); if (!p) return;
+  dVector pos = p->GetState()->Transform.gettranslate();   // aim from current position
+  dVector fwd = dVector((float)target[0],(float)target[1],(float)target[2]) - pos;
+  writeNodeTransform(id, lookMat(fwd, dVector((float)up[0],(float)up[1],(float)up[2]), pos));
+}
+void flux_node_orbit(int id, double lonDeg, double latDeg, double radius, const double center[3]) {
+  if (!g_ctx.r || !g_ctx.r->GetPrimitive(id)) return;
+  const double d2r = 3.14159265358979323846 / 180.0;
+  double lon = lonDeg * d2r, lat = latDeg * d2r;
+  dVector c((float)center[0], (float)center[1], (float)center[2]);
+  dVector pos((float)(c.x + radius*std::cos(lat)*std::cos(lon)),
+              (float)(c.y + radius*std::sin(lat)),
+              (float)(c.z + radius*std::cos(lat)*std::sin(lon)));
+  writeNodeTransform(id, lookMat(c - pos, dVector(0,1,0), pos));
 }
 
 // ---- primitive functions (pfunc) + skinning ---------------------------------

@@ -197,6 +197,29 @@ editor (JUCE TextEditor | fluxus GLEditor)
   legacy-GL state churn you'd expect from the `glPushAttrib` bracket. So don't
   bother swapping in a GL3/shader backend to "fix" state dispatch; it isn't the
   problem. `ps` alone can't see this (run-to-run spread swamps it) — profile.
+- **Camera is now a scene-graph node (openFrameworks `ofCamera : ofNode` parity).**
+  `(camera-parent id)` makes the camera RIDE a node (follow-cam), `(camera-lag 0..1)`
+  smooths it, `(camera-node)` returns an invisible locator tracking the inverse view
+  so prims parented to it render in EYE SPACE — a real screen-pinned HUD that
+  **retires gotcha #7's manual `camera-yaw/pitch/dist` billboard math** (`concat` is
+  still a no-op stub; use `(parent (camera-node))` instead). `ofNode` ergonomics:
+  `(build-node)`/`(with-node)` = locator + grab, `(node-look-at id target [up])`,
+  `(node-orbit id lon lat r [c])`, `(node-global-transform/pos id)`, `(set-transform m)`.
+  Two hard-won impl notes (both burned a session):
+  1. **The port bakes the follow-cam ITSELF** (`computeAndApplyCamera` in
+     FluxusCommands, engine `Camera::LockCamera` left at 0). Reason: the HUD anchor
+     must invert the EXACT applied view, and doing the follow in-port lets us know it
+     precisely at any lag. It's recomputed in `flux_camera_finalize()` — called by
+     `FluxusScene::renderFrame` AFTER the script eval, BEFORE `Render()` — because at
+     frame-begin (`applyCamera`) the followed node still holds last frame's transform;
+     using it there makes the HUD drift by one frame (looked like "jitter").
+  2. **Engine `dQuat` is partly BROKEN — don't route quats through it.** `dQuat::dot`
+     (`dada.h:1031`) has a typo (`z*q.x`), and `dQuat::renorm` divides by |q|² not |q|,
+     so `Fluxus::slerp` is doubly wrong. The `flux_q_*` shims implement correct math in
+     C++ and only reuse the SAFE `dQuat::toMatrix` / from-matrix ctor (which DO agree
+     with scheme `qtomatrix` — both m[row][col], row-vector `v' = v*M`). GL reads our
+     row-major `dMatrix.arr()` as column-major (= transpose), so the modelview base is
+     `locked*view`; invert accordingly. See `examples/camera-node.scm`.
 
 ## GPU: shaders, geometry shaders, and GPGPU (capabilities + hard gotchas)
 The context is **legacy OpenGL 2.1 (Apple "Metal - 88.1"), GLSL 1.20** — but it's

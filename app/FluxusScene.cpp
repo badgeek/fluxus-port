@@ -196,6 +196,10 @@ void FluxusScene::renderFrame() {
     shared->lastError = err;   // "" = ok
   }
 
+  // the script just moved any follow-cam target; anchor the camera-node to the FINAL
+  // view before rendering so HUD prims parented to it pin exactly (see FluxusCommands).
+  flux_camera_finalize();
+
   glEnable(GL_BLEND);   // per-prim blend factors (blend-mode) drive the result
 
   // optional line/polygon smoothing (anti-alias) for the wireframe look
