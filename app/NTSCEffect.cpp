@@ -8,9 +8,15 @@
 #include <OpenGL/gl.h>
 
 #include <algorithm>
+#include <condition_variable>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <vector>
+
+#include <pthread/qos.h>
 
 // C ABI of the ntsc-rs staticlib (vendor/ntsc-rs/ffi). The signal path is the
 // full ntsc-rs NTSC/VHS simulation; settings arrive as JSON presets.
@@ -96,6 +102,27 @@ struct NTSCEffect::Impl {
   unsigned int monTex[2] = {0, 0};
   int          monIdx = 0;
   bool         monPrimed = false;  // monTex[1-idx] holds a valid prior frame
+  // Filter pipeline thread. The ntsc-rs pass runs on OUR thread, created with
+  // QoS USER_INTERACTIVE set as its first act — a plain std::thread accepts
+  // it, whereas JUCE's GL render thread is opted out of QoS (explicit sched
+  // policy), so in a LaunchServices-launched app ('open'/Finder) the scheduler
+  // parks the busy render thread on an E-core: the SAME filter then takes
+  // ~2.5-3x the wall time (3.9 -> ~12 ms/frame, app ~20% -> ~40% CPU;
+  // terminal-child launches inherit an interactive policy and never show it).
+  // Pipelining also frees the GL thread of the ~4 ms filter wait. Costs one
+  // extra frame of effect latency (2 total with the PBO readback).
+  std::thread worker;
+  std::mutex  m;
+  std::condition_variable cv;
+  std::vector<unsigned char> jobBuf;    // GL -> worker (raw small frame)
+  std::vector<unsigned char> resBuf;    // worker -> GL (filtered)
+  std::vector<unsigned char> uploadBuf; // GL-side copy being uploaded/drawn
+  std::string pendingJson;              // settings JSON for the worker
+  bool jsonDirty = false;
+  int  jobW = 0, jobH = 0, jobField = 0;
+  int  resW = 0, resH = 0;              // dimensions of resBuf's content
+  int  upW = 0, upH = 0;                // dimensions of uploadBuf's content
+  bool jobPending = false, resultReady = false, uploadValid = false, stop = false;
 };
 
 // When no JSON preset is set, derive the ntsc-rs settings from the classic
@@ -121,6 +148,11 @@ NTSCEffect::~NTSCEffect() { release(); }
 void NTSCEffect::release() {
   if (tex) { glDeleteTextures(1, &tex); tex = 0; }
   if (impl) {
+    if (impl->worker.joinable()) {
+      { std::lock_guard<std::mutex> lk(impl->m); impl->stop = true; }
+      impl->cv.notify_one();
+      impl->worker.join();
+    }
     if (impl->rs) ntscrs_free(impl->rs);
     if (impl->shader && impl->shader->DecRef()) delete impl->shader;
     if (impl->monShader && impl->monShader->DecRef()) delete impl->monShader;
@@ -188,6 +220,50 @@ bool NTSCEffect::ensure(int W, int H) {
   impl->pboPrimed = false;                           // stale PBO data after a resize
 
   if (!impl->rs) impl->rs = ntscrs_new();
+
+  // filter pipeline worker (see Impl) — after this point `rs` is used ONLY by
+  // the worker (ntscrs_load_json + ntscrs_process both moved there).
+  if (!impl->worker.joinable()) {
+    Impl* im = impl;
+    impl->worker = std::thread([im] {
+      // Best effort; in a LaunchServices-launched (role `ui`) app the energy
+      // policy still parks this thread on an E-core — ~2.5x the CPU time at
+      // identical fps. Not fixable app-side (see AppActivity.mm for the full
+      // list of levers tried); harmless and correct where the role permits.
+      pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+      std::vector<unsigned char> work;
+      for (;;) {
+        std::string json;
+        int fw, fh, ff;
+        {
+          std::unique_lock<std::mutex> lk(im->m);
+          im->cv.wait(lk, [im] { return im->jobPending || im->stop; });
+          if (im->stop) return;
+          work.swap(im->jobBuf);
+          fw = im->jobW; fh = im->jobH; ff = im->jobField;
+          if (im->jsonDirty) { json = im->pendingJson; im->jsonDirty = false; }
+        }
+        if (!json.empty() && ntscrs_load_json(im->rs, json.c_str()) != 0)
+          std::fprintf(stderr, "[fluxus] ntsc: bad preset JSON (using defaults)\n");
+        ntscrs_process(im->rs, work.data(), fw, fh, fw * 4, ff, /*flip_y=*/1);
+        {
+          std::lock_guard<std::mutex> lk(im->m);
+          im->resBuf.swap(work);
+          im->resW = fw; im->resH = fh;
+          im->resultReady = true;
+          im->jobPending = false;
+        }
+      }
+    });
+  }
+
+  // resize: drop any stale pipeline output (its dimensions no longer match)
+  {
+    std::lock_guard<std::mutex> lk(impl->m);
+    impl->resultReady = false;
+    impl->uploadValid = false;
+  }
+
   if (!impl->shader) {
     GLSLShader::Init();                              // enable GLSL before compiling
     GLSLShaderPair pair(false, kVert, kFrag);        // compile from source
@@ -251,6 +327,8 @@ void NTSCEffect::apply(int W, int H, const NtscParams& p) {
   impl->pboIdx ^= 1;
   bool haveData = impl->pboPrimed;
   if (haveData) {
+    if (impl->small_.size() != smallBytes)     // swapped away by the pipeline handoff
+      impl->small_.resize(smallBytes);
     glBindBuffer(GL_PIXEL_PACK_BUFFER, impl->pbo[impl->pboIdx]);
     if (void* ptr = glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY)) {
       std::memcpy(impl->small_.data(), ptr, smallBytes);
@@ -266,20 +344,35 @@ void NTSCEffect::apply(int W, int H, const NtscParams& p) {
   glDrawBuffer(GL_BACK);
   glBindTexture(GL_TEXTURE_2D, 0);
 
-  if (!haveData) return;                    // state restored; effect resumes next frame
-
-  // 2. settings: reload only when they changed (JSON parse is not per-frame).
-  //    A user preset wins; otherwise noise/hue derive an overlay (see above).
-  if (p.presetRev != impl->lastRev) {
-    impl->lastRev = p.presetRev;
-    const std::string json = p.preset.empty() ? overlayJson(p) : p.preset;
-    if (ntscrs_load_json(impl->rs, json.c_str()) != 0)
-      std::fprintf(stderr, "[fluxus] ntsc: bad preset JSON (using defaults)\n");
-  }
-
-  // 3. the ntsc-rs signal pass at the internal NTSC resolution, in place.
+  // 2+3. hand the raw small frame to the pipeline worker and pick up its
+  //    previous result (see Impl::worker — the ntsc-rs pass runs off-thread at
+  //    USER_INTERACTIVE QoS). Settings changes travel as JSON with the job;
   //    `field` doubles as the frame counter driving noise animation and phase.
-  ntscrs_process(impl->rs, impl->small_.data(), pw, ph, pw * 4, field++, /*flip_y=*/1);
+  //    If the worker is somehow still busy (never at 25 fps), drop this input.
+  {
+    std::lock_guard<std::mutex> lk(impl->m);
+    if (p.presetRev != impl->lastRev) {
+      impl->lastRev = p.presetRev;
+      impl->pendingJson = p.preset.empty() ? overlayJson(p) : p.preset;
+      impl->jsonDirty = true;
+    }
+    if (!impl->jobPending) {
+      if (impl->resultReady) {
+        impl->uploadBuf.swap(impl->resBuf);
+        impl->upW = impl->resW; impl->upH = impl->resH;
+        impl->resultReady = false;
+        impl->uploadValid = true;
+      }
+      if (haveData) {
+        impl->jobBuf.swap(impl->small_);
+        impl->jobW = pw; impl->jobH = ph; impl->jobField = field++;
+        impl->jobPending = true;
+        impl->cv.notify_one();
+      }
+    }
+  }
+  // nothing filtered yet (startup / right after a resize): scene stays as-is
+  if (!impl->uploadValid || impl->upW != pw || impl->upH != ph) return;
 
   // 4. upload the filtered small frame, then the GPU monitor post pass
   //    (ntsc-rs models the signal, not the monitor): saturation/brightness/
@@ -289,7 +382,7 @@ void NTSCEffect::apply(int W, int H, const NtscParams& p) {
   //    identity settings skip the pass (and its FBO round-trip) entirely.
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, tex);
-  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, pw, ph, GL_RGBA, GL_UNSIGNED_BYTE, impl->small_.data());
+  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, pw, ph, GL_RGBA, GL_UNSIGNED_BYTE, impl->uploadBuf.data());
 
   const bool identity = !p.scanlines && !p.blend && !p.monochrome &&
                         p.saturation == 10 && p.brightness == 0 && p.contrast == 180;

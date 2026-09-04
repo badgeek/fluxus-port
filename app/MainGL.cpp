@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+#include "AppActivity.h"
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "FluxusGLComponent.h"
 #include "S7ScriptHost.h"
@@ -11,6 +12,7 @@ public:
   bool moreThanOneInstanceAllowed() override          { return true; }
 
   void initialise(const juce::String&) override {
+    flux_begin_perf_activity();          // keep P-cores: no App Nap / E-core demotion
     mainWindow = std::make_unique<MainWindow>(getApplicationName());
   }
   void shutdown() override { mainWindow = nullptr; }

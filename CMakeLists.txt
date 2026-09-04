@@ -110,6 +110,7 @@ juce_add_gui_app(FluxusApp PRODUCT_NAME "FluxusApp"
     CAMERA_PERMISSION_TEXT "Fluxus uses the camera as a live video texture.")
 
 target_sources(FluxusApp PRIVATE
+    app/AppActivity.mm
     app/Main.cpp
     app/GlyphAtlas.cpp
     app/FluxusComponent.cpp
@@ -190,6 +191,7 @@ juce_add_gui_app(FluxusGLApp PRODUCT_NAME "FluxusGLApp"
     CAMERA_PERMISSION_TEXT "Fluxus uses the camera as a live video texture.")
 
 target_sources(FluxusGLApp PRIVATE
+    app/AppActivity.mm
     app/MainGL.cpp
     app/GlyphAtlas.cpp
     app/FluxusGLComponent.cpp
@@ -266,6 +268,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
     CAMERA_PERMISSION_TEXT "Fluxus uses the camera as a live video texture.")
 
   target_sources(FluxusRacketApp PRIVATE
+    app/AppActivity.mm
       app/MainRacket.cpp
       app/GlyphAtlas.cpp
       app/FluxusComponent.cpp
@@ -324,6 +327,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
     CAMERA_PERMISSION_ENABLED TRUE
     CAMERA_PERMISSION_TEXT "Fluxus uses the camera as a live video texture.")
   target_sources(FluxusGLRacketApp PRIVATE
+    app/AppActivity.mm
       app/MainGLRacket.cpp
       app/GlyphAtlas.cpp
       app/FluxusGLComponent.cpp

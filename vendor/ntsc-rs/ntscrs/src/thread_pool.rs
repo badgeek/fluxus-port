@@ -1,12 +1,23 @@
 pub struct ThreadPool {
+    // fluxus->JUCE port: Option — RAYON_NUM_THREADS=1 builds NO pool at all and
+    // install() runs the op INLINE on the caller. Shipping the work to a lone
+    // worker thread was both pure overhead (latch wait per pass) and, on Apple
+    // Silicon, a scheduler lottery: a background worker thread often lands on
+    // an E-core (~2.5x slower => ~2.5x the %CPU for the same work), while the
+    // caller (the app's GL render thread) stays on a P-core.
     #[cfg(all(feature = "rayon", not(target_arch = "wasm32")))]
-    pool: rayon_core::ThreadPool,
+    pool: Option<rayon_core::ThreadPool>,
 }
 
 impl ThreadPool {
     pub fn new() -> Self {
         #[cfg(all(feature = "rayon", not(target_arch = "wasm32")))]
         {
+            // fluxus->JUCE port: single-thread => fully inline, no pool.
+            if std::env::var("RAYON_NUM_THREADS").as_deref() == Ok("1") {
+                return Self { pool: None };
+            }
+
             // On Windows debug builds, the stack overflows with the default stack size.
             //
             // Not sure how big the stack should actually be here. It *was* 2MB, but that was apparently overflowing in
@@ -20,7 +31,7 @@ impl ThreadPool {
             }
 
             Self {
-                pool: pool.build().unwrap(),
+                pool: Some(pool.build().unwrap()),
             }
         }
 
@@ -37,7 +48,10 @@ impl ThreadPool {
     {
         #[cfg(all(feature = "rayon", not(target_arch = "wasm32")))]
         {
-            self.pool.install(op)
+            match &self.pool {
+                Some(pool) => pool.install(op),
+                None => op(), // fluxus->JUCE port: inline on the caller
+            }
         }
 
         #[cfg(any(not(feature = "rayon"), target_arch = "wasm32"))]
@@ -184,6 +198,14 @@ impl<'a, const N: usize, T> ZipChunks<'a, N, T> {
     {
         #[cfg(feature = "rayon")]
         {
+            // fluxus->JUCE port: when NOT running inside a pool worker (the
+            // inline single-thread path), go sequential — touching
+            // current_num_threads()/scope() here would lazily spin up the
+            // GLOBAL rayon registry with a worker per core.
+            if rayon_core::current_thread_index().is_none() {
+                self.seq_for_each(cb);
+                return;
+            }
             let num_threads = rayon_core::current_num_threads();
             if num_threads == 1 {
                 self.seq_for_each(cb);
@@ -201,8 +223,25 @@ impl<'a, const N: usize, T> ZipChunks<'a, N, T> {
     }
 }
 
+// fluxus->JUCE port: sequential join when not inside a pool worker (inline
+// single-thread path) — rayon_core::join outside a pool would lazily init the
+// GLOBAL registry with a worker per core.
 #[cfg(feature = "rayon")]
-pub use rayon_core::join;
+pub fn join<A, B, RA, RB>(oper_a: A, oper_b: B) -> (RA, RB)
+where
+    A: FnOnce() -> RA + Send,
+    B: FnOnce() -> RB + Send,
+    RA: Send,
+    RB: Send,
+{
+    if rayon_core::current_thread_index().is_none() {
+        let ra = oper_a();
+        let rb = oper_b();
+        (ra, rb)
+    } else {
+        rayon_core::join(oper_a, oper_b)
+    }
+}
 #[cfg(not(feature = "rayon"))]
 pub fn join<A, B, RA, RB>(oper_a: A, oper_b: B) -> (RA, RB)
 where

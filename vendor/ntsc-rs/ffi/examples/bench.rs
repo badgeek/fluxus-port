@@ -18,12 +18,20 @@ fn main() {
     let frames: i32 = a.get(3).and_then(|s| s.parse().ok()).unwrap_or(600);
 
     let threads = std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "unset".into());
+    // BENCH_BLACK=1: all-black input. A mostly-black frame (typical live-coding
+    // scene) drives the IIR filters with long runs of zeros — if denormal
+    // handling is slow that shows up here vs the default gradient.
+    let black = std::env::var_os("BENCH_BLACK").is_some();
     let mut rgba = vec![0u8; (w as usize) * (h as usize) * 4];
     for (i, px) in rgba.chunks_exact_mut(4).enumerate() {
-        px[0] = (i % 256) as u8;
-        px[1] = ((i / 256) % 256) as u8;
-        px[2] = 128;
-        px[3] = 255;
+        if black {
+            px[3] = 255;
+        } else {
+            px[0] = (i % 256) as u8;
+            px[1] = ((i / 256) % 256) as u8;
+            px[2] = 128;
+            px[3] = 255;
+        }
     }
 
     let handle = ntsc_ffi::ntscrs_new();
