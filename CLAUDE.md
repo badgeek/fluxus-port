@@ -87,15 +87,27 @@ editor (JUCE TextEditor | fluxus GLEditor)
   collects tree from source every launch. `RacketScriptHost::init` now sets them
   to match the `racket` CLI. `make precompile` builds `racket-lib/compiled/*.zo`
   (gitignored) for the last ~1s.
-- **Immediate mode re-`read`s + re-compiles the WHOLE script every frame** (all
-  top-level `define`s, `string-append`s, lists — not just the drawing). For a
-  heavy sketch that dominates CPU (profile: the "OpenGL Renderer" thread sits in
-  `RacketScriptHost::eval → Scall2`, GL draw is a few %). Fix: **retained mode +
-  real `(clear)`** — `(retained)` compiles the buffer once and per frame runs
-  only the every-frame thunk; put `(clear)` (now a genuine `Renderer::Clear`) and
-  `(background …)` at the top of that thunk to wipe + rebuild. Same visuals, big
-  CPU drop (the deck went ~96% → ~20%). `(clear)` at the top of an immediate-mode
-  sketch stays harmless (the host already clears before each eval).
+- **Immediate mode now compiles ONCE per buffer** (`flux-run-guarded` in
+  RacketScriptHost caches compiled forms keyed on the exact buffer string; an
+  unchanged buffer just re-evals compiled code objects — the expander, which
+  dominated the frame cost, is skipped; ~2× steady-state CPU on a 100-cube
+  immediate sketch). The re-eval still RE-RUNS every top-level define each
+  frame, so **retained mode + real `(clear)`** stays the bigger win for heavy
+  sketches — `(retained)` runs only the every-frame thunk; put `(clear)` and
+  `(background …)` at the top of that thunk to wipe + rebuild (the deck went
+  ~96% → ~20%). `(clear)` at the top of an immediate-mode sketch stays harmless.
+  Cache internals: first pass compiles+evals form-by-form (sketch-local
+  `define-syntax` works) and splices top-level `(begin …)`; any error drops the
+  cache.
+- **pdata script access is FAST now — don't hand-roll around it.** Three layers
+  (commit 8b62bbc/48f3930): a C-side channel cache (no per-call string+map
+  lookups), bulk `flux_pdata_get3/set3` (one FFI crossing per element), and
+  whole-channel `pdata-map!`/`pdata-index-map!` (channels read/written ONCE per
+  map via `flux_pdata_read_all/write_all`; procs see a snapshot). Net 4.1× on a
+  24k-vert `pdata-map!`. Semantics note: `pdata-ref` on ANY float channel
+  returns a number now (was only "w"/"s" by name). `./build/pdata_bench` is a
+  headless correctness test + benchmark for this layer (no GL, no JUCE) — run
+  it after touching pdata code.
 - **Measure steady-state, not startup.** ~99% CPU right after launch is Racket
   still loading — wait for full load before judging. An idle/empty sketch is
   ~10%. The JUCE-editor apps render at a 30 Hz timer (not vsync-continuous).
@@ -113,7 +125,13 @@ editor (JUCE TextEditor | fluxus GLEditor)
   churny prims (build once, mutate via `grab` — see the smoke pool + caption text
   pool in `examples/iso-city.scm`). Cubes (QUADS, 24 verts) are much cheaper per
   prim than cylinders/spheres (TRILIST, 40–140) — but that cuts vertex cost, not
-  draw count.
+  draw count. **`(build-merged id-list)` is the direct tool for this**: bakes N
+  same-type static polys (transforms + colours per-vertex) into ONE prim = one
+  draw; render it with `(hint-vertcols)`, then `(for-each destroy ids)` the
+  sources (400 cubes: draw cost ~6× down). One state for the merged prim —
+  per-prim hints/opacity/textures don't survive, so it's for uniform-look
+  static geometry; vertex-colour lighting is marginally brighter than material
+  diffuse (invisible with `hint-unlit`/wire looks).
 
 ## Self-calibration + new script commands
 - `(set-window-size w h)` resizes the GL content (e.g. `1080 1920` for vertical
@@ -241,7 +259,9 @@ piece). Reuse these patterns; they keep it cheap AND readable.
 - **Retained + persistent scene.** `(retained)`, build streets/static geometry
   ONCE at top level, and in the every-frame thunk only `(destroy)` + rebuild the
   ANIMATED prims (track their ids in a `*dyn*` list; `clear-dyn!` each frame).
-  Never rebuild static geometry per frame.
+  Never rebuild static geometry per frame. Then collapse the static set with
+  `(build-merged ids)` + `(hint-vertcols)` + destroy the sources — one draw for
+  the whole static scene (see Performance section for caveats).
 - **Rebuild-on-change, not per-frame,** for generative structure. Quantise the
   driver (e.g. a growth `evo-step`) and rebuild the static set only when the step
   advances; track the built ids so you can `(destroy)` them on the next flip.
