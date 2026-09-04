@@ -243,6 +243,7 @@ extern "C" {
   void flux_gpu_draw_shaders(const char* vert, const char* geom, const char* frag,
                              int gin, int gout, int gverts);      // VTF draw shader
   void flux_gpu_uniform(const char* name, double v);             // uniform for both passes
+  void flux_gpu_spawn_from_pixels(int pixId);                    // spawn source = a pixels prim's texture
   void flux_shader_set_float(const char* name, double v);
   void flux_shader_set_vec(const char* name, double x, double y, double z);
   void flux_shader_set_int(const char* name, int v);      // e.g. bind a sampler to a unit

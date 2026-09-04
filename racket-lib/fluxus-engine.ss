@@ -468,6 +468,10 @@
   (_gpu-draw vert geom frag in-type out-type max-verts))
 ;; (gpu-uniform! name x): set a float uniform on BOTH the update and draw programs.
 (define (gpu-uniform! name x) (_gpu-uni name (->fl x)))
+;; (gpu-spawn-from-pixels pix-id): use a build-pixels prim's texture as the spawn
+;; source — the update shader samples u_spawnTex (unit 2) to place reborn particles.
+(define _gpu-spawn (cfun "flux_gpu_spawn_from_pixels" (_fun _int -> _void) (lambda (a) (void))))
+(define (gpu-spawn-from-pixels pix-id) (_gpu-spawn pix-id))
 (define (shader-off) (_shader-off))
 (define (shader-set-float! name x) (_shader-f name (->fl x)))
 (define (shader-set-vec! name v) (_shader-v name (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))

@@ -1301,6 +1301,7 @@ void flux_shader_source_geom(const char* vert, const char* geom, const char* fra
 struct GPUParticles {
   int w = 0, h = 0; int mode = 0;   // mode 0 = points, 1 = velocity streaks (MRT pos+vel)
   GLuint pos[2] = {0,0}; GLuint vel[2] = {0,0}; GLuint fbo = 0; int front = 0;
+  GLuint spawnTex = 0;   // optional spawn-position/mask texture (unit 2 in the update)
   GLSLShader* updateProg = nullptr; std::string updateSrc;
   GLSLShader* drawProg = nullptr;
   Primitive* draw = nullptr; int drawId = -1;
@@ -1396,6 +1397,15 @@ void flux_gpu_uniform(const char* name, double v) {
   if (g_gpu && name) g_gpu->uniforms[name] = (float) v;
 }
 
+// use a (build-pixels) primitive's texture as the spawn source: the update shader
+// samples u_spawnTex (unit 2) to decide where reborn particles appear (image/mask).
+void flux_gpu_spawn_from_pixels(int pixId) {
+  if (!g_gpu || !g_ctx.r) return;
+  Primitive* p = g_ctx.r->GetPrimitive(pixId);
+  auto it = g_pixels.find(p);
+  g_gpu->spawnTex = (it != g_pixels.end()) ? it->second.tex : 0;
+}
+
 void flux_gpu_update(const char* updateFrag) {
   if (!g_gpu || !updateFrag) return;
   GPUParticles* g = g_gpu;
@@ -1414,10 +1424,11 @@ void flux_gpu_update(const char* updateFrag) {
   glDrawBuffers(2, bufs);
   glViewport(0, 0, g->w, g->h);
   glDisable(GL_DEPTH_TEST); glDisable(GL_BLEND); glDisable(GL_LIGHTING);
+  if (g->spawnTex) { glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, g->spawnTex); }
   glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, g->vel[g->front]);
   glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, g->pos[g->front]);
   g->updateProg->Apply();
-  g->updateProg->SetInt("u_state", 0); g->updateProg->SetInt("u_vel", 1);
+  g->updateProg->SetInt("u_state", 0); g->updateProg->SetInt("u_vel", 1); g->updateProg->SetInt("u_spawnTex", 2);
   for (auto& kv : g->uniforms) g->updateProg->SetFloat(kv.first, kv.second);
   glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity();
   glMatrixMode(GL_MODELVIEW);  glPushMatrix(); glLoadIdentity();
@@ -1427,6 +1438,7 @@ void flux_gpu_update(const char* updateFrag) {
   glEnd();
   glMatrixMode(GL_PROJECTION); glPopMatrix(); glMatrixMode(GL_MODELVIEW); glPopMatrix();
   GLSLShader::Unapply();
+  glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, 0);
   glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, 0);
   glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, 0);
   g->front = back;
