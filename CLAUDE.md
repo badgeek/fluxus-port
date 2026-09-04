@@ -337,9 +337,43 @@ cargo + RUSTC from `~/.cargo/bin`, and manual builds need
 speed, head switching, tracking noise, edge wave, …) — one string = total
 control; `""` resets. Classic knobs still work: noise/hue regenerate the signal
 settings (n=12 = stock ntsc-rs); saturation/brightness/contrast/scanlines/
-monochrome/blend are a C++ monitor post pass in `app/NTSCEffect.cpp` (ntsc-rs
-models the signal, not the monitor). Settings JSON is parsed only on change,
-never per-frame. use_field defaults to Upper (half cost, Bob deinterlace).
+monochrome/blend are a GPU monitor pass (`kMonFrag` in `app/NTSCEffect.cpp`,
+small-res FBO ping-pong; blend = a real IIR trail; identity settings skip the
+pass — ntsc-rs models the signal, not the monitor). use_field defaults to
+Upper (half cost, Bob deinterlace).
+- **Pipeline** (all in NTSCEffect.cpp, each stage profile-driven): GPU
+  downsample to a ≤480-row internal res (decim = ceil(h/480)) → PBO ping-pong
+  ASYNC readback (no glReadPixels GPU-flush stall; 1 frame latency) → ntsc-rs
+  pass on a dedicated worker thread (GL thread NTSC cost ~12ms → sub-ms;
+  1 more frame latency, 2 total — invisible at 25 fps) → GPU monitor pass →
+  LINEAR upscale blit. `RAYON_NUM_THREADS` is forced to 1 in `ntscrs_new()`:
+  the vendored `thread_pool.rs` then builds NO rayon pool and runs the filter
+  inline on our worker — with ≥2 workers the per-row-pass scope() fan-out/join
+  wake churn cost ~24 CPU points, dwarfing the ~10-point filter (headless
+  bench: `vendor/ntsc-rs/ffi/examples/bench.rs`, args `w h frames [json]`,
+  env `RAYON_NUM_THREADS`/`BENCH_BLACK`).
+- The ntsc setters (`ntsc-preset`/`ntsc-noise`/`ntsc-hue`) bump `presetRev`
+  only on a real VALUE change — an immediate-mode sketch re-runs its top-level
+  ntsc calls every frame, and an unconditional bump re-parsed the JSON and
+  rebuilt the whole effect per frame.
+
+### Measuring CPU here (all of these burned real time — read before profiling)
+- **%CPU across launch paths is apples-to-oranges.** `open`/Finder launch =
+  darwin spawn role `ui` → macOS runs the sustained-busy filter thread on
+  E-cores: SAME work, SAME 28 fps, ~2.5× the CPU TIME (app ~44% vs ~21% as a
+  terminal child, which has no spawn role). Nothing app-side overrides it
+  (QoS USER_INTERACTIVE, RT time-constraint policy, NSActivity, taskpolicy -B,
+  PRIO_DARWIN_ROLE — all tried, all null; list in `app/AppActivity.mm`). And
+  it's the RIGHT call: measured `powermetrics`, the E-core path draws ~725 mW
+  vs ~1027 mW on P-cores — `open` is ~30% more battery-efficient despite the
+  2× scarier top number. Compare fps/frame-time, never %CPU, across launch
+  paths; on battery prefer `open`, for max headroom launch the binary from a
+  terminal.
+- `ps -o %cpu` is a decaying average (~2× spread across instances); `sample`
+  counts parked/blocked threads (cvwait, iokit traps) as if busy. True numbers:
+  `top -pid X -l 2 -stats cpu | tail -1` (second sample), paired A/B within
+  ONE instance (e.g. `(ntsc #f)` vs `#t`), and real fps via a `(frame)`-to-file
+  probe. Simulate E-core cost headlessly: `taskpolicy -c background`.
 
 ## Vendored fluxus (`vendor/fluxus/`)
 Minimally edited for the port — find every change with `grep -rn "fluxus->JUCE port"`.
