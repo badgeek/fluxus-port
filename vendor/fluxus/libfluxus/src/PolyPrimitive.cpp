@@ -165,6 +165,7 @@ void PolyPrimitive::Render()
 		case TRILIST : type=GL_TRIANGLES; break;
 		case TRIFAN : type=GL_TRIANGLE_FAN; break;
 		case POLYGON : type=GL_POLYGON; break;
+		case LINES : type=GL_LINES; break;   // fluxus->JUCE port: GPU velocity streaks
 	}
 
 	if (m_State.Hints & HINT_AALIAS) glEnable(GL_LINE_SMOOTH);

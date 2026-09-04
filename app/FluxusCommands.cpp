@@ -1299,13 +1299,17 @@ void flux_shader_source_geom(const char* vert, const char* geom, const char* fra
 // coord in gl_Vertex.xy and the DRAW vertex shader FETCHES its state from the front
 // texture (VTF), so W*H particles (e.g. 256*256 = 65536) live entirely on the GPU.
 struct GPUParticles {
-  int w = 0, h = 0; GLuint tex[2] = {0,0}; GLuint fbo = 0; int front = 0;
+  int w = 0, h = 0; int mode = 0;   // mode 0 = points, 1 = velocity streaks (MRT pos+vel)
+  GLuint pos[2] = {0,0}; GLuint vel[2] = {0,0}; GLuint fbo = 0; int front = 0;
   GLSLShader* updateProg = nullptr; std::string updateSrc;
   GLSLShader* drawProg = nullptr;
-  ParticlePrimitive* draw = nullptr; int drawId = -1;
+  Primitive* draw = nullptr; int drawId = -1;
   std::map<std::string,float> uniforms;
 };
 static GPUParticles* g_gpu = nullptr;
+#ifndef GL_COLOR_ATTACHMENT1_EXT
+#define GL_COLOR_ATTACHMENT1_EXT 0x8CE1
+#endif
 
 static const char* kGpuQuadVS =
   "varying vec2 vUV;\n"
@@ -1350,27 +1354,37 @@ static void gpuRunPass(GPUParticles* g, GLuint targetTex, GLuint inputTex, GLSLS
   glEnable(GL_DEPTH_TEST);
 }
 
-int flux_gpu_build(int w, int h, const char* initFrag) {
+int flux_gpu_build(int w, int h, const char* initFrag, int mode) {
   if (w < 1) w = 1; if (h < 1) h = 1;
   GLSLShader::Init();
   GPUParticles* g = new GPUParticles();
-  g->w = w; g->h = h;
-  g->tex[0] = gpuMakeStateTex(w, h);
-  g->tex[1] = gpuMakeStateTex(w, h);
+  g->w = w; g->h = h; g->mode = mode;
+  g->pos[0] = gpuMakeStateTex(w, h); g->pos[1] = gpuMakeStateTex(w, h);
+  g->vel[0] = gpuMakeStateTex(w, h); g->vel[1] = gpuMakeStateTex(w, h);   // MRT velocity target
   glGenFramebuffersEXT(1, &g->fbo);
-  ParticlePrimitive* p = new ParticlePrimitive();   // one GL_POINTS vertex per texel
-  for (int y = 0; y < h; ++y)
-    for (int x = 0; x < w; ++x)
+  int id;
+  if (mode == 1) {   // velocity STREAKS: a LINES prim, 2 verts (head + tail) per particle
+    PolyPrimitive* p = new PolyPrimitive(PolyPrimitive::LINES);
+    for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) {
+      dVector tc((x + 0.5f) / (float) w, (y + 0.5f) / (float) h, 0);
+      p->AddVertex(dVertex(tc, dVector(0,0,1), 0, 0));
+      p->AddVertex(dVertex(tc, dVector(0,0,1), 0, 0));
+    }
+    State* s = p->GetState(); s->Hints = HINT_UNLIT | HINT_VERTCOLS; s->LineWidth = 1.6f;
+    id = addPrim(p); g->draw = p;
+  } else {           // POINTS: one GL_POINTS vertex per texel
+    ParticlePrimitive* p = new ParticlePrimitive();
+    for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x)
       p->AddParticle(dVector((x + 0.5f) / (float) w, (y + 0.5f) / (float) h, 0),
                      dColour(1,1,1,1), dVector(0.1f, 0.1f, 0));
-  State* s = p->GetState();
-  s->Hints = HINT_POINTS | HINT_UNLIT;
-  int id = addPrim(p);
-  g->draw = p; g->drawId = id;
-  if (initFrag && *initFrag) {   // seed the initial state into tex[0]
+    State* s = p->GetState(); s->Hints = HINT_POINTS | HINT_UNLIT;
+    id = addPrim(p); g->draw = p;
+  }
+  g->drawId = id;
+  if (initFrag && *initFrag) {   // seed the initial position/age into pos[0]
     GLSLShaderPair pair(false, kGpuQuadVS, initFrag);
     GLSLShader* initProg = new GLSLShader(pair);
-    gpuRunPass(g, g->tex[0], g->tex[1], initProg);
+    gpuRunPass(g, g->pos[0], g->pos[1], initProg);
     delete initProg;
   }
   g->front = 0;
@@ -1390,27 +1404,65 @@ void flux_gpu_update(const char* updateFrag) {
     g->updateProg = new GLSLShader(pair);   // old leaks (source rarely changes)
     g->updateSrc = updateFrag;
   }
-  int back = 1 - g->front;
-  gpuRunPass(g, g->tex[back], g->tex[g->front], g->updateProg);
-  g->front = back;
-  // Apple's legacy GL can't vertex-texture-fetch a float texture, so instead of
-  // sampling the state texture in the draw VS, read the just-updated state back and
-  // push it into the draw prim's pdata. The heavy part (the noise advection of all
-  // w*h particles) still runs in parallel on the GPU; the CPU only does a cheap
-  // readback + a colour-by-age fill (no per-particle noise).
-  const int n = g->w * g->h;
-  static std::vector<float> buf; buf.resize((size_t) n * 4);
+  const int back = 1 - g->front;
+  // --- MRT update pass: advance ALL particles, writing pos+age AND velocity -----
+  GLint vp[4]; glGetIntegerv(GL_VIEWPORT, vp);
   glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, g->fbo);
-  glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, g->tex[g->front], 0);
-  glReadBuffer(GL_COLOR_ATTACHMENT0_EXT);
-  glReadPixels(0, 0, g->w, g->h, GL_RGBA, GL_FLOAT, buf.data());
+  glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, g->pos[back], 0);
+  glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT1_EXT, GL_TEXTURE_2D, g->vel[back], 0);
+  GLenum bufs[2] = { GL_COLOR_ATTACHMENT0_EXT, GL_COLOR_ATTACHMENT1_EXT };
+  glDrawBuffers(2, bufs);
+  glViewport(0, 0, g->w, g->h);
+  glDisable(GL_DEPTH_TEST); glDisable(GL_BLEND); glDisable(GL_LIGHTING);
+  glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, g->vel[g->front]);
+  glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, g->pos[g->front]);
+  g->updateProg->Apply();
+  g->updateProg->SetInt("u_state", 0); g->updateProg->SetInt("u_vel", 1);
+  for (auto& kv : g->uniforms) g->updateProg->SetFloat(kv.first, kv.second);
+  glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity();
+  glMatrixMode(GL_MODELVIEW);  glPushMatrix(); glLoadIdentity();
+  glBegin(GL_QUADS);
+    glTexCoord2f(0,0); glVertex2f(-1,-1); glTexCoord2f(1,0); glVertex2f(1,-1);
+    glTexCoord2f(1,1); glVertex2f( 1, 1); glTexCoord2f(0,1); glVertex2f(-1,1);
+  glEnd();
+  glMatrixMode(GL_PROJECTION); glPopMatrix(); glMatrixMode(GL_MODELVIEW); glPopMatrix();
+  GLSLShader::Unapply();
+  glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, 0);
+  glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, 0);
+  g->front = back;
+
+  // --- read the updated state back (Apple can't VTF a float texture) ------------
+  const int n = g->w * g->h;
+  static std::vector<float> pbuf, vbuf; pbuf.resize((size_t) n * 4); vbuf.resize((size_t) n * 4);
+  glReadBuffer(GL_COLOR_ATTACHMENT0_EXT); glReadPixels(0, 0, g->w, g->h, GL_RGBA, GL_FLOAT, pbuf.data());
+  if (g->mode == 1) { glReadBuffer(GL_COLOR_ATTACHMENT1_EXT); glReadPixels(0, 0, g->w, g->h, GL_RGBA, GL_FLOAT, vbuf.data()); }
   glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
-  const float maxAge = g->uniforms.count("u_maxAge") ? g->uniforms["u_maxAge"] : 9.0f;
+  glDrawBuffer(GL_BACK);
+  glViewport(vp[0], vp[1], vp[2], vp[3]); glEnable(GL_DEPTH_TEST);
+
+  // --- fill the draw prim's pdata -----------------------------------------------
+  auto uni = [&](const char* k, float d) { auto it = g->uniforms.find(k); return it != g->uniforms.end() ? it->second : d; };
+  const float maxAge = uni("u_maxAge", 9.0f);
+  const float yr = uni("u_youngR", 0.45f), yg = uni("u_youngG", 1.0f), yb = uni("u_youngB", 1.0f);
+  const float orr = uni("u_oldR", 0.10f),  og = uni("u_oldG", 0.45f), ob = uni("u_oldB", 1.0f);
+  const float alpha = uni("u_alpha", 0.08f);
+  const float streak = uni("u_streak", 0.06f);   // streak length as a fraction of velocity
   for (int i = 0; i < n; ++i) {
-    const float* q = &buf[(size_t) i * 4];
-    g->draw->SetData<dVector>("p", i, dVector(q[0], q[1], q[2]));
+    const float* q = &pbuf[(size_t) i * 4];
     float f = 1.0f - std::min(1.0f, std::max(0.0f, q[3] / maxAge));   // 1 young -> 0 old
-    g->draw->SetData<dColour>("c", i, dColour(0.45f * f, 0.45f + 0.55f * f, 1.0f, 0.08f * (0.15f + 0.85f * f)));
+    dColour col(orr + (yr - orr) * f, og + (yg - og) * f, ob + (yb - ob) * f, alpha * (0.15f + 0.85f * f));
+    if (g->mode == 1) {
+      const float* vv = &vbuf[(size_t) i * 4];
+      dVector head(q[0], q[1], q[2]);
+      dVector tail(q[0] - vv[0] * streak, q[1] - vv[1] * streak, q[2] - vv[2] * streak);
+      g->draw->SetData<dVector>("p", 2 * i,     head);
+      g->draw->SetData<dVector>("p", 2 * i + 1, tail);
+      g->draw->SetData<dColour>("c", 2 * i,     col);
+      g->draw->SetData<dColour>("c", 2 * i + 1, dColour(col.r, col.g, col.b, 0.0f));   // fade to the tail
+    } else {
+      g->draw->SetData<dVector>("p", i, dVector(q[0], q[1], q[2]));
+      g->draw->SetData<dColour>("c", i, col);
+    }
   }
   g->draw->BumpPDataVersion();
   if (g->drawProg) {   // keep the draw shader's uniforms (uSize, …) current

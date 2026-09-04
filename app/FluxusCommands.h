@@ -238,7 +238,7 @@ extern "C" {
   void flux_shader_clear(void);
 
   // GPU particle system (ping-pong FBO state + vertex-texture-fetch draw)
-  int  flux_gpu_build(int w, int h, const char* initFrag);       // -> draw-prim id
+  int  flux_gpu_build(int w, int h, const char* initFrag, int mode);   // mode 0=points 1=streaks
   void flux_gpu_update(const char* updateFrag);                  // advance state on GPU
   void flux_gpu_draw_shaders(const char* vert, const char* geom, const char* frag,
                              int gin, int gout, int gverts);      // VTF draw shader

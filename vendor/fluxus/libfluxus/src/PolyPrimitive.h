@@ -31,7 +31,7 @@ class PolyPrimitive : public Primitive
 {
 public:
 	// Todo: sort out these silly names, add quadstrip
-	enum Type{TRISTRIP,QUADS,TRILIST,TRIFAN,POLYGON};
+	enum Type{TRISTRIP,QUADS,TRILIST,TRIFAN,POLYGON,LINES};   // LINES: fluxus->JUCE port (GPU streaks)
 	
 	PolyPrimitive(Type t=TRISTRIP);
 	PolyPrimitive(const PolyPrimitive &other);
