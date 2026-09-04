@@ -236,6 +236,13 @@ extern "C" {
   void flux_shader_source_geom(const char* vert, const char* geom, const char* frag,
                                int gin, int gout, int gverts);   // + geometry stage
   void flux_shader_clear(void);
+
+  // GPU particle system (ping-pong FBO state + vertex-texture-fetch draw)
+  int  flux_gpu_build(int w, int h, const char* initFrag);       // -> draw-prim id
+  void flux_gpu_update(const char* updateFrag);                  // advance state on GPU
+  void flux_gpu_draw_shaders(const char* vert, const char* geom, const char* frag,
+                             int gin, int gout, int gverts);      // VTF draw shader
+  void flux_gpu_uniform(const char* name, double v);             // uniform for both passes
   void flux_shader_set_float(const char* name, double v);
   void flux_shader_set_vec(const char* name, double x, double y, double z);
   void flux_shader_set_int(const char* name, int v);      // e.g. bind a sampler to a unit

@@ -448,6 +448,24 @@
   (_shader-src-g vert geom frag in-type out-type max-verts))
 (define gl-points 0) (define gl-lines 1) (define gl-line-strip 3)
 (define gl-triangles 4) (define gl-triangle-strip 5)
+;; GPU particle system: state (pos.xyz, age) in a ping-pong RGBA32F FBO, advanced by
+;; an update fragment shader; drawn by a W*H points prim whose VERTEX shader fetches
+;; each particle's state from the front texture (u_state) via vertex texture fetch.
+(define _gpu-build (cfun "flux_gpu_build" (_fun _int _int _string -> _int) (lambda (a b c) 0)))
+(define _gpu-upd   (cfun "flux_gpu_update" (_fun _string -> _void) (lambda (a) (void))))
+(define _gpu-draw  (cfun "flux_gpu_draw_shaders" (_fun _string _string _string _int _int _int -> _void) (lambda (a b c d e f) (void))))
+(define _gpu-uni   (cfun "flux_gpu_uniform" (_fun _string _double -> _void) (lambda (a b) (void))))
+;; (build-gpu-particles w h init-frag): allocate w*h particles, seed state with init-frag
+;; (a fragment shader writing gl_FragColor = vec4(pos, age) from vUV). Returns draw id.
+(define (build-gpu-particles w h init-frag) (_gpu-build w h init-frag))
+;; (gpu-update! update-frag): advance state one step (reads u_state + set uniforms).
+(define (gpu-update! update-frag) (_gpu-upd update-frag))
+;; (gpu-draw-shaders vert frag [geom in-type out-type max-verts]): the draw shader;
+;; its VERTEX shader samples u_state at gl_Vertex.xy to place each point.
+(define (gpu-draw-shaders vert frag (geom "") (in-type 0) (out-type 5) (max-verts 4))
+  (_gpu-draw vert geom frag in-type out-type max-verts))
+;; (gpu-uniform! name x): set a float uniform on BOTH the update and draw programs.
+(define (gpu-uniform! name x) (_gpu-uni name (->fl x)))
 (define (shader-off) (_shader-off))
 (define (shader-set-float! name x) (_shader-f name (->fl x)))
 (define (shader-set-vec! name v) (_shader-v name (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))

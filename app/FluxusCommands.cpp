@@ -10,6 +10,7 @@
 #include "TextPrimitive.h"
 #include "NURBSPrimitive.h"
 #include <OpenGL/gl.h>
+#include <OpenGL/glext.h>   // EXT_framebuffer_object + RGBA32F for GPU particle ping-pong
 #include "GraphicsUtils.h"
 #include "Camera.h"
 #include "State.h"
@@ -42,6 +43,7 @@
 #include <set>
 #include <atomic>
 #include <array>
+#include <algorithm>
 #include <utility>
 
 using namespace Fluxus;
@@ -1288,6 +1290,147 @@ void flux_shader_source_geom(const char* vert, const char* geom, const char* fra
   if (State* s = grabbedState()) setStateShader(s, sh);
   else                           g_ctx.shader = sh;
 }
+
+// ============================================================================
+// GPU particle system: ping-pong RGBA32F FBO state + vertex-texture-fetch draw.
+// State (pos.xyz, age) lives in float textures; an update fragment shader advances
+// ALL particles in parallel each frame (render into the back texture reading the
+// front, then swap). A W*H GL_POINTS prim draws them — each vertex stores its texel
+// coord in gl_Vertex.xy and the DRAW vertex shader FETCHES its state from the front
+// texture (VTF), so W*H particles (e.g. 256*256 = 65536) live entirely on the GPU.
+struct GPUParticles {
+  int w = 0, h = 0; GLuint tex[2] = {0,0}; GLuint fbo = 0; int front = 0;
+  GLSLShader* updateProg = nullptr; std::string updateSrc;
+  GLSLShader* drawProg = nullptr;
+  ParticlePrimitive* draw = nullptr; int drawId = -1;
+  std::map<std::string,float> uniforms;
+};
+static GPUParticles* g_gpu = nullptr;
+
+static const char* kGpuQuadVS =
+  "varying vec2 vUV;\n"
+  "void main(){ vUV = gl_MultiTexCoord0.xy; gl_Position = gl_Vertex; }\n";
+
+static GLuint gpuMakeStateTex(int w, int h) {
+  GLuint t = 0; glGenTextures(1, &t); glBindTexture(GL_TEXTURE_2D, t);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F_ARB, w, h, 0, GL_RGBA, GL_FLOAT, nullptr);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  glBindTexture(GL_TEXTURE_2D, 0);
+  return t;
+}
+
+// render a fullscreen quad through `prog` into targetTex, inputTex bound to unit 0.
+static void gpuRunPass(GPUParticles* g, GLuint targetTex, GLuint inputTex, GLSLShader* prog) {
+  GLint vp[4]; glGetIntegerv(GL_VIEWPORT, vp);
+  glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, g->fbo);
+  glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, targetTex, 0);
+  glDrawBuffer(GL_COLOR_ATTACHMENT0_EXT);   // route fragment output to the attachment
+  glViewport(0, 0, g->w, g->h);
+  glDisable(GL_DEPTH_TEST); glDisable(GL_BLEND); glDisable(GL_LIGHTING);
+  glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, inputTex);
+  prog->Apply();
+  prog->SetInt("u_state", 0);
+  for (auto& kv : g->uniforms) prog->SetFloat(kv.first, kv.second);
+  glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity();
+  glMatrixMode(GL_MODELVIEW);  glPushMatrix(); glLoadIdentity();
+  glBegin(GL_QUADS);
+    glTexCoord2f(0,0); glVertex2f(-1,-1); glTexCoord2f(1,0); glVertex2f(1,-1);
+    glTexCoord2f(1,1); glVertex2f( 1, 1); glTexCoord2f(0,1); glVertex2f(-1,1);
+  glEnd();
+  glMatrixMode(GL_PROJECTION); glPopMatrix();
+  glMatrixMode(GL_MODELVIEW);  glPopMatrix();
+  GLSLShader::Unapply();
+  glBindTexture(GL_TEXTURE_2D, 0);
+  glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+  glDrawBuffer(GL_BACK);                     // restore the default framebuffer draw target
+  glViewport(vp[0], vp[1], vp[2], vp[3]);
+  glEnable(GL_DEPTH_TEST);
+}
+
+int flux_gpu_build(int w, int h, const char* initFrag) {
+  if (w < 1) w = 1; if (h < 1) h = 1;
+  GLSLShader::Init();
+  GPUParticles* g = new GPUParticles();
+  g->w = w; g->h = h;
+  g->tex[0] = gpuMakeStateTex(w, h);
+  g->tex[1] = gpuMakeStateTex(w, h);
+  glGenFramebuffersEXT(1, &g->fbo);
+  ParticlePrimitive* p = new ParticlePrimitive();   // one GL_POINTS vertex per texel
+  for (int y = 0; y < h; ++y)
+    for (int x = 0; x < w; ++x)
+      p->AddParticle(dVector((x + 0.5f) / (float) w, (y + 0.5f) / (float) h, 0),
+                     dColour(1,1,1,1), dVector(0.1f, 0.1f, 0));
+  State* s = p->GetState();
+  s->Hints = HINT_POINTS | HINT_UNLIT;
+  int id = addPrim(p);
+  g->draw = p; g->drawId = id;
+  if (initFrag && *initFrag) {   // seed the initial state into tex[0]
+    GLSLShaderPair pair(false, kGpuQuadVS, initFrag);
+    GLSLShader* initProg = new GLSLShader(pair);
+    gpuRunPass(g, g->tex[0], g->tex[1], initProg);
+    delete initProg;
+  }
+  g->front = 0;
+  g_gpu = g;   // one system per session (previous, if any, leaks — session-lived)
+  return id;
+}
+
+void flux_gpu_uniform(const char* name, double v) {
+  if (g_gpu && name) g_gpu->uniforms[name] = (float) v;
+}
+
+void flux_gpu_update(const char* updateFrag) {
+  if (!g_gpu || !updateFrag) return;
+  GPUParticles* g = g_gpu;
+  if (!g->updateProg || g->updateSrc != updateFrag) {
+    GLSLShaderPair pair(false, kGpuQuadVS, updateFrag);
+    g->updateProg = new GLSLShader(pair);   // old leaks (source rarely changes)
+    g->updateSrc = updateFrag;
+  }
+  int back = 1 - g->front;
+  gpuRunPass(g, g->tex[back], g->tex[g->front], g->updateProg);
+  g->front = back;
+  // Apple's legacy GL can't vertex-texture-fetch a float texture, so instead of
+  // sampling the state texture in the draw VS, read the just-updated state back and
+  // push it into the draw prim's pdata. The heavy part (the noise advection of all
+  // w*h particles) still runs in parallel on the GPU; the CPU only does a cheap
+  // readback + a colour-by-age fill (no per-particle noise).
+  const int n = g->w * g->h;
+  static std::vector<float> buf; buf.resize((size_t) n * 4);
+  glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, g->fbo);
+  glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, g->tex[g->front], 0);
+  glReadBuffer(GL_COLOR_ATTACHMENT0_EXT);
+  glReadPixels(0, 0, g->w, g->h, GL_RGBA, GL_FLOAT, buf.data());
+  glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+  const float maxAge = g->uniforms.count("u_maxAge") ? g->uniforms["u_maxAge"] : 9.0f;
+  for (int i = 0; i < n; ++i) {
+    const float* q = &buf[(size_t) i * 4];
+    g->draw->SetData<dVector>("p", i, dVector(q[0], q[1], q[2]));
+    float f = 1.0f - std::min(1.0f, std::max(0.0f, q[3] / maxAge));   // 1 young -> 0 old
+    g->draw->SetData<dColour>("c", i, dColour(0.45f * f, 0.45f + 0.55f * f, 1.0f, 0.08f * (0.15f + 0.85f * f)));
+  }
+  g->draw->BumpPDataVersion();
+  if (g->drawProg) {   // keep the draw shader's uniforms (uSize, …) current
+    g->drawProg->Apply();
+    for (auto& kv : g->uniforms) g->drawProg->SetFloat(kv.first, kv.second);
+    GLSLShader::Unapply();
+  }
+}
+
+void flux_gpu_draw_shaders(const char* vert, const char* geom, const char* frag,
+                           int gin, int gout, int gverts) {
+  if (!g_gpu || !vert || !frag) return;
+  GLSLShader* prog;
+  if (geom && *geom) { GLSLShaderPair pr(false, vert, geom, frag, gin, gout, gverts); prog = new GLSLShader(pr); }
+  else               { GLSLShaderPair pr(false, vert, frag); prog = new GLSLShader(pr); }
+  prog->Apply(); prog->SetInt("u_state", 0); GLSLShader::Unapply();
+  g_gpu->drawProg = prog;
+  setStateShader(g_gpu->draw->GetState(), prog);
+}
+
 void flux_shader_clear(void) {
   if (State* s = grabbedState()) setStateShader(s, nullptr);
   else                           g_ctx.shader = nullptr;
