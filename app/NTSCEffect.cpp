@@ -35,11 +35,37 @@ static const char* kFrag =
   "varying vec2 uv;\n"
   "void main() { gl_FragColor = vec4(texture2D(tex, uv).rgb, 1.0); }\n";
 
+// Monitor post pass on the GPU (was a per-pixel C++ loop): saturation/
+// brightness/contrast/monochrome, scanline darkening on odd raster lines, and
+// the optional 50% blend with the PREVIOUS monitor output (a real IIR trail —
+// prevTex is last frame's post-monitor result, so the feedback chain matches
+// the old CPU version). Runs at the small pw*ph res into an FBO, so scanlines
+// land at the 480-line raster scale exactly as before.
+static const char* kMonFrag =
+  "uniform sampler2D tex;\n"       // filtered current frame (unit 0)
+  "uniform sampler2D prevTex;\n"   // previous monitor output (unit 1)
+  "uniform float sat;\n"
+  "uniform float con;\n"
+  "uniform float bri;\n"           // brightness/255
+  "uniform float scan;\n"          // 1 = darken odd rows
+  "uniform float blendAmt;\n"      // 0 or 0.5
+  "varying vec2 uv;\n"
+  "void main() {\n"
+  "  vec3 c = texture2D(tex, uv).rgb;\n"
+  "  float l = dot(c, vec3(0.299, 0.587, 0.114));\n"
+  "  c = l + (c - l) * sat;\n"
+  "  c = (c - 0.5) * con + 0.5 + bri;\n"
+  "  if (scan > 0.5 && mod(floor(gl_FragCoord.y), 2.0) >= 1.0) c *= 0.65;\n"
+  "  c = clamp(c, 0.0, 1.0);\n"
+  "  c = mix(c, texture2D(prevTex, uv).rgb, blendAmt);\n"
+  "  gl_FragColor = vec4(c, 1.0);\n"
+  "}\n";
+
 struct NTSCEffect::Impl {
   void*       rs = nullptr;        // ntscrs handle (Context + settings + scratch)
-  GLSLShader* shader = nullptr;
+  GLSLShader* shader = nullptr;    // passthrough blit
+  GLSLShader* monShader = nullptr; // monitor post pass (kMonFrag)
   int         lastRev = -1;        // NtscParams::presetRev last loaded
-  bool        havePrev = false;    // `out` holds last frame's result (for blend)
   // The effect runs at a reduced INTERNAL resolution: NTSC is a ~480-line
   // medium, so integer-decimate the retina framebuffer down to <=600 rows
   // (1440 -> 480, 1080 -> 540), run the (CPU-heavy, per-pixel IIR) simulation
@@ -64,6 +90,12 @@ struct NTSCEffect::Impl {
   unsigned int pbo[2] = {0, 0};
   int          pboIdx = 0;
   bool         pboPrimed = false;  // pbo[1-idx] holds a mappable prior frame
+  // Monitor pass ping-pong targets (pw x ph): the pass renders into
+  // monTex[monIdx] while sampling monTex[1-monIdx] as the previous output
+  // (blend feedback). Skipped entirely when the monitor settings are identity.
+  unsigned int monTex[2] = {0, 0};
+  int          monIdx = 0;
+  bool         monPrimed = false;  // monTex[1-idx] holds a valid prior frame
 };
 
 // When no JSON preset is set, derive the ntsc-rs settings from the classic
@@ -91,14 +123,15 @@ void NTSCEffect::release() {
   if (impl) {
     if (impl->rs) ntscrs_free(impl->rs);
     if (impl->shader && impl->shader->DecRef()) delete impl->shader;
+    if (impl->monShader && impl->monShader->DecRef()) delete impl->monShader;
     if (impl->fullTex) glDeleteTextures(1, &impl->fullTex);
     if (impl->readTex) glDeleteTextures(1, &impl->readTex);
+    if (impl->monTex[0]) glDeleteTextures(2, impl->monTex);
     if (impl->fbo)     glDeleteFramebuffersEXT(1, &impl->fbo);
     if (impl->pbo[0])  glDeleteBuffers(2, impl->pbo);
     delete impl;
     impl = nullptr;
   }
-  in.clear(); out.clear();
   w = h = 0; field = 0;
 }
 
@@ -113,7 +146,6 @@ bool NTSCEffect::ensure(int W, int H) {
   impl->pw = std::max(1, w / impl->decim);
   impl->ph = std::max(1, h / impl->decim);
   impl->small_.assign((size_t) impl->pw * impl->ph * 4, 0);
-  out.assign((size_t) impl->pw * impl->ph * 4, 0);   // previous-frame store (blend), small res
 
   if (!tex) glGenTextures(1, &tex);
   glBindTexture(GL_TEXTURE_2D, tex);
@@ -141,6 +173,8 @@ bool NTSCEffect::ensure(int W, int H) {
   };
   mkTex(impl->fullTex, w, h);
   mkTex(impl->readTex, impl->pw, impl->ph);
+  mkTex(impl->monTex[0], impl->pw, impl->ph);
+  mkTex(impl->monTex[1], impl->pw, impl->ph);
   if (!impl->fbo) glGenFramebuffersEXT(1, &impl->fbo);
 
   // async-readback PBOs (PBO is core in the 2.1 context; no EXT suffix needed)
@@ -159,7 +193,11 @@ bool NTSCEffect::ensure(int W, int H) {
     GLSLShaderPair pair(false, kVert, kFrag);        // compile from source
     impl->shader = new GLSLShader(pair);
   }
-  impl->havePrev = false;                            // stale prev after a resize
+  if (!impl->monShader) {
+    GLSLShaderPair pair(false, kVert, kMonFrag);
+    impl->monShader = new GLSLShader(pair);
+  }
+  impl->monPrimed = false;                           // stale prev after a resize
   return true;
 }
 
@@ -243,46 +281,65 @@ void NTSCEffect::apply(int W, int H, const NtscParams& p) {
   //    `field` doubles as the frame counter driving noise animation and phase.
   ntscrs_process(impl->rs, impl->small_.data(), pw, ph, pw * 4, field++, /*flip_y=*/1);
 
-  // 4. monitor post pass (ntsc-rs models the signal, not the monitor):
-  //    saturation/brightness/contrast/monochrome per pixel, scanline darkening,
-  //    and optional 50% blend with the previous output frame (VHS-ish lag).
-  //    Runs on the SMALL buffer — scanlines land at the 480-line raster scale.
-  {
-    const float sat = p.monochrome ? 0.0f : (float) p.saturation / 10.0f;
-    const float con = (float) p.contrast / 180.0f;
-    const float bri = (float) p.brightness;
-    const bool  identity = !p.scanlines && !p.blend && !p.monochrome &&
-                           p.saturation == 10 && p.brightness == 0 && p.contrast == 180;
-    if (!identity) {
-      unsigned char* px = impl->small_.data();
-      unsigned char* pv = out.data();
-      const bool doBlend = p.blend && impl->havePrev;
-      for (int y = 0; y < ph; ++y) {
-        // buffer is bottom-up; darken every other raster line
-        const float scan = (p.scanlines && (y & 1)) ? 0.65f : 1.0f;
-        for (int x = 0; x < pw; ++x, px += 4, pv += 4) {
-          float r = px[0], g = px[1], b = px[2];
-          const float l = 0.299f * r + 0.587f * g + 0.114f * b;
-          r = l + (r - l) * sat; g = l + (g - l) * sat; b = l + (b - l) * sat;
-          r = ((r - 128.0f) * con + 128.0f + bri) * scan;
-          g = ((g - 128.0f) * con + 128.0f + bri) * scan;
-          b = ((b - 128.0f) * con + 128.0f + bri) * scan;
-          if (doBlend) { r = (r + pv[0]) * 0.5f; g = (g + pv[1]) * 0.5f; b = (b + pv[2]) * 0.5f; }
-          px[0] = (unsigned char) std::clamp(r, 0.0f, 255.0f);
-          px[1] = (unsigned char) std::clamp(g, 0.0f, 255.0f);
-          px[2] = (unsigned char) std::clamp(b, 0.0f, 255.0f);
-        }
-      }
-    }
-    if (p.blend) { out = impl->small_; impl->havePrev = true; }
+  // 4. upload the filtered small frame, then the GPU monitor post pass
+  //    (ntsc-rs models the signal, not the monitor): saturation/brightness/
+  //    contrast/monochrome, scanline darkening, optional 50% blend with the
+  //    previous OUTPUT frame (IIR trail — see kMonFrag). Renders at the small
+  //    res into monTex[monIdx] so scanlines land at the 480-line raster scale;
+  //    identity settings skip the pass (and its FBO round-trip) entirely.
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, tex);
+  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, pw, ph, GL_RGBA, GL_UNSIGNED_BYTE, impl->small_.data());
+
+  const bool identity = !p.scanlines && !p.blend && !p.monochrome &&
+                        p.saturation == 10 && p.brightness == 0 && p.contrast == 180;
+  unsigned int blitSrc = tex;                        // what step 5 upscales
+  if (!identity && impl->monShader && impl->monShader->IsValid()) {
+    glActiveTexture(GL_TEXTURE1);                    // previous monitor output
+    glBindTexture(GL_TEXTURE_2D, impl->monTex[1 - impl->monIdx]);
+    glActiveTexture(GL_TEXTURE0);                    // filtered current frame
+
+    glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl->fbo);
+    glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT,
+                              GL_TEXTURE_2D, impl->monTex[impl->monIdx], 0);
+    glDrawBuffer(GL_COLOR_ATTACHMENT0_EXT);
+    glViewport(0, 0, pw, ph);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    glEnable(GL_TEXTURE_2D);
+    glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity();
+    glMatrixMode(GL_MODELVIEW);  glPushMatrix(); glLoadIdentity();
+    impl->monShader->Apply();
+    impl->monShader->SetInt("tex", 0);
+    impl->monShader->SetInt("prevTex", 1);
+    impl->monShader->SetFloat("sat", p.monochrome ? 0.0f : (float) p.saturation / 10.0f);
+    impl->monShader->SetFloat("con", (float) p.contrast / 180.0f);
+    impl->monShader->SetFloat("bri", (float) p.brightness / 255.0f);
+    impl->monShader->SetFloat("scan", p.scanlines ? 1.0f : 0.0f);
+    impl->monShader->SetFloat("blendAmt", (p.blend && impl->monPrimed) ? 0.5f : 0.0f);
+    glColor4f(1, 1, 1, 1);
+    glBegin(GL_QUADS);
+      glTexCoord2f(0, 0); glVertex2f(-1, -1);
+      glTexCoord2f(1, 0); glVertex2f( 1, -1);
+      glTexCoord2f(1, 1); glVertex2f( 1,  1);
+      glTexCoord2f(0, 1); glVertex2f(-1,  1);
+    glEnd();
+    impl->monShader->Unapply();
+    glMatrixMode(GL_PROJECTION); glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);  glPopMatrix();
+    glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+    glDrawBuffer(GL_BACK);
+
+    blitSrc = impl->monTex[impl->monIdx];
+    impl->monIdx ^= 1;
+    impl->monPrimed = true;
   }
 
   // 5. blit the small result back over the full screen through the passthrough
   //    shader (LINEAR upscale). Select unit 0 FIRST — the shader samples `tex`
   //    on unit 0, and the renderer may leave a different unit active.
   glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, tex);
-  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, pw, ph, GL_RGBA, GL_UNSIGNED_BYTE, impl->small_.data());
+  glBindTexture(GL_TEXTURE_2D, blitSrc);
 
   glViewport(0, 0, w, h);
   glDisable(GL_DEPTH_TEST);
@@ -304,6 +361,9 @@ void NTSCEffect::apply(int W, int H, const NtscParams& p) {
 
   glMatrixMode(GL_PROJECTION); glPopMatrix();
   glMatrixMode(GL_MODELVIEW);  glPopMatrix();
+  glActiveTexture(GL_TEXTURE1);            // don't leak the prev-frame binding
+  glBindTexture(GL_TEXTURE_2D, 0);
+  glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, 0);
   glDisable(GL_TEXTURE_2D);
   glEnable(GL_DEPTH_TEST);

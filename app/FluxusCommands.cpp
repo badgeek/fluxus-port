@@ -1868,14 +1868,23 @@ extern "C" void flux_ntsc(int on) {
   std::lock_guard<std::mutex> lk(g_ntscMutex);
   g_ntscEnabled = (on != 0);
 }
+// The setters that feed the ntsc-rs settings bump presetRev ONLY on an actual
+// value change: an immediate-mode sketch re-runs its top-level (ntsc-noise …)/
+// (ntsc-preset …) calls EVERY frame, and an unconditional bump made NTSCEffect
+// re-parse the JSON and rebuild the whole effect per frame (real CPU, and it
+// resets the filter state ntsc-rs caches internally).
 extern "C" void flux_ntsc_noise(int n) {
   std::lock_guard<std::mutex> lk(g_ntscMutex);
-  g_ntsc.noise = n < 0 ? 0 : n;
+  n = n < 0 ? 0 : n;
+  if (g_ntsc.noise == n) return;
+  g_ntsc.noise = n;
   g_ntsc.presetRev++;              // noise feeds the ntsc-rs settings -> reload
 }
 extern "C" void flux_ntsc_hue(int deg) {
   std::lock_guard<std::mutex> lk(g_ntscMutex);
-  g_ntsc.hue = ((deg % 360) + 360) % 360;
+  deg = ((deg % 360) + 360) % 360;
+  if (g_ntsc.hue == deg) return;
+  g_ntsc.hue = deg;
   g_ntsc.presetRev++;              // hue feeds the ntsc-rs settings -> reload
 }
 extern "C" void flux_ntsc_saturation(int s) {
@@ -1904,7 +1913,9 @@ extern "C" void flux_ntsc_blend(int on) {
 }
 extern "C" void flux_ntsc_preset(const char* json) {
   std::lock_guard<std::mutex> lk(g_ntscMutex);
-  g_ntsc.preset = json ? json : "";
+  const char* s = json ? json : "";
+  if (g_ntsc.preset == s) return;
+  g_ntsc.preset = s;
   g_ntsc.presetRev++;
 }
 bool flux_ntsc_state(NtscParams& out) {

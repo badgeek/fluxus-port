@@ -30,18 +30,22 @@ fn default_effect() -> NtscEffect {
 
 /// Create an effect instance (Context + default settings + scratch).
 ///
-/// The rayon pool defaults to ALL physical cores; cap it at 2. Headless bench
-/// (640x540): 1 thread = 4.6 ms/frame, 2 = 2.3, 4 = 1.3, 8 = 1.3 — latency
-/// plateaus past 4, but TOTAL core-ms rises with each extra worker (4.6 @ 2 vs
-/// 5.2 @ 4). The app frame-limits at 25 fps (40 ms budget) and the GL thread
-/// reads back asynchronously, so filter latency is irrelevant — total CPU is
-/// the metric, and 2 workers minimize it while halving the 1-thread latency.
-/// Overridable via RAYON_NUM_THREADS; note `open`-launched .apps drop shell
-/// env (launchd), so this in-process default is what a bundled app gets.
+/// The rayon pool defaults to ALL physical cores; force 1 thread. With a
+/// single thread ntsc-rs's ZipChunks::par_for_each takes the seq_for_each
+/// path INLINE on the caller — no pool fan-out at all. That matters more than
+/// the filter math: apply_effect_to_yiq is dozens of row-passes, each a
+/// rayon scope() fan-out/join, and at 25 fps the wake/park churn across
+/// workers measured ~24 CPU points on the whole app (44% with 2 threads vs
+/// 20% with 1, same sketch/build, `top` true-interval) — dwarfing the filter
+/// itself (~10 points single-threaded; headless: 3.9 ms/frame vs a 40 ms
+/// frame budget). Latency only matters once a sketch is heavy enough to blow
+/// the budget — then raise RAYON_NUM_THREADS (bench: 2t = 2.1 ms, 4t = 1.4).
+/// Note `open`-launched .apps drop shell env (launchd), so this in-process
+/// default is what a bundled app gets; the override needs a direct launch.
 #[no_mangle]
 pub extern "C" fn ntscrs_new() -> *mut Handle {
     if std::env::var_os("RAYON_NUM_THREADS").is_none() {
-        std::env::set_var("RAYON_NUM_THREADS", "2");
+        std::env::set_var("RAYON_NUM_THREADS", "1");
     }
     Box::into_raw(Box::new(Handle {
         ctx: Context::new(),
