@@ -52,14 +52,8 @@ target_include_directories(s7 PUBLIC ${s7_SOURCE_DIR})
 target_compile_definitions(s7 PRIVATE WITH_C_LOADER=0 WITH_SYSTEM_EXTRAS=0)
 target_compile_options(s7 PRIVATE -w)
 
-# --- NTSC-CRT (LMP88959/NTSC-CRT) final-stage composite filter --------------
-# Vendored integer-only NTSC encode/decode (CRT_SYSTEM_NTSC). Header marked
-# SYSTEM so its C89 warnings don't leak; app/NTSCEffect.cpp drives it.
-add_library(ntsc_crt STATIC
-    vendor/ntsc-crt/crt_core.c
-    vendor/ntsc-crt/crt_ntsc.c)
-target_include_directories(ntsc_crt SYSTEM PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/vendor/ntsc-crt)
-target_compile_options(ntsc_crt PRIVATE -w)
+# --- ntsc-rs final-stage NTSC/VHS composite filter (Rust) -------------------
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ntsc_rs.cmake)
 
 # --- libvterm (neovim/libvterm) VT/ANSI parser ------------------------------
 # Vendored C99 terminal-sequence parser + screen model. Feeds the (build-terminal
@@ -143,7 +137,7 @@ target_compile_definitions(FluxusApp PRIVATE
 target_link_libraries(FluxusApp PRIVATE
     libfluxus_min
     s7
-    ntsc_crt
+    ntsc_ffi
     vterm
     imgui
     juce::juce_opengl
@@ -224,7 +218,7 @@ target_compile_definitions(FluxusGLApp PRIVATE
 target_link_libraries(FluxusGLApp PRIVATE
     libfluxus_min
     s7
-    ntsc_crt
+    ntsc_ffi
     vterm
     imgui
     fluxus_editor
@@ -302,7 +296,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
 
   target_link_libraries(FluxusRacketApp PRIVATE
       libfluxus_min
-      ntsc_crt
+      ntsc_ffi
       vterm
       imgui
       juce::juce_opengl
@@ -359,7 +353,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
   target_link_libraries(FluxusGLRacketApp PRIVATE
       libfluxus_min
       fluxus_editor
-      ntsc_crt
+      ntsc_ffi
       vterm
       imgui
       juce::juce_opengl

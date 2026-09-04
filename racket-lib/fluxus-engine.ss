@@ -642,8 +642,11 @@
 (define (post-off) (_post-off))
 (define _blur (cfun "flux_blur" (_fun _double -> _void) (lambda (a) (void))))
 (define (blur amt) (_blur (->fl amt)))   ; feedback motion-blur (0..~0.97)
-;; final-stage software NTSC/CRT filter (LMP88959/NTSC-CRT). (ntsc #t/#f) +
-;; monitor knobs; runs over the finished frame, captured by screenshots too.
+;; final-stage software NTSC/VHS filter (ntsc-rs signal simulation + C++ monitor
+;; post pass). (ntsc #t/#f) + monitor knobs; runs over the finished frame,
+;; captured by screenshots too. (ntsc-preset json) loads a full ntsc-rs/ntscQT
+;; JSON preset (head switching, tracking noise, edge wave, tape speed, ...);
+;; "" resets to the noise/hue-derived defaults.
 (define (->i x) (inexact->exact (round x)))
 (define _ntsc      (cfun "flux_ntsc"            (_fun _int -> _void) (lambda (a) (void))))
 (define _ntsc-noi  (cfun "flux_ntsc_noise"      (_fun _int -> _void) (lambda (a) (void))))
@@ -663,6 +666,8 @@
 (define (ntsc-scanlines (on #t)) (_ntsc-scan (if on 1 0)))
 (define (ntsc-monochrome (on #t)) (_ntsc-mono (if on 1 0)))
 (define (ntsc-blend (on #t))    (_ntsc-blnd (if on 1 0)))
+(define _ntsc-pre  (cfun "flux_ntsc_preset"     (_fun _string -> _void) (lambda (a) (void))))
+(define (ntsc-preset json)      (_ntsc-pre json))
 (define _aa (cfun "flux_set_antialias" (_fun _int -> _void) (lambda (x) (void))))
 (define (anti-alias (on #t)) (_aa (if on 1 0)))
 (define (hint-anti-alias (on #t)) (_aa (if on 1 0)))

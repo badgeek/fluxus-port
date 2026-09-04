@@ -1871,10 +1871,12 @@ extern "C" void flux_ntsc(int on) {
 extern "C" void flux_ntsc_noise(int n) {
   std::lock_guard<std::mutex> lk(g_ntscMutex);
   g_ntsc.noise = n < 0 ? 0 : n;
+  g_ntsc.presetRev++;              // noise feeds the ntsc-rs settings -> reload
 }
 extern "C" void flux_ntsc_hue(int deg) {
   std::lock_guard<std::mutex> lk(g_ntscMutex);
   g_ntsc.hue = ((deg % 360) + 360) % 360;
+  g_ntsc.presetRev++;              // hue feeds the ntsc-rs settings -> reload
 }
 extern "C" void flux_ntsc_saturation(int s) {
   std::lock_guard<std::mutex> lk(g_ntscMutex);
@@ -1899,6 +1901,11 @@ extern "C" void flux_ntsc_monochrome(int on) {
 extern "C" void flux_ntsc_blend(int on) {
   std::lock_guard<std::mutex> lk(g_ntscMutex);
   g_ntsc.blend = (on != 0);
+}
+extern "C" void flux_ntsc_preset(const char* json) {
+  std::lock_guard<std::mutex> lk(g_ntscMutex);
+  g_ntsc.preset = json ? json : "";
+  g_ntsc.presetRev++;
 }
 bool flux_ntsc_state(NtscParams& out) {
   std::lock_guard<std::mutex> lk(g_ntscMutex);

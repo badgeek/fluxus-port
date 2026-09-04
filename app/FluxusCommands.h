@@ -289,6 +289,7 @@ extern "C" {
   void flux_ntsc_scanlines(int on);           // gaps between scanlines
   void flux_ntsc_monochrome(int on);          // 0 = full colour, 1 = mono
   void flux_ntsc_blend(int on);               // blend field onto previous frame
+  void flux_ntsc_preset(const char* json);    // full ntsc-rs/ntscQT JSON preset ("" = defaults)
 
   void flux_set_antialias(int on);           // GL line/polygon smoothing
   void flux_set_retained(int on);            // retained mode: build once, per-frame thunk only
@@ -491,18 +492,24 @@ void flux_hand_install_bridge(const FluxHandBridge& bridge);
 // clears it) when the fragment source changed since the last call.
 bool flux_post_state(std::string& frag, double& feedback, bool& dirty);
 
-// C++-side NTSC-filter state for FluxusScene (not FFI). Common CRT monitor knobs
-// plus the software-lib flags; defaults match crt_reset(). flux_ntsc_state fills
-// `out` and returns true when the final NTSC pass is enabled.
+// C++-side NTSC-filter state for FluxusScene (not FFI). The signal path is now
+// ntsc-rs (vendor/ntsc-rs, Rust staticlib); noise/hue map onto its settings and
+// `preset` carries a full ntsc-rs/ntscQT JSON preset (flux_ntsc_preset). The
+// monitor knobs (saturation/brightness/contrast/scanlines/blend/monochrome)
+// are applied as a cheap C++ post pass in NTSCEffect — ntsc-rs models the
+// signal, not the monitor. flux_ntsc_state fills `out` and returns true when
+// the final NTSC pass is enabled.
 struct NtscParams {
-  int  noise      = 12;
-  int  hue        = 0;    // 0-359
-  int  saturation = 10;
-  int  brightness = 0;
-  int  contrast   = 180;
+  int  noise      = 12;   // scales ntsc-rs noise defaults (12 = stock ntsc-rs)
+  int  hue        = 0;    // 0-359 -> chroma_phase_error
+  int  saturation = 10;   // 10 = 1.0x
+  int  brightness = 0;    // added
+  int  contrast   = 180;  // 180 = 1.0x
   bool scanlines  = true;
-  bool blend      = true;
+  bool blend      = true; // 50% mix with the previous output frame
   bool monochrome = false;
+  std::string preset;     // ntsc-rs JSON preset; empty = derive from noise/hue
+  int  presetRev  = 0;    // bumped when preset/noise/hue change -> reload settings
 };
 bool flux_ntsc_state(NtscParams& out);
 

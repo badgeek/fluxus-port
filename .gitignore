@@ -24,3 +24,4 @@ racket-lib/compiled/
 # Go control binaries (build with: go build -o <name> .)
 mcp/fluxus-mcp
 cli/fluxus
+vendor/ntsc-rs/target/

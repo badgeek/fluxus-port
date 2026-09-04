@@ -30,6 +30,11 @@ jobs:
       - name: Install build deps
         run: brew install ninja minimal-racket
 
+      # The NTSC filter is built from vendored Rust (vendor/ntsc-rs) via cargo;
+      # needs rustc >= 1.89. macos runners ship rustup but not a toolchain.
+      - name: Install Rust toolchain
+        run: rustup update stable || (curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && echo "$HOME/.cargo/bin" >> "$GITHUB_PATH")
+
       - name: Resolve Racket prefix
         id: racket
         run: echo "prefix=$(brew --prefix minimal-racket)" >> "$GITHUB_OUTPUT"

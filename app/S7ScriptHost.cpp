@@ -418,6 +418,7 @@ s7_pointer f_ntsc_contrast(s7_scheme* sc, s7_pointer a)   { if (s7_is_pair(a)) f
 s7_pointer f_ntsc_scanlines(s7_scheme* sc, s7_pointer a)  { int on = s7_is_pair(a) ? (s7_boolean(sc, s7_car(a)) ? 1 : 0) : 1; flux_ntsc_scanlines(on); return s7_nil(sc); }
 s7_pointer f_ntsc_monochrome(s7_scheme* sc, s7_pointer a) { int on = s7_is_pair(a) ? (s7_boolean(sc, s7_car(a)) ? 1 : 0) : 1; flux_ntsc_monochrome(on); return s7_nil(sc); }
 s7_pointer f_ntsc_blend(s7_scheme* sc, s7_pointer a)      { int on = s7_is_pair(a) ? (s7_boolean(sc, s7_car(a)) ? 1 : 0) : 1; flux_ntsc_blend(on); return s7_nil(sc); }
+s7_pointer f_ntsc_preset(s7_scheme* sc, s7_pointer a)     { if (s7_is_pair(a) && s7_is_string(s7_car(a))) flux_ntsc_preset(s7_string(s7_car(a))); return s7_nil(sc); }
 s7_pointer f_antialias(s7_scheme* sc, s7_pointer a)   { int on = s7_is_pair(a) ? (s7_boolean(sc, s7_car(a)) ? 1 : 0) : 1; flux_set_antialias(on); return s7_nil(sc); }
 s7_pointer f_shader_set_vec(s7_scheme* sc, s7_pointer a) {    // (shader-set-vec! name vec)
   if (s7_is_pair(a) && s7_is_pair(s7_cdr(a))) {
@@ -741,6 +742,7 @@ void S7ScriptHost::init() {
   def("ntsc-scanlines",       f_ntsc_scanlines,       0, 0, true);
   def("ntsc-monochrome",      f_ntsc_monochrome,      0, 0, true);
   def("ntsc-blend",           f_ntsc_blend,           0, 0, true);
+  def("ntsc-preset",          f_ntsc_preset,          1, 0, false);
   def("anti-alias",           f_antialias,            0, 0, true);
   def("hint-anti-alias",      f_antialias,            0, 0, true);
   def("grab",         f_grab,         0, 0, true);

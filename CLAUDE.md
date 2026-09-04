@@ -326,6 +326,21 @@ piece). Reuse these patterns; they keep it cheap AND readable.
 - **Verify visually every step** (screenshot→Read, per the calibration loop above)
   — composition, colour, and "does it read as X" are not derivable from code.
 
+## NTSC filter = ntsc-rs (Rust) — build needs cargo
+`(ntsc …)` runs the vendored [ntsc-rs](https://github.com/ntsc-rs/ntsc-rs) signal
+simulation (`vendor/ntsc-rs`: core crate + C-FFI staticlib, built by cargo via
+`cmake/ntsc_rs.cmake`, linked into all four apps). Needs rustc ≥ 1.89 — **this
+machine's nix rustc 1.84 shadows rustup's**; the cmake fragment pins the rustup
+cargo + RUSTC from `~/.cargo/bin`, and manual builds need
+`RUSTC="$HOME/.cargo/bin/rustc" "$HOME/.cargo/bin/cargo" build --release`.
+`(ntsc-preset json)` loads a full ntsc-rs GUI / ntscQT JSON preset (VHS tape
+speed, head switching, tracking noise, edge wave, …) — one string = total
+control; `""` resets. Classic knobs still work: noise/hue regenerate the signal
+settings (n=12 = stock ntsc-rs); saturation/brightness/contrast/scanlines/
+monochrome/blend are a C++ monitor post pass in `app/NTSCEffect.cpp` (ntsc-rs
+models the signal, not the monitor). Settings JSON is parsed only on change,
+never per-frame. use_field defaults to Upper (half cost, Bob deinterlace).
+
 ## Vendored fluxus (`vendor/fluxus/`)
 Minimally edited for the port — find every change with `grep -rn "fluxus->JUCE port"`.
 Key edits: `OpenGL.h` (mac GL shim, no GLEW/GLUT), `RenderBackend`/`GLBackend` (the
