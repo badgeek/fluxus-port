@@ -233,6 +233,8 @@ extern "C" {
   // set on the grabbed prim if grabbed, else on subsequently-built prims.
   // Uniforms are set on the currently-targeted shader's program (persist to render).
   void flux_shader_source(const char* vert, const char* frag);
+  void flux_shader_source_geom(const char* vert, const char* geom, const char* frag,
+                               int gin, int gout, int gverts);   // + geometry stage
   void flux_shader_clear(void);
   void flux_shader_set_float(const char* name, double v);
   void flux_shader_set_vec(const char* name, double x, double y, double z);

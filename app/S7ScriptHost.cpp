@@ -354,6 +354,19 @@ s7_pointer f_shader_source(s7_scheme* sc, s7_pointer a) {   // (shader-source ve
     flux_shader_source(s7_string(s7_car(a)), s7_string(s7_cadr(a)));
   return s7_nil(sc);
 }
+// (shader-source-geom vert geom frag in-type out-type max-verts)
+s7_pointer f_shader_source_geom(s7_scheme* sc, s7_pointer a) {
+  s7_pointer p = a;
+  if (!(s7_is_pair(p) && s7_is_string(s7_car(p)))) return s7_nil(sc);
+  const char* v = s7_string(s7_car(p)); p = s7_cdr(p);
+  const char* g = s7_string(s7_car(p)); p = s7_cdr(p);
+  const char* f = s7_string(s7_car(p)); p = s7_cdr(p);
+  int gin = (int) s7_number_to_real(sc, s7_car(p)); p = s7_cdr(p);
+  int gout = (int) s7_number_to_real(sc, s7_car(p)); p = s7_cdr(p);
+  int gv = (int) s7_number_to_real(sc, s7_car(p));
+  flux_shader_source_geom(v, g, f, gin, gout, gv);
+  return s7_nil(sc);
+}
 s7_pointer f_shader_off(s7_scheme* sc, s7_pointer)  { flux_shader_clear(); return s7_nil(sc); }
 s7_pointer f_shader_set_float(s7_scheme* sc, s7_pointer a) {  // (shader-set-float! name v)
   if (s7_is_pair(a) && s7_is_pair(s7_cdr(a)))
@@ -699,6 +712,7 @@ void S7ScriptHost::init() {
   def("clear",                f_clear,                0, 0, false);
   def("destroy",              f_destroy,              0, 0, true);
   def("shader-source",        f_shader_source,        2, 0, false);
+  def("shader-source-geom",   f_shader_source_geom,   6, 0, false);
   def("shader-off",           f_shader_off,           0, 0, false);
   def("shader-set-float!",    f_shader_set_float,     2, 0, false);
   def("shader-set-vec!",      f_shader_set_vec,       2, 0, false);

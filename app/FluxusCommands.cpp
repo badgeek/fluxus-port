@@ -1267,6 +1267,27 @@ void flux_shader_source(const char* vert, const char* frag) {
   if (State* s = grabbedState()) setStateShader(s, sh);   // grabbed prim
   else                           g_ctx.shader = sh;       // next-built prims
 }
+
+// fluxus->JUCE port: vertex + GEOMETRY + fragment shader on the grabbed prim.
+// gin/gout are GL primitive enums (in: 1=GL_LINES, 4=GL_TRIANGLES, 0=GL_POINTS;
+// out: 3=GL_LINE_STRIP, 5=GL_TRIANGLE_STRIP, 0=GL_POINTS), gverts = max emitted.
+void flux_shader_source_geom(const char* vert, const char* geom, const char* frag,
+                             int gin, int gout, int gverts) {
+  if (!vert || !geom || !frag) return;
+  GLSLShader::Init();
+  std::string key = "GEOM\n" + std::string(vert) + "\n-g-\n" + geom + "\n-f-\n" + frag +
+                    "\n" + std::to_string(gin) + "," + std::to_string(gout) + "," + std::to_string(gverts);
+  GLSLShader* sh;
+  auto it = g_shaderCache.find(key);
+  if (it != g_shaderCache.end()) sh = it->second;
+  else {
+    GLSLShaderPair pair(false, vert, geom, frag, gin, gout, gverts);
+    sh = new GLSLShader(pair);
+    g_shaderCache[key] = sh;
+  }
+  if (State* s = grabbedState()) setStateShader(s, sh);
+  else                           g_ctx.shader = sh;
+}
 void flux_shader_clear(void) {
   if (State* s = grabbedState()) setStateShader(s, nullptr);
   else                           g_ctx.shader = nullptr;

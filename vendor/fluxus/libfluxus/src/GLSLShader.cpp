@@ -48,6 +48,22 @@ m_FragmentShader(0)
 	}
 }
 
+// fluxus->JUCE port: build a vertex+geometry+fragment triple (GL_EXT_geometry_shader4).
+GLSLShaderPair::GLSLShaderPair(bool load, const string &vertex, const string &geometry,
+                              const string &fragment, int gin, int gout, int gverts) :
+m_VertexShader(0),
+m_FragmentShader(0),
+m_GeometryShader(0),
+m_GeomIn(gin), m_GeomOut(gout), m_GeomVerts(gverts)
+{
+	#ifdef GLSL
+	(void) load;   // geometry path is source-only
+	m_VertexShader   = MakeShader("vertex",   vertex,   GL_VERTEX_SHADER);
+	m_GeometryShader = MakeShader("geometry", geometry, GL_GEOMETRY_SHADER_EXT);
+	m_FragmentShader = MakeShader("fragment", fragment, GL_FRAGMENT_SHADER);
+	#endif
+}
+
 GLSLShaderPair::~GLSLShaderPair()
 {
 	#ifdef GLSL
@@ -211,6 +227,15 @@ m_RefCount(1)
 		glAttachShader(m_Program, pair.GetVertexShader());
 	if (pair.GetFragmentShader())
 		glAttachShader(m_Program, pair.GetFragmentShader());
+	// fluxus->JUCE port: geometry stage — attach + declare in/out primitive types and
+	// the emitted-vertex cap BEFORE linking (required by GL_EXT_geometry_shader4).
+	if (pair.GetGeometryShader())
+	{
+		glAttachShader(m_Program, pair.GetGeometryShader());
+		glProgramParameteriEXT(m_Program, GL_GEOMETRY_INPUT_TYPE_EXT,   pair.GeomIn());
+		glProgramParameteriEXT(m_Program, GL_GEOMETRY_OUTPUT_TYPE_EXT,  pair.GeomOut());
+		glProgramParameteriEXT(m_Program, GL_GEOMETRY_VERTICES_OUT_EXT, pair.GeomVerts());
+	}
 	glLinkProgram(m_Program);
 
 	GLint status = GL_FALSE;

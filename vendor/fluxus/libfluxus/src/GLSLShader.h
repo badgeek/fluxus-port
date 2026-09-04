@@ -38,10 +38,19 @@ public:
 	/// If load is true, the constructor attempts to load the shader pair immediately
 	/// if it's false, the strings are treated as the shader source.
 	GLSLShaderPair(bool load, const string &vertex, const string &fragment);
+	// fluxus->JUCE port: optional GEOMETRY stage (GL_EXT_geometry_shader4). gin/gout
+	// are GL primitive enums (GL_POINTS/GL_LINES/GL_TRIANGLES in, points/line_strip/
+	// triangle_strip out); gverts is the max vertices the geometry shader emits.
+	GLSLShaderPair(bool load, const string &vertex, const string &geometry,
+	               const string &fragment, int gin, int gout, int gverts);
 	~GLSLShaderPair();
 
 	unsigned int GetVertexShader() const { return m_VertexShader; }
 	unsigned int GetFragmentShader() const { return m_FragmentShader; }
+	unsigned int GetGeometryShader() const { return m_GeometryShader; }   // 0 = none
+	int GeomIn() const { return m_GeomIn; }
+	int GeomOut() const { return m_GeomOut; }
+	int GeomVerts() const { return m_GeomVerts; }
 
 private:
 	/// Returns a handle to a compiled and linked GLSL program
@@ -52,6 +61,8 @@ private:
 
 	unsigned int m_VertexShader;
 	unsigned int m_FragmentShader;
+	unsigned int m_GeometryShader = 0;   // fluxus->JUCE port
+	int m_GeomIn = 0, m_GeomOut = 0, m_GeomVerts = 0;
 };
 
 //////////////////////////////////////////////////////

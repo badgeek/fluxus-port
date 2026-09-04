@@ -438,6 +438,16 @@
 (define _shader-f   (cfun "flux_shader_set_float" (_fun _string _double -> _void) (lambda (a b) (void))))
 (define _shader-v   (cfun "flux_shader_set_vec"   (_fun _string _double _double _double -> _void) (lambda (a b c d) (void))))
 (define (shader-source vert frag) (_shader-src vert frag))   ; compile from source strings
+;; vertex + GEOMETRY + fragment shader (GL_EXT_geometry_shader4). in-type/out-type are
+;; GL primitive enums (use gl-points / gl-lines / gl-triangles / gl-line-strip /
+;; gl-triangle-strip below); max-verts = most vertices the geometry shader emits.
+(define _shader-src-g (cfun "flux_shader_source_geom"
+                            (_fun _string _string _string _int _int _int -> _void)
+                            (lambda (a b c d e f) (void))))
+(define (shader-source-geom vert geom frag in-type out-type max-verts)
+  (_shader-src-g vert geom frag in-type out-type max-verts))
+(define gl-points 0) (define gl-lines 1) (define gl-line-strip 3)
+(define gl-triangles 4) (define gl-triangle-strip 5)
 (define (shader-off) (_shader-off))
 (define (shader-set-float! name x) (_shader-f name (->fl x)))
 (define (shader-set-vec! name v) (_shader-v name (->fl (vx v)) (->fl (vy v)) (->fl (vz v))))
