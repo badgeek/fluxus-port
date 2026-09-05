@@ -1037,8 +1037,8 @@ public:
 	// operations
 	dQuat conjugate() const;
 	void setAxisAngle(dVector axis, float angle);
-    float dot(const dQuat& q) const 
-    { return x*q.x + y*q.y + z*q.x + w*q.w; }
+    float dot(const dQuat& q) const
+    { return x*q.x + y*q.y + z*q.z + w*q.w; }   // fluxus->JUCE port: was z*q.x (typo)
 	
 	// make multiply look like multiply
 	dQuat operator* (const dQuat&qR) const;

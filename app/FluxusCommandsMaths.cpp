@@ -67,9 +67,12 @@ double flux_snoise(double x, double y, double z) { return SimplexNoise::noise((f
 void   flux_noise_seed(int seed)                 { Noise::noise_seed((unsigned) seed); }
 void   flux_noise_detail(int octaves, double falloff) { Noise::noise_detail(octaves, (float) falloff); }
 
-// ---- quaternions + node orientation (correct math; engine dQuat::dot/renorm/
-// slerp are buggy, so we only reuse the SAFE dQuat::toMatrix / from-matrix, which
-// agree with scheme qtomatrix — both m[row][col], row-vector v' = v*M) -----------
+// ---- quaternions + node orientation. The engine dQuat::dot/renorm/slerp bugs
+// that forced this local double-precision math are FIXED in dada (dot typo,
+// renorm missing sqrt, slerp using `to` instead of the orthonormalised q) —
+// these impls stay for their double precision and shortest-arc handling.
+// dQuat::toMatrix / from-matrix agree with scheme qtomatrix — both m[row][col],
+// row-vector v' = v*M. -------------------------------------------------------
 namespace {
 struct Quat { double x, y, z, w; };
 static Quat qn(Quat q) {

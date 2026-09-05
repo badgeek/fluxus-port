@@ -388,9 +388,13 @@ dQuat dQuat::operator* (const dQuat&qR) const
 	return (qq);
 }
 
-void dQuat::renorm() 
+void dQuat::renorm()
 {
-	float Nq = 1.f / (float) (x*x + y*y + z*z + w*w);
+	// fluxus->JUCE port: was 1/(x²+y²+z²+w²) — divided by the norm SQUARED
+	// (missing sqrt), so it only "worked" on already-unit quaternions.
+	float Nq = (float) (x*x + y*y + z*z + w*w);
+	if (Nq <= 0.f) { x = y = z = 0.f; w = 1.f; return; }
+	Nq = 1.f / sqrtf(Nq);
 	x *= Nq;
 	y *= Nq;
 	z *= Nq;
@@ -465,7 +469,10 @@ dQuat Fluxus::slerp(const dQuat& from, const dQuat& to, float t)
     dQuat q = to - from * cosa;
     q.renorm();
 
-    return from * cos(angle) + to * sin(angle);
+    // fluxus->JUCE port: was `to * sin(angle)` — the orthonormalised q was
+    // computed and then unused, so the result was neither unit nor on the
+    // great-circle arc. Standard slerp: from·cos(θt) + q_perp·sin(θt).
+    return from * cos(angle) + q * sin(angle);
 }
 
 
