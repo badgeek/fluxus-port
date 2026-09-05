@@ -250,12 +250,15 @@ part of the field and the cloud actually churns. (The original's plume look need
 100k+ continuously-spawned particles to read; at a few thousand, volume-spawn looks
 better.) See `examples/particle-cloud.scm` / `particle-cloud-gpu.scm`.
 
-**17. `set-camera-transform` view built as `mmul(mtranslate, mrotate(vector pitch
-yaw 0))`: NEGATIVE pitch looks DOWN, and a single `rotxyz(pitch,yaw,0)` TILTS the
+**17. `set-camera-transform` view built as `mmul(mrotate(vector pitch yaw 0),
+mtranslate)`: NEGATIVE pitch looks DOWN, and a single `rotxyz(pitch,yaw,0)` TILTS the
 horizon ("miring").** `rotxyz` bakes pitch(X) and yaw(Y) into one matrix, which
 leaves a roll component when both are non-zero → the grid horizon comes out slanted.
-Split them and apply YAW FIRST, then pitch, so the horizon stays level:
-`(mmul (mtranslate v) (mmul (mrotate (vector 0 yaw 0)) (mrotate (vector pitch 0 0))))`.
+Split them and apply YAW FIRST, then pitch, so the horizon stays level — and
+remember `mmul` follows the engine convention where the RIGHTMOST factor applies
+FIRST (see the header comment on `mmul2` in `racket-lib/fluxus-engine.ss`), so the
+chain reads right-to-left:
+`(mmul (mrotate (vector pitch 0 0)) (mrotate (vector 0 yaw 0)) (mtranslate v))`.
 Sign trap: POSITIVE pitch tilts the view UP (content slides off the top) — use a
 negative pitch to look down at the ground. (Feeding a gluLookAt matrix, gotcha 15,
 sidesteps both.) A hand-laid grid of thin unlit bars is a reliable ground reference

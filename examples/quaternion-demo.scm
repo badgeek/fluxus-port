@@ -13,10 +13,11 @@
 (retained)
 
 ;; front, slightly-elevated camera (yaw 0 = symmetric; negative pitch looks DOWN;
-;; yaw-then-pitch keeps the horizon level).
+;; yaw-then-pitch keeps the horizon level). mmul applies its RIGHTMOST argument
+;; first, so this is "translate, then pitch".
 (set-camera-transform
-  (mmul (mtranslate (vector 0 -0.8 -12.0))
-        (mrotate (vector -18 0 0))))
+  (mmul (mrotate (vector -18 0 0))
+        (mtranslate (vector 0 -0.8 -12.0))))
 (show-tweaks)   ; the slider panel IS the rotate interface
 
 ;; ---- helpers ---------------------------------------------------------------

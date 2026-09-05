@@ -347,16 +347,31 @@
 ;; ---- matrices: flat length-16, row-major, point as ROW vector (v' = v·M);
 ;; translation lives in the last row (indices 12 13 14), matching the engine's
 ;; dMatrix::transform. Replaces the old always-identity stubs.
+;;
+;; COMPOSITION ORDER — engine convention: THE RIGHTMOST ARGUMENT APPLIES FIRST.
+;;   (mmul (mtranslate t) (mrotate r))  ==  rotate first, THEN translate
+;;   (mmul A B C)                       ==  apply C, then B, then A
+;; The engine's dMatrix::operator* (vendor/fluxus/libfluxus/src/dada.h:472) computes
+;; A*B as the standard row-major product B·A, and all upstream fluxus .ss matrix
+;; chains (poly-tools extrude, camera.ss, planetarium.ss) were written against that.
+;; The FFI flux_mmul (app/FluxusCommandsMaths.cpp), which s7's (mmul) calls, routes
+;; through the same operator*, so both hosts agree.
+;; Measured discriminator, T = (mtranslate (vector 1 0 0)), S = (mscale (vector 2 2 2)):
+;;   (mmul T S) translation row == (1 0 0)  <- this (engine) convention
+;;   a plain standard product would give (2 0 0).
+;; spikes/math-test/mmul-order.rkt asserts it; don't "simplify" mmul2 back.
 (define (mident) (vector 1 0 0 0  0 1 0 0  0 0 1 0  0 0 0 1))
 (define (m@ m i j) (vector-ref m (+ (* i 4) j)))
 (define (deg->rad d) (* d 0.017453292519943295))
+;; = the standard row-major product b·a (note the operands are swapped).
 (define (mmul2 a b)
   (build-vector 16 (lambda (n)
     (let ((i (quotient n 4)) (j (remainder n 4)))
-      (+ (* (m@ a i 0) (m@ b 0 j)) (* (m@ a i 1) (m@ b 1 j))
-         (* (m@ a i 2) (m@ b 2 j)) (* (m@ a i 3) (m@ b 3 j)))))))
+      (+ (* (m@ b i 0) (m@ a 0 j)) (* (m@ b i 1) (m@ a 1 j))
+         (* (m@ b i 2) (m@ a 2 j)) (* (m@ b i 3) (m@ a 3 j)))))))
 ;; variadic like upstream's building-blocks macro — poly-tools' extrude-segment
-;; calls (mmul a b c), which an arity-2 mmul rejects.
+;; calls (mmul a b c), which an arity-2 mmul rejects. The product is associative,
+;; so folding left or right (building-blocks' mmul-list folds right) is the same.
 (define (mmul a . rest)
   (let loop ((m a) (r rest))
     (if (null? r) m (loop (mmul2 m (car r)) (cdr r)))))
@@ -369,6 +384,10 @@
     (let ((Rx (vector 1 0 0 0  0 (cos rx) (sin rx) 0  0 (- (sin rx)) (cos rx) 0  0 0 0 1))
           (Ry (vector (cos ry) 0 (- (sin ry)) 0  0 1 0 0  (sin ry) 0 (cos ry) 0  0 0 0 1))
           (Rz (vector (cos rz) (sin rz) 0 0  (- (sin rz)) (cos rz) 0 0  0 0 1 0  0 0 0 1)))
+      ;; rightmost-first: apply Rz, then Ry, then Rx — i.e. the standard product
+      ;; Rz·Ry·Rx, which is exactly the engine's rotxyz / flux_mrotate (verified
+      ;; against it numerically; the old standard-order mmul gave Rx·Ry·Rz here,
+      ;; so scheme (mrotate v) DISAGREED with (rotate v) on multi-axis eulers).
       (mmul (mmul Rx Ry) Rz))))
 (define (mtranspose m) (build-vector 16 (lambda (n) (m@ m (remainder n 4) (quotient n 4)))))
 ;; affine/rigid inverse (transpose the 3x3, invert the translation) — exact for
