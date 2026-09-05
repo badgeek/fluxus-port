@@ -92,7 +92,8 @@ void Camera::DoProjection()
 			               m_Bottom*m_OrthZoom, m_Top*m_OrthZoom, m_Front, m_Back);
 		else
 			frustumMatrix(m, m_Left, m_Right, m_Bottom, m_Top, m_Front, m_Back);
-		Backend()->setProjectionMatrix(m);
+		// multiply, not load: glFrustum/glOrtho multiplied, and pick mode depends on it
+		Backend()->multProjectionMatrix(m);
 	}
 	#ifdef DEBUG_CAMERA
 	cerr<<"camera:"<<this<<" frustum:"<<m_Left<<" "<<m_Right<<" "<<m_Bottom<<" "<<m_Top<<" "<<m_Front<<" "<<m_Back<<endl;

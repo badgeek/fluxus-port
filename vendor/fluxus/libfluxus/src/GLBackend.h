@@ -16,6 +16,7 @@ struct GLBackend : public IRenderBackend {
   void getModelView(float* m16) override;
   void getProjection(float* m16) override;
   void setProjectionMatrix(const float* m16) override;
+  void multProjectionMatrix(const float* m16) override;
   void pushPickName(unsigned int id) override;
   void popPickName() override;
 

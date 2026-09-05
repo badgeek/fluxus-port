@@ -34,6 +34,12 @@ void GLBackend::setProjectionMatrix(const float* m) {
   glLoadMatrixf(m);
   glMatrixMode(GL_MODELVIEW);
 }
+
+void GLBackend::multProjectionMatrix(const float* m) {
+  glMatrixMode(GL_PROJECTION);
+  glMultMatrixf(m);
+  glMatrixMode(GL_MODELVIEW);
+}
 void GLBackend::pushPickName(unsigned int id){ glPushName(id); }
 void GLBackend::popPickName()                { glPopName(); }
 

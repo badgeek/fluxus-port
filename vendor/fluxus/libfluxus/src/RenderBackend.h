@@ -69,6 +69,11 @@ struct IRenderBackend {
   // just call glFrustum and rely on the mode being right. GLES has neither the
   // mode nor glFrustum, so the seam has to say WHICH matrix is being set.
   virtual void setProjectionMatrix(const float* m16) = 0;
+  // ...and multiply into it. The distinction matters: glFrustum and glOrtho
+  // MULTIPLIED, and Renderer::PreRender relies on that — in pick mode it loads
+  // identity, multiplies in gluPickMatrix, and only then calls the camera. A
+  // load there would silently discard the pick matrix.
+  virtual void multProjectionMatrix(const float* m16) = 0;
 
   // Object identity for picking. Fixed-function GL had a name stack
   // (glPushName/glPopName) feeding a selection buffer; GLES has neither, so a

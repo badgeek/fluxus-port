@@ -30,6 +30,7 @@
 #include <sys/time.h>
 #include <stdio.h>
 #include <unistd.h>
+#include "RenderBackend.h"   // fluxus->JUCE port: modelview reset + query via the seam
 
 using namespace Fluxus;
 
@@ -288,10 +289,10 @@ void Renderer::PreRender(unsigned int CamIndex, bool PickMode)
     	glEnable(GL_RESCALE_NORMAL);
 		glDisable(GL_COLOR_MATERIAL);
 
-    	glEnableClientState(GL_VERTEX_ARRAY);
-		glEnableClientState(GL_NORMAL_ARRAY);
-		glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-		glEnableClientState(GL_COLOR_ARRAY);
+		// fluxus->JUCE port: the four glEnableClientState calls that used to be
+		// here are gone. The backend enables exactly the arrays each draw
+		// supplies and disables the rest, so a frame-level enable is dead state
+		// — unlike the glMatrixMode above, which is kept on purpose.
 		glEnable(GL_POLYGON_OFFSET);
 		
 		if (m_FogDensity>0)
@@ -324,9 +325,17 @@ void Renderer::PreRender(unsigned int CamIndex, bool PickMode)
 	}
 	
 	
+	// fluxus->JUCE port: the glMatrixMode STAYS. It is not decoration — the host
+	// (JUCE, PostFX, the ImGui overlay) can leave the matrix mode elsewhere
+	// between frames, and this is what made the engine robust to that. Removing
+	// it broke every golden case. On GLES the call is a stub and the identity
+	// load below is what actually resets the seam's own stack.
 	glMatrixMode (GL_MODELVIEW);
-  	glLoadIdentity();
-	
+	{
+		const float ident[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+		Backend()->loadMatrix(ident);
+	}
+
 	PushState();
 	
 	if (m_MotionBlur)
@@ -366,7 +375,7 @@ void Renderer::PreRender(unsigned int CamIndex, bool PickMode)
 	
 	// set the scene info so all primitives can read it (taken from ribbon prim)
 	dMatrix ModelView;
-	glGetFloatv(GL_MODELVIEW_MATRIX,ModelView.arr());
+	Backend()->getModelView(ModelView.arr());
 	dMatrix InvModelView=ModelView.inverse();
 	Primitive::SetSceneInfo(InvModelView.transform_no_trans(dVector(0,0,1)),
 							InvModelView.transform_no_trans(dVector(0,1,0)));

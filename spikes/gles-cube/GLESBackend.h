@@ -30,6 +30,9 @@ class GLESBackend : public Fluxus::IRenderBackend {
   void getModelView(float* m16) override;   // our own stack — GLES has no query
   void getProjection(float* m16) override;
   void setProjectionMatrix(const float* m16) override { setProjection(m16); }
+  // No pick matrix and no projection stack here, so a multiply into an identity
+  // projection is the same as setting it.
+  void multProjectionMatrix(const float* m16) override { setProjection(m16); }
   // Picking is unsupported on GLES (no selection buffer) — see ANDROID-SUBSET.md.
   void pushPickName(unsigned int) override {}
   void popPickName() override {}
