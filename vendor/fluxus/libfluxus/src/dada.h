@@ -732,9 +732,14 @@ public:
     	a*=0.017453292;
     	dMatrix t;
 
+		// fluxus->JUCE port: the two sin terms were swapped, so roty(a) built
+		// the rotation by -a — the transpose of what rotxyz(0,a,0) builds, and
+		// the odd one out against rotx/rotz which DO match their rotxyz branch.
+		// Nothing in the engine calls roty (everything goes through rotxyz), so
+		// the asymmetry never showed up.
     	t.m[0][0]=cos(a);
-    	t.m[2][0]=-sin(a);
-		t.m[0][2]=sin(a);
+    	t.m[2][0]=sin(a);
+		t.m[0][2]=-sin(a);
 		t.m[2][2]=cos(a);
 
     	*this=*this*t;
