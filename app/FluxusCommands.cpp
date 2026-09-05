@@ -351,6 +351,23 @@ PDataCacheEntry* pdataResolve(const char* name) {
   e.name = std::move(n); e.pd = pd; e.type = type;
   return &e;
 }
+
+// Type dispatch for the pdata accessors: every accessor repeats the same
+// 'f'/'c'/'v' triplet, so route it through ONE visitor. f gets the typed
+// m_Data vector plus the element component count (1 = scalar float channel,
+// 3 = vec/colour); elemArr() gives a float* into an element regardless of type
+// (valid for ncomp components only).
+template <class A> inline float* elemArr(std::vector<float, A>& d, size_t i)   { return &d[i]; }
+template <class A> inline float* elemArr(std::vector<dColour, A>& d, size_t i) { return d[i].arr(); }
+template <class A> inline float* elemArr(std::vector<dVector, A>& d, size_t i) { return d[i].arr(); }
+template <class F>
+auto withChannel(PDataCacheEntry* c, F&& f) {
+  switch (c->type) {
+    case 'f': return f(static_cast<TypedPData<float>*>(c->pd)->m_Data, 1);
+    case 'c': return f(static_cast<TypedPData<dColour>*>(c->pd)->m_Data, 3);
+    default:  return f(static_cast<TypedPData<dVector>*>(c->pd)->m_Data, 3);   // 'v'
+  }
+}
 } // namespace
 
 extern "C" {
@@ -990,20 +1007,21 @@ void flux_pdata_copy(const char* src, const char* dst) {
 double flux_pdata_get(const char* name, int i, int comp) {
   PDataCacheEntry* c = pdataResolve(name);
   if (!c || i < 0 || comp < 0 || comp > 3) return 0.0;
-  const unsigned ui = (unsigned) i;
-  if (c->type == 'c') { auto& d = static_cast<TypedPData<dColour>*>(c->pd)->m_Data; return ui < d.size() ? d[ui].arr()[comp] : 0.0; }
-  if (c->type == 'f') { auto& d = static_cast<TypedPData<float>*>(c->pd)->m_Data;   return ui < d.size() ? d[ui] : 0.0; }
-  auto& d = static_cast<TypedPData<dVector>*>(c->pd)->m_Data;   // 'v' positions/normals/texcoords
-  return ui < d.size() ? d[ui].arr()[comp] : 0.0;
+  return withChannel(c, [&](auto& d, int nc) -> double {
+    const unsigned ui = (unsigned) i;
+    if (ui >= d.size()) return 0.0;
+    return elemArr(d, ui)[nc == 1 ? 0 : comp];   // float channel ignores comp
+  });
 }
 
 void flux_pdata_set(const char* name, int i, int comp, double val) {
   PDataCacheEntry* c = pdataResolve(name);
   if (!c || i < 0 || comp < 0 || comp > 3) return;
-  const unsigned ui = (unsigned) i;
-  if (c->type == 'c')      { auto& d = static_cast<TypedPData<dColour>*>(c->pd)->m_Data; if (ui >= d.size()) return; d[ui].arr()[comp] = (float) val; }
-  else if (c->type == 'f') { auto& d = static_cast<TypedPData<float>*>(c->pd)->m_Data;   if (ui >= d.size()) return; d[ui] = (float) val; }
-  else                     { auto& d = static_cast<TypedPData<dVector>*>(c->pd)->m_Data; if (ui >= d.size()) return; d[ui].arr()[comp] = (float) val; }
+  withChannel(c, [&](auto& d, int nc) {
+    const unsigned ui = (unsigned) i;
+    if (ui >= d.size()) return;
+    elemArr(d, ui)[nc == 1 ? 0 : comp] = (float) val;   // float channel ignores comp
+  });
   g_ctx.grabbed->BumpPDataVersion();   // keep the VBO re-upload invalidation SetData did
 }
 
@@ -1014,48 +1032,28 @@ void flux_pdata_set(const char* name, int i, int comp, double val) {
 int flux_pdata_get3(const char* name, int i, double* out) {
   PDataCacheEntry* c = pdataResolve(name);
   if (!c || i < 0 || !out) return 0;
-  const unsigned ui = (unsigned) i;
-  if (c->type == 'f') {
-    auto& d = static_cast<TypedPData<float>*>(c->pd)->m_Data;
+  return withChannel(c, [&](auto& d, int nc) -> int {
+    const unsigned ui = (unsigned) i;
     if (ui >= d.size()) return 0;
-    out[0] = d[ui]; out[1] = 0.0; out[2] = 0.0;
-    return 1;
-  }
-  if (c->type == 'c') {
-    auto& d = static_cast<TypedPData<dColour>*>(c->pd)->m_Data;
-    if (ui >= d.size()) return 0;
-    const float* a = d[ui].arr();
-    out[0] = a[0]; out[1] = a[1]; out[2] = a[2];
-    return 3;
-  }
-  auto& d = static_cast<TypedPData<dVector>*>(c->pd)->m_Data;
-  if (ui >= d.size()) return 0;
-  const float* a = d[ui].arr();
-  out[0] = a[0]; out[1] = a[1]; out[2] = a[2];
-  return 3;
+    const float* a = elemArr(d, ui);
+    out[0] = a[0];
+    if (nc == 3) { out[1] = a[1]; out[2] = a[2]; } else { out[1] = out[2] = 0.0; }
+    return nc;
+  });
 }
 
 void flux_pdata_set3(const char* name, int i, double x, double y, double z) {
   PDataCacheEntry* c = pdataResolve(name);
   if (!c || i < 0) return;
-  const unsigned ui = (unsigned) i;
-  if (c->type == 'f') {
-    // mirror the old per-component path on a float channel: comps 0/1/2 all
+  withChannel(c, [&](auto& d, int nc) {
+    const unsigned ui = (unsigned) i;
+    if (ui >= d.size()) return;
+    float* a = elemArr(d, ui);
+    // scalar channel mirrors the old per-component path: comps 0/1/2 all
     // landed on the same slot, so the last write (z) wins
-    auto& d = static_cast<TypedPData<float>*>(c->pd)->m_Data;
-    if (ui >= d.size()) return;
-    d[ui] = (float) z;
-  } else if (c->type == 'c') {
-    auto& d = static_cast<TypedPData<dColour>*>(c->pd)->m_Data;
-    if (ui >= d.size()) return;
-    float* a = d[ui].arr();
-    a[0] = (float) x; a[1] = (float) y; a[2] = (float) z;
-  } else {
-    auto& d = static_cast<TypedPData<dVector>*>(c->pd)->m_Data;
-    if (ui >= d.size()) return;
-    float* a = d[ui].arr();
-    a[0] = (float) x; a[1] = (float) y; a[2] = (float) z;
-  }
+    if (nc == 1) a[0] = (float) z;
+    else { a[0] = (float) x; a[1] = (float) y; a[2] = (float) z; }
+  });
   g_ctx.grabbed->BumpPDataVersion();
 }
 
@@ -1067,55 +1065,27 @@ void flux_pdata_set3(const char* name, int i, double x, double y, double z) {
 int flux_pdata_read_all(const char* name, double* out, int cap) {
   PDataCacheEntry* c = pdataResolve(name);
   if (!c || !out) return 0;
-  if (c->type == 'f') {
-    auto& d = static_cast<TypedPData<float>*>(c->pd)->m_Data;
-    if ((int) d.size() > cap) return 0;
-    for (size_t i = 0; i < d.size(); ++i) out[i] = d[i];
-    return 1;
-  }
-  if (c->type == 'c') {
-    auto& d = static_cast<TypedPData<dColour>*>(c->pd)->m_Data;
-    if ((int) (d.size() * 3) > cap) return 0;
+  return withChannel(c, [&](auto& d, int nc) -> int {
+    if ((int) (d.size() * (size_t) nc) > cap) return 0;
     for (size_t i = 0; i < d.size(); ++i) {
-      const float* a = d[i].arr();
-      out[i*3] = a[0]; out[i*3+1] = a[1]; out[i*3+2] = a[2];
+      const float* a = elemArr(d, i);
+      for (int k = 0; k < nc; ++k) out[i * nc + k] = a[k];
     }
-    return 3;
-  }
-  auto& d = static_cast<TypedPData<dVector>*>(c->pd)->m_Data;
-  if ((int) (d.size() * 3) > cap) return 0;
-  for (size_t i = 0; i < d.size(); ++i) {
-    const float* a = d[i].arr();
-    out[i*3] = a[0]; out[i*3+1] = a[1]; out[i*3+2] = a[2];
-  }
-  return 3;
+    return nc;
+  });
 }
 
 void flux_pdata_write_all(const char* name, const double* in, int n, int ncomp) {
   PDataCacheEntry* c = pdataResolve(name);
   if (!c || !in || n < 0) return;
-  if (c->type == 'f') {
-    if (ncomp != 1) return;
-    auto& d = static_cast<TypedPData<float>*>(c->pd)->m_Data;
-    const size_t lim = std::min((size_t) n, d.size());
-    for (size_t i = 0; i < lim; ++i) d[i] = (float) in[i];
-  } else if (c->type == 'c') {
-    if (ncomp != 3) return;
-    auto& d = static_cast<TypedPData<dColour>*>(c->pd)->m_Data;
+  withChannel(c, [&](auto& d, int nc) {
+    if (ncomp != nc) return;
     const size_t lim = std::min((size_t) n, d.size());
     for (size_t i = 0; i < lim; ++i) {
-      float* a = d[i].arr();
-      a[0] = (float) in[i*3]; a[1] = (float) in[i*3+1]; a[2] = (float) in[i*3+2];
+      float* a = elemArr(d, i);
+      for (int k = 0; k < nc; ++k) a[k] = (float) in[i * nc + k];
     }
-  } else {
-    if (ncomp != 3) return;
-    auto& d = static_cast<TypedPData<dVector>*>(c->pd)->m_Data;
-    const size_t lim = std::min((size_t) n, d.size());
-    for (size_t i = 0; i < lim; ++i) {
-      float* a = d[i].arr();
-      a[0] = (float) in[i*3]; a[1] = (float) in[i*3+1]; a[2] = (float) in[i*3+2];
-    }
-  }
+  });
   g_ctx.grabbed->BumpPDataVersion();
 }
 
