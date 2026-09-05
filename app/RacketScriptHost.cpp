@@ -235,6 +235,33 @@ void RacketScriptHost::init() {
     eval_cstr(form.c_str());
   }
 
+  // fluxus->JUCE port: write .zo for the .ss library if they are missing, BEFORE
+  // requiring it. A plain (require (file …)) compiles in memory and throws the
+  // result away, so without this every launch re-expands the whole library —
+  // ~26 s on an Android device, on EVERY start, not just the first.
+  //
+  // On macOS `make precompile` does this ahead of time and the .zo are shipped,
+  // so this pass finds everything up to date and costs nothing. Elsewhere it
+  // pays once at first launch and then loads bytecode. Those .zo are written for
+  // the machine that runs them, which also sidesteps the machine-type problem:
+  // macOS-built bytecode is tarm64osx and Chez on Android refuses it outright.
+  //
+  // Deliberately non-fatal: a read-only or unwritable library directory should
+  // cost startup time, not break the app.
+  {
+    const std::string lib = fluxusLibDir();
+    std::string form =
+      "(with-handlers ([(lambda (e) #t) (lambda (e) (void))])"
+      "  (parameterize ([current-namespace (make-base-namespace)])"
+      "    (let ([cm (dynamic-require 'compiler/cm 'managed-compile-zo)])"
+      "      (for-each (lambda (f)"
+      "                  (with-handlers ([(lambda (e) #t) (lambda (e) (void))]) (cm f)))"
+      "                (map path->string"
+      "                     (filter (lambda (p) (regexp-match #rx\"[.]ss$\" (path->string p)))"
+      "                             (directory-list \"" + lib + "\" #:build? #t)))))))";
+    eval_cstr(form.c_str());
+  }
+
   eval_cstr(requireLibForm().c_str());   // load the fluxus .ss library (FFI-backed)
   eval_cstr(kHostPrelude);               // host infra (error reporter + runner)
 

@@ -45,6 +45,15 @@ Chosen to cover the paths the seam work will touch, not to look pretty:
 - **Baselines are per-machine.** Different GPU or driver, different pixels. Do
   not commit someone else's baseline and expect it to pass, and treat CI use as
   needing its own recorded set.
+- **And per display backing scale.** `(set-window-size 480 360)` sets the
+  LOGICAL size; the grab comes back at the backing scale, so baselines recorded
+  on a retina display are 960x720. If the app opens on a 1x display — or the
+  display state changes — every case fails with
+  `FAIL size 960x720 vs 480x360`. That is the guard working, not breaking: it
+  refuses to compare mismatched sizes rather than silently rescaling and
+  reporting a meaningless diff. A uniform 2x size difference across ALL cases
+  means the display changed, not the renderer. Re-record with `--update` only
+  once you are sure which scale you actually want.
 - `pngdiff.py` is standard library only, on purpose: the `magick` on this
   machine is built without a PNG delegate, so `compare` cannot read these files
   and `magick` silently passes raw bytes through while exiting 0.
