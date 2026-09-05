@@ -14,7 +14,7 @@
 #include "ParticlePrimitive.h"
 #include "LocatorPrimitive.h"
 #include "NURBSPrimitive.h"
-#include <OpenGL/gl.h>
+#include "GLHeaders.h"
 #include "GraphicsUtils.h"
 #include "State.h"
 #include "Light.h"

@@ -8,7 +8,7 @@
 // engine + system GL only
 #include "Renderer.h"
 #include "dada.h"
-#include <OpenGL/gl.h>
+#include "GLHeaders.h"
 
 #include <chrono>
 #include <cmath>

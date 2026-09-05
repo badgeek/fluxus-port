@@ -20,6 +20,24 @@ open build/FluxusApp_artefacts/Release/FluxusApp.app
 First configure fetches JUCE (+ FreeType for GL editor). Racket targets need
 `brew install minimal-racket` and are skipped otherwise.
 
+**Platform layer** — `cmake/platform.cmake` is the only file that knows the OS:
+the system-OpenGL target (`fluxus_gl`), the whole-archive helper
+(`fluxus_whole_archive`, `-force_load` vs `--whole-archive`), which backend TU
+implements each optional subsystem, and the Racket link extras. `app/GLHeaders.h`
+is the matching include-side switch (never include `<OpenGL/gl.h>` directly in a
+JUCE-free TU). Optional subsystems each have a REAL backend and a null stub with
+the same `flux_*` surface, so script bindings — and every sketch — are identical
+whatever is built in:
+```sh
+-DFLUXUS_ENABLE_NTSC=OFF    # NTSCEffectNull; also drops the whole Rust/cargo dep
+-DFLUXUS_ENABLE_VIDEO=OFF   # VideoHostNull  (video-*/camera-* become no-ops)
+-DFLUXUS_ENABLE_HAND=OFF    # HandHostNull
+```
+VIDEO/HAND are macOS-only (AVFoundation/Vision) and default OFF elsewhere. The
+null TUs warn ONCE on stderr rather than failing silently. Porting checklist and
+the open GPU questions (Mesa v3d has no geometry shaders; `glPolygonMode`,
+float FBOs unproven) are in `ROADMAP.md`.
+
 ## Architecture — the seams (keep them clean)
 ```
 editor (JUCE TextEditor | fluxus GLEditor)

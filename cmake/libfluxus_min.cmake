@@ -4,14 +4,15 @@
 # Minimal STATIC library of the libfluxus (fluxus) fixed-function OpenGL 3D
 # engine, cut down for the fluxus->JUCE port (Phase 0).
 #
-# Target platform : macOS arm64, Apple Clang, legacy OpenGL 2.1 context
-#                   (OpenGL/gl.h + OpenGL/glu.h from the system OpenGL.framework)
-# External deps   : ONLY the macOS OpenGL framework. No FreeType, ODE, libpng,
+# Target platform : a legacy/compatibility OpenGL 2.1 context. Developed on
+#                   macOS arm64 (OpenGL.framework); the GL headers switch in
+#                   libfluxus/src/OpenGL.h, the link in cmake/platform.cmake.
+# External deps   : ONLY the system OpenGL (+ GLU). No FreeType, ODE, libpng,
 #                   GLEW, GLUT, TIFF, FFGL.
 #
 # Provides target: libfluxus_min  (STATIC)
 #   include dir   : <vendor>/fluxus/libfluxus/src  (PUBLIC)
-#   link          : "-framework OpenGL"            (PUBLIC)
+#   link          : fluxus_gl                      (PUBLIC)
 #
 # The excluded subsystems (PixelPrimitive, NURBS-via-GLU is kept, Blobby,
 # TypePrimitive/FreeType, Physics/ODE, FFGL, PNG/DDS/TIFF image loaders) are
@@ -122,5 +123,6 @@ endif()
 # Silence the (many) legacy warnings.
 target_compile_options(libfluxus_min PRIVATE -w)
 
-# The only external dependency: the macOS system OpenGL framework.
-target_link_libraries(libfluxus_min PUBLIC "-framework OpenGL")
+# The only external dependency: the system OpenGL (+ GLU, for the NURBS
+# tessellator). Which library that is per platform lives in cmake/platform.cmake.
+target_link_libraries(libfluxus_min PUBLIC fluxus_gl)

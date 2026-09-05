@@ -11,25 +11,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(FetchContent)
 
-# --- video texture (AVFoundation, Objective-C++) ---------------------------
-# app/VideoHost.mm decodes a movie -> GL texture. Needs ARC + these frameworks
-# (OpenGL comes in via juce_opengl). Both TUs live in fluxus_render, which
-# re-exports these frameworks to every app target.
-set(FLUXUS_VIDEO_FRAMEWORKS
-    "-framework AVFoundation" "-framework CoreVideo"
-    "-framework CoreMedia"    "-framework QuartzCore"
-    "-framework Vision")      # Vision: hand-pose tracking (app/HandHostVision.mm)
-set_source_files_properties(app/VideoHost.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
-
-# --- hand tracking host (adapter; cross-platform) --------------------------
-# Apple Vision backend on macOS (GPU/ANE); a null no-op backend elsewhere so the
-# build + script bindings are identical on every platform. Added to all targets.
-if(APPLE)
-  set(FLUXUS_HAND_SRC app/HandHostVision.mm)
-  set_source_files_properties(app/HandHostVision.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
-else()
-  set(FLUXUS_HAND_SRC app/HandHostNull.cpp)
-endif()
+# --- platform layer --------------------------------------------------------
+# Everything OS-specific: the system OpenGL target (fluxus_gl), the
+# whole-archive helper, which backend TU implements video / hand tracking /
+# NTSC (a real one or its null stub), and the Racket link extras. Nothing below
+# this line needs an if(APPLE) of its own.
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/platform.cmake)
 
 # --- JUCE ------------------------------------------------------------------
 set(JUCE_TAG "8.0.4" CACHE STRING "JUCE git tag")
@@ -54,7 +41,15 @@ target_compile_definitions(s7 PRIVATE WITH_C_LOADER=0 WITH_SYSTEM_EXTRAS=0)
 target_compile_options(s7 PRIVATE -w)
 
 # --- ntsc-rs final-stage NTSC/VHS composite filter (Rust) -------------------
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ntsc_rs.cmake)
+# The whole build's only Rust dependency, so it is switchable: with
+# -DFLUXUS_ENABLE_NTSC=OFF no cargo is needed and app/NTSCEffectNull.cpp
+# stands in (see cmake/platform.cmake).
+if(FLUXUS_ENABLE_NTSC)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ntsc_rs.cmake)
+  set(FLUXUS_NTSC_LIB ntsc_ffi)
+else()
+  set(FLUXUS_NTSC_LIB "")
+endif()
 
 # --- libvterm (neovim/libvterm) VT/ANSI parser ------------------------------
 # Vendored C99 terminal-sequence parser + screen model. Feeds the (build-terminal
@@ -88,7 +83,7 @@ target_include_directories(imgui SYSTEM PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui/backends)
 target_compile_definitions(imgui PRIVATE GL_SILENCE_DEPRECATION)
 target_compile_options(imgui PRIVATE -w)
-target_link_libraries(imgui PUBLIC "-framework OpenGL")
+target_link_libraries(imgui PUBLIC fluxus_gl)
 
 # --- shared fluxus command layer -------------------------------------------
 # The extern "C" flux_* engine binding surface both script hosts drive, split by
@@ -123,38 +118,45 @@ add_library(fluxus_core STATIC ${FLUXUS_CMD_SOURCES})
 target_include_directories(fluxus_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/app)
 target_compile_definitions(fluxus_core PRIVATE GL_SILENCE_DEPRECATION=1)
 target_link_libraries(fluxus_core
-    PUBLIC libfluxus_min vterm "-framework OpenGL"
+    PUBLIC libfluxus_min vterm fluxus_gl
            juce::juce_recommended_config_flags
     PRIVATE juce::juce_recommended_warning_flags)
-# force_load: these TUs used to be compiled straight into each executable, so
+# Whole-archive: these TUs used to be compiled straight into each executable, so
 # every object was present. From an archive the linker would keep only what
 # something references — and the Racket host reaches flux_* by dlsym at runtime
-# (get-ffi-obj), which the linker cannot see. Whole-archive keeps the link
-# content identical to before, so no binding silently falls back to its
-# failure thunk. Same reasoning for fluxus_render below.
-target_link_options(fluxus_core INTERFACE "-Wl,-force_load,$<TARGET_FILE:fluxus_core>")
+# (get-ffi-obj), which the linker cannot see. Keeping the whole archive keeps
+# the link content identical to before, so no binding silently falls back to its
+# failure thunk. Same reasoning for fluxus_render below; the per-platform flag
+# lives in cmake/platform.cmake.
+fluxus_whole_archive(fluxus_core)
 
 # EditorOverlay.cpp is JUCE-free too but only the GLEditor apps use it, and it
 # would drag fluxus_editor/FreeType into the others — so it stays per-target.
+# The platform sources (energy policy, video, hand tracking, NTSC) come from
+# cmake/platform.cmake — each is either a real backend or its null stub, so the
+# flux_* surface every script host binds is the same on every platform.
 add_library(fluxus_render STATIC
     app/FluxusScene.cpp
     app/PostFX.cpp
-    app/NTSCEffect.cpp
     app/ImguiOverlay.cpp
-    app/AppActivity.mm
-    ${FLUXUS_HAND_SRC}
-    app/VideoHost.mm)
+    ${FLUXUS_PLATFORM_SOURCES})
 target_compile_definitions(fluxus_render PRIVATE GL_SILENCE_DEPRECATION=1)
 target_link_libraries(fluxus_render
-    PUBLIC fluxus_core imgui ntsc_ffi ${FLUXUS_VIDEO_FRAMEWORKS}
+    PUBLIC fluxus_core imgui ${FLUXUS_NTSC_LIB} ${FLUXUS_PLATFORM_LIBS}
     PRIVATE juce::juce_recommended_warning_flags)
-target_link_options(fluxus_render INTERFACE "-Wl,-force_load,$<TARGET_FILE:fluxus_render>")
+fluxus_whole_archive(fluxus_render)
 
 # --- bundled example sketches ----------------------------------------------
 # Copy the upstream fluxus examples into <App>.app/Contents/Resources/examples;
 # FluxusMenu lists them under File > Examples (AppMenu.h). ~370 KB, so unlike the
 # Racket runtime this is unconditional. See cmake/bundle_examples.cmake.
 function(fluxus_bundle_examples target)
+  # Bundling is a .app concept; TARGET_BUNDLE_DIR has no meaning elsewhere. On
+  # other platforms the examples are read from the source tree (a proper
+  # install(DIRECTORY …) rule is the follow-up when there is a Linux package).
+  if(NOT APPLE)
+    return()
+  endif()
   add_custom_command(TARGET ${target} POST_BUILD
     COMMAND ${CMAKE_COMMAND}
             -DEXAMPLES_DIR=${CMAKE_CURRENT_SOURCE_DIR}/vendor/fluxus/examples
@@ -227,7 +229,7 @@ add_library(fluxus_editor STATIC
 target_include_directories(fluxus_editor SYSTEM PUBLIC ${FLUXUS_SRC})
 target_compile_definitions(fluxus_editor PRIVATE GL_SILENCE_DEPRECATION)
 target_compile_options(fluxus_editor PRIVATE -w)
-target_link_libraries(fluxus_editor PUBLIC freetype "-framework OpenGL")
+target_link_libraries(fluxus_editor PUBLIC freetype fluxus_gl)
 set_target_properties(fluxus_editor PROPERTIES CXX_STANDARD 14)  # fluxus 'byte' vs std::byte
 
 # --- the variant app -------------------------------------------------------
@@ -275,7 +277,7 @@ target_link_libraries(FluxusGLApp PRIVATE
 # Variant: FluxusRacketApp — the fluxus engine driven by REAL Racket (CS) via
 # ffi/unsafe. Same overlay UI as FluxusApp; script host is Racket, not s7.
 # ============================================================================
-set(RACKET_DIR "/opt/homebrew/Cellar/minimal-racket/9.3" CACHE PATH "Racket CS install prefix")
+set(RACKET_DIR "${FLUXUS_RACKET_DEFAULT_DIR}" CACHE PATH "Racket CS install prefix")
 
 # Copy the Racket runtime (boot files + collects + our .ss) into each .app so the
 # release bundles run without `brew install minimal-racket`. Costs ~90 MB/app and
@@ -285,7 +287,7 @@ option(FLUXUS_BUNDLE_RACKET "Bundle a self-contained Racket runtime into the .ap
 
 # Add the post-build bundling step to a Racket app target.
 function(fluxus_bundle_racket target)
-  if(NOT FLUXUS_BUNDLE_RACKET)
+  if(NOT FLUXUS_BUNDLE_RACKET OR NOT APPLE)
     return()
   endif()
   add_custom_command(TARGET ${target} POST_BUILD
@@ -334,9 +336,9 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
     juce::juce_dsp
     juce::juce_osc
       "${RACKET_DIR}/lib/libracketcs.a"
-      "-liconv" "-lncurses"
-      "-framework CoreFoundation"
-      "-Wl,-export_dynamic"        # export flux_* for get-ffi-obj (dlsym)
+      # per-platform extras + the export-dynamic flag that makes flux_* visible
+      # to get-ffi-obj (dlsym) — see cmake/platform.cmake
+      ${FLUXUS_RACKET_PLATFORM_LIBS}
       PUBLIC
       juce::juce_recommended_config_flags
       juce::juce_recommended_warning_flags)
@@ -380,9 +382,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
     juce::juce_dsp
     juce::juce_osc
       "${RACKET_DIR}/lib/libracketcs.a"
-      "-liconv" "-lncurses"
-      "-framework CoreFoundation"
-      "-Wl,-export_dynamic"
+      ${FLUXUS_RACKET_PLATFORM_LIBS}
       PUBLIC
       juce::juce_recommended_config_flags
       juce::juce_recommended_warning_flags)
@@ -390,7 +390,10 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
   fluxus_bundle_examples(FluxusGLRacketApp)
   fluxus_bundle_racket(FluxusGLRacketApp)
 else()
-  message(STATUS "Racket not found at ${RACKET_DIR}; skipping FluxusRacketApp (brew install minimal-racket)")
+  message(STATUS "Racket CS not found at ${RACKET_DIR}; skipping the Racket apps. "
+                 "Install it (macOS: brew install minimal-racket; elsewhere: a "
+                 "Racket CS distribution with lib/libracketcs.a) and point "
+                 "-DRACKET_DIR= at the prefix.")
 endif()
 
 # Vendored-header warnings are silenced by marking their include dirs SYSTEM

@@ -4,7 +4,7 @@
 
 #include "imgui.h"
 #include "imgui_impl_opengl2.h"
-#include <OpenGL/gl.h>
+#include "GLHeaders.h"
 
 #include <chrono>
 #include <cmath>

@@ -13,8 +13,7 @@
 #include "State.h"
 #include "GLSLShader.h"
 #include "dada.h"
-#include <OpenGL/gl.h>
-#include <OpenGL/glext.h>   // EXT_framebuffer_object + RGBA32F for GPU particle ping-pong
+#include "GLHeaders.h"   // gl + glext: EXT_framebuffer_object + RGBA32F (particle ping-pong)
 
 #include <algorithm>
 #include <map>

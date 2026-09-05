@@ -1,5 +1,6 @@
 # build output
 build/
+build-min/
 build-dist/
 spikes/build/
 spikes/**/build/

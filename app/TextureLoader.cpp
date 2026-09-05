@@ -5,7 +5,7 @@
 // State.Textures[0] directly). Must run on the GL thread (scripts do).
 #include "FluxusCommands.h"
 #include <juce_graphics/juce_graphics.h>
-#include <OpenGL/gl.h>
+#include "GLHeaders.h"
 
 #include <string>
 #include <map>

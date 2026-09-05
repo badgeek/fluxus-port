@@ -149,3 +149,43 @@ fluxus physics is built on **ODE**. To add it:
 
 Effort: **M–L** (ODE build + integration). No other roadmap item needs a new
 external dependency — everything else is binding work against already-compiled code.
+
+---
+
+## Raspberry Pi / Linux port
+
+**Done** (the build no longer assumes macOS):
+- `cmake/platform.cmake` — the single OS-aware file: `fluxus_gl` (framework
+  OpenGL vs `OpenGL::GL` + `OpenGL::GLU`; libfluxus tessellates NURBS through
+  GLU, a separate lib off macOS), `fluxus_whole_archive()` (`-force_load` vs
+  `--whole-archive`), the backend-TU selection, the Racket link extras.
+- `app/GLHeaders.h` — the include-side switch (`<OpenGL/gl.h>` vs `<GL/gl.h>`
+  \+ `GL_GLEXT_PROTOTYPES`), used by every JUCE-free TU.
+- Null backends with the same `flux_*` surface as the real ones, so bindings and
+  sketches don't change: `AppActivityNull`, `VideoHostNull`, `NTSCEffectNull`
+  (+ the existing `HandHostNull`). Switches: `FLUXUS_ENABLE_{NTSC,VIDEO,HAND}`.
+- `.app` bundling steps and the mac-only `pthread_set_qos_class_self_np` guarded.
+
+**Next, in order:**
+1. Build on an aarch64 Linux desktop/VM first — cheap loop, and it separates
+   platform bugs from GPU ones. Milestone: `pdata_bench` + `math_test`, both
+   headless (no GL context, no JUCE). Then add a `ubuntu-24.04-arm` CI job.
+2. Racket CS on the Pi is second; target **s7 (FluxusApp) first** — startup here
+   is ~4 s on Apple silicon, expect several times that on a Pi.
+3. Then GL, where the real unknowns are. Probe before assuming (this context is
+   Mesa **v3d** on VideoCore VI/VII, GL/GLES 3.1 — not Apple's 2.1):
+   - **no geometry shaders** on v3d → `shader-source-geom`, `grass-gpu.scm`,
+     `noise-grid-3d.scm` are dead there;
+   - `glPolygonMode` drives the wireframe/hidden-line look (`PolyPrimitive`,
+     `Renderer`, `GLEditor`) — unproven on v3d;
+   - GPGPU needs float-renderable FBOs (`RGBA32F`) — unproven;
+   - immediate mode (`glBegin`) and display lists are everywhere in the engine:
+     supported in a compat profile, but on Mesa's slow paths.
+4. Only after those probes: a single `flux_gl_caps()` runtime probe replacing
+   today's scattered assumptions (`OpenGL.h` hardcodes `GLEW_* = 1`, `GLSLShader`
+   calls `glProgramParameteriEXT` unconditionally, `FluxusCommandsGpu` assumes
+   `RGBA32F`), so an unsupported command reports instead of drawing black.
+   Deliberately NOT designed in advance — the shape should follow the hardware.
+5. Linux packaging: examples currently only ship via `.app` bundling; needs an
+   `install(DIRECTORY …)` rule.
+

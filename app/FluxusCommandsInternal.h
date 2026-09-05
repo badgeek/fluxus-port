@@ -20,7 +20,7 @@
 #include "GLSLShader.h"
 #include "dada.h"
 
-#include <OpenGL/gl.h>
+#include "GLHeaders.h"
 
 #include <cstddef>
 #include <string>

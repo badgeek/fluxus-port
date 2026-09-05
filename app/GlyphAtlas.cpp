@@ -15,7 +15,7 @@
 // vertical flip is applied here — this convention is independent of flux_font_atlas.
 #include "FluxusCommands.h"
 #include <juce_graphics/juce_graphics.h>
-#include <OpenGL/gl.h>
+#include "GLHeaders.h"
 
 #include <map>
 #include <mutex>

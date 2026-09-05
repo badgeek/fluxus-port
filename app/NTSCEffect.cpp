@@ -5,7 +5,7 @@
 #include "GLSLShader.h"
 #include "dada.h"
 
-#include <OpenGL/gl.h>
+#include "GLHeaders.h"
 
 #include <algorithm>
 #include <condition_variable>
@@ -16,7 +16,9 @@
 #include <thread>
 #include <vector>
 
+#ifdef __APPLE__
 #include <pthread/qos.h>
+#endif
 
 // C ABI of the ntsc-rs staticlib (vendor/ntsc-rs/ffi). The signal path is the
 // full ntsc-rs NTSC/VHS simulation; settings arrive as JSON presets.
@@ -230,7 +232,9 @@ bool NTSCEffect::ensure(int W, int H) {
       // policy still parks this thread on an E-core — ~2.5x the CPU time at
       // identical fps. Not fixable app-side (see AppActivity.mm for the full
       // list of levers tried); harmless and correct where the role permits.
+#ifdef __APPLE__
       pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+#endif
       std::vector<unsigned char> work;
       for (;;) {
         std::string json;

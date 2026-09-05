@@ -4,8 +4,7 @@
 #include "GLSLShader.h"
 #include "dada.h"
 
-#include <OpenGL/gl.h>
-#include <OpenGL/glext.h>
+#include "GLHeaders.h"
 
 using namespace Fluxus;
 
