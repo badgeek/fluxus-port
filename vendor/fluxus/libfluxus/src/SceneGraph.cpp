@@ -37,11 +37,11 @@ SceneGraph::~SceneGraph()
 
 void SceneGraph::Render(ShadowVolumeGen *shadowgen, unsigned int camera, Mode rendermode)
 {
-	glGetFloatv(GL_MODELVIEW_MATRIX,m_TopTransform.arr());
+	Backend()->getModelView(m_TopTransform.arr());
 	
 	// get the frustum planes for culling later on
 	dMatrix total;
-	glGetFloatv(GL_PROJECTION_MATRIX,total.arr());
+	Backend()->getProjection(total.arr());
 	total=total*m_TopTransform;
 	GetFrustumPlanes(m_FrustumPlanes, total, false);
 	
@@ -78,7 +78,7 @@ void SceneGraph::RenderWalk(SceneNode *node,  int depth, unsigned int cameracode
 	// see if we need the parent (result of all the parents) transform
 	if (node->Prim->GetState()->Hints & HINT_DEPTH_SORT)
 	{
-		glGetFloatv(GL_MODELVIEW_MATRIX,parent.arr());
+		Backend()->getModelView(parent.arr());
 	}
 
 	Backend()->pushMatrix();
@@ -103,10 +103,10 @@ void SceneGraph::RenderWalk(SceneNode *node,  int depth, unsigned int cameracode
 		}
 		else
 		{
-			glPushName(node->ID);
+			Backend()->pushPickName(node->ID);
 			node->Prim->Prerender();
 			node->Prim->Render();
-			glPopName();
+			Backend()->popPickName();
 		}
 
 		m_NumRendered++;
@@ -330,20 +330,30 @@ bool SceneGraph::Intersect(const dPlane &plane, const SceneNode *node, float thr
 
 void SceneGraph::RenderAxes()
 {
-	glDisable(GL_LIGHTING);
-	glBegin(GL_LINES);
-		glColor3f(1,0,0);
-		glVertex3f(0,0,0);
-		glVertex3f(1,0,0);
+	// fluxus->JUCE port: three coloured axis lines through IRenderBackend rather
+	// than immediate mode. Per-vertex colours replace the glColor3f between
+	// pairs, so it is one draw instead of three colour changes.
+	Backend()->setLighting(false);
 
-		glColor3f(0,1,0);
-		glVertex3f(0,0,0);
-		glVertex3f(0,1,0);
+	static dVector pos[6] =   // not const: dada's arr() is non-const
+	{
+		dVector(0,0,0), dVector(1,0,0),
+		dVector(0,0,0), dVector(0,1,0),
+		dVector(0,0,0), dVector(0,0,1)
+	};
+	static dColour col[6] =
+	{
+		dColour(1,0,0,1), dColour(1,0,0,1),
+		dColour(0,1,0,1), dColour(0,1,0,1),
+		dColour(0,0,1,1), dColour(0,0,1,1)
+	};
 
-		glColor3f(0,0,1);
-		glVertex3f(0,0,0);
-		glVertex3f(0,0,1);
-	glEnd();
-    glEnable(GL_LIGHTING);
+	RVertexArrays va;
+	va.pos = pos[0].arr();
+	va.col = col[0].arr();
+	va.stride = sizeof(dVector);
+	Backend()->drawArrays(RPrim::Lines, va, 6, 0, 0);
+
+	Backend()->setLighting(true);
 }
 

@@ -13,6 +13,10 @@ struct GLBackend : public IRenderBackend {
   void popMatrix()  override;
   void multMatrix(const float* m16) override;
   void loadMatrix(const float* m16) override;
+  void getModelView(float* m16) override;
+  void getProjection(float* m16) override;
+  void pushPickName(unsigned int id) override;
+  void popPickName() override;
 
   void setColour(float r, float g, float b, float a) override;
   void setMaterial(const float* ambient, const float* emissive,
@@ -22,6 +26,9 @@ struct GLBackend : public IRenderBackend {
   void setPointSize(float s) override;
   void setBlend(int srcGL, int dstGL) override;
   void setCull(bool on) override;
+  void setNormaliseNormals(bool on) override;
+  void setLighting(bool on) override;
+  void setProgramPointSize(bool on) override;
   void setFrontFaceCW(bool cw) override;
 
   void drawArrays(RPrim prim, const RVertexArrays& v, int count,

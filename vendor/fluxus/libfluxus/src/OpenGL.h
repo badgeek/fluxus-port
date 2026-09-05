@@ -28,17 +28,27 @@
 
 extern "C" {
 
-#ifndef __APPLE__
-#include <GL/gl.h>
-#include <GL/glu.h>
-#include <GL/glext.h>
-#else
+#if defined(__ANDROID__)
+// fluxus->JUCE port: GLES only — no desktop GL, no compatibility profile. The
+// fixed-function half of the engine is supplied by GLCompatES.h as warn-once
+// stubs so this compiles; see ANDROID-SUBSET.md for what that costs.
+#include <GLES3/gl32.h>
+#include <GLES2/gl2ext.h>
+#elif defined(__APPLE__)
 #include <OpenGL/gl.h>
 #include <OpenGL/glu.h>
 #include <OpenGL/glext.h>
+#else
+#include <GL/gl.h>
+#include <GL/glu.h>
+#include <GL/glext.h>
 #endif
 
 }
+
+#if defined(__ANDROID__)
+#include "GLCompatES.h"
+#endif
 
 // --- Minimal GLEW compatibility shim -------------------------------------
 // GLEW is not used in this minimal build. The extensions probed below are all

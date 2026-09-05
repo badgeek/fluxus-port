@@ -16,6 +16,7 @@
 
 #include "Renderer.h"
 #include "ParticlePrimitive.h"
+#include "RenderBackend.h"   // fluxus->JUCE port: draws go through the seam now
 #include "State.h"
 
 using namespace Fluxus;
@@ -56,29 +57,21 @@ void ParticlePrimitive::PDataDirty()
 	
 void ParticlePrimitive::Render()
 {
-	glDisable(GL_LIGHTING);
+	Backend()->setLighting(false);
 
+	// fluxus->JUCE port: points go through the seam. The backend owns client-array
+	// enable/disable now (it disables what a draw does not supply), so the manual
+	// juggling around this draw is gone.
 	if (m_State.Hints & HINT_POINTS)
 	{
-		glDisableClientState(GL_NORMAL_ARRAY);
-		glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-		glEnableClientState(GL_COLOR_ARRAY);
-
-		glVertexPointer(3,GL_FLOAT,sizeof(dVector),(void*)m_VertData->begin()->arr());
-		glColorPointer(4,GL_FLOAT,sizeof(dColour),(void*)m_ColData->begin()->arr());
-
-		//glEnable(GL_BLEND);
-	    //glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		//glHint(GL_POINT_SMOOTH_HINT,GL_NICEST);
-
 		if (m_State.Hints & HINT_AALIAS) glEnable(GL_POINT_SMOOTH);
 		else glDisable(GL_POINT_SMOOTH);
 
-		glDrawArrays(GL_POINTS,0,m_VertData->size());
-
-		glDisableClientState(GL_COLOR_ARRAY);
-		glEnableClientState(GL_NORMAL_ARRAY);
-		glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+		RVertexArrays va;
+		va.pos = m_VertData->begin()->arr();
+		va.col = m_ColData->begin()->arr();
+		va.stride = sizeof(dVector);
+		Backend()->drawArrays(RPrim::Points, va, (int)m_VertData->size(), 0, 0);
 	}
 
 	if (m_State.Hints & HINT_SOLID)
@@ -89,57 +82,62 @@ void ParticlePrimitive::Render()
 		dVector down=across.cross(cameradir);
 		down.normalise();
 		
+		// fluxus->JUCE port: the sorted and unsorted branches differed ONLY in the
+		// order particles are visited, so only that order is chosen here and the
+		// quad building below is shared. One backend draw replaces both
+		// glBegin/glVertex loops — same four corners, same winding, same texcoords.
+		const unsigned int count = m_VertData->size();
+		m_DrawOrder.resize(count);
 		if (m_State.Hints & HINT_DEPTH_SORT)
 		{
 			dMatrix ModelView2;
-			glGetFloatv(GL_MODELVIEW_MATRIX,ModelView2.arr());
-			
+			Backend()->getModelView(ModelView2.arr());
+
 			list<SortItem> sorted;
-			for (unsigned int n=0; n<m_VertData->size(); n++)
+			for (unsigned int n=0; n<count; n++)
 			{
 				dVector t=ModelView2.transform((*m_VertData)[n]);
 				sorted.push_back(SortItem(n, t.z));
 			}
 			sorted.sort();
-			
-			glBegin(GL_QUADS);
-			for (list<SortItem>::iterator i=sorted.begin(); i!=sorted.end(); ++i)
-			{
-				dVector scaledacross(across*(*m_SizeData)[i->Index].x*0.5);
-				dVector scaledown(down*(*m_SizeData)[i->Index].y*0.5);
-				glColor4fv((*m_ColData)[i->Index].arr());
-				glTexCoord2f(0,0);
-				glVertex3fv(((*m_VertData)[i->Index]-scaledacross-scaledown).arr());
-				glTexCoord2f(0,1);
-				glVertex3fv(((*m_VertData)[i->Index]-scaledacross+scaledown).arr());
-				glTexCoord2f(1,1);
-				glVertex3fv(((*m_VertData)[i->Index]+scaledacross+scaledown).arr());
-				glTexCoord2f(1,0);
-				glVertex3fv(((*m_VertData)[i->Index]+scaledacross-scaledown).arr());
-			}
-			glEnd();
+
+			unsigned int i=0;
+			for (list<SortItem>::iterator s=sorted.begin(); s!=sorted.end(); ++s)
+				m_DrawOrder[i++]=s->Index;
 		}
 		else
 		{
-			glBegin(GL_QUADS);
-			for (unsigned int n=0; n<m_VertData->size(); n++)
-			{
-				dVector scaledacross(across*(*m_SizeData)[n].x*0.5);
-				dVector scaledown(down*(*m_SizeData)[n].y*0.5);
-				glColor4fv((*m_ColData)[n].arr());
-				glTexCoord2f(0,0);
-				glVertex3fv(((*m_VertData)[n]-scaledacross-scaledown).arr());
-				glTexCoord2f(0,1);
-				glVertex3fv(((*m_VertData)[n]-scaledacross+scaledown).arr());
-				glTexCoord2f(1,1);
-				glVertex3fv(((*m_VertData)[n]+scaledacross+scaledown).arr());
-				glTexCoord2f(1,0);
-				glVertex3fv(((*m_VertData)[n]+scaledacross-scaledown).arr());
-			}
-			glEnd();
+			for (unsigned int n=0; n<count; n++) m_DrawOrder[n]=n;
 		}
+
+		m_DrawPos.resize(count*4);
+		m_DrawTex.resize(count*4);
+		m_DrawCol.resize(count*4);
+		for (unsigned int n=0; n<count; n++)
+		{
+			const unsigned int p = m_DrawOrder[n];
+			dVector scaledacross(across*(*m_SizeData)[p].x*0.5);
+			dVector scaledown(down*(*m_SizeData)[p].y*0.5);
+			const unsigned int i=n*4;
+			m_DrawPos[i]   = (*m_VertData)[p]-scaledacross-scaledown;
+			m_DrawPos[i+1] = (*m_VertData)[p]-scaledacross+scaledown;
+			m_DrawPos[i+2] = (*m_VertData)[p]+scaledacross+scaledown;
+			m_DrawPos[i+3] = (*m_VertData)[p]+scaledacross-scaledown;
+			m_DrawTex[i]   = dVector(0,0,0);
+			m_DrawTex[i+1] = dVector(0,1,0);
+			m_DrawTex[i+2] = dVector(1,1,0);
+			m_DrawTex[i+3] = dVector(1,0,0);
+			for (int k=0; k<4; k++) m_DrawCol[i+k]=(*m_ColData)[p];
+		}
+
+		RVertexArrays va;
+		va.pos = m_DrawPos[0].arr();
+		va.tex = m_DrawTex[0].arr();
+		va.col = m_DrawCol[0].arr();
+		va.stride = sizeof(dVector);
+		Backend()->drawArrays(RPrim::Quads, va, (int)count*4, 0, 0);
 	}
-	glEnable(GL_LIGHTING);
+	Backend()->setLighting(true);
 }
 
 dBoundingBox ParticlePrimitive::GetBoundingBox(const dMatrix &space)

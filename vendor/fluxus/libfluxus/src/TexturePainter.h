@@ -30,13 +30,22 @@ namespace Fluxus
 
 	class DDSLoader;
 
+// fluxus->JUCE port: GL_MODULATE spelled without the desktop-GL header.
+// Every other enum this header defaults to (GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR,
+// GL_REPEAT) exists in GLES as well; GL_MODULATE is the only one that does not,
+// because GLES has no fixed-function texture environment at all — a fragment
+// shader decides the combine. It was also the single reason 13 otherwise-clean
+// translation units failed the GLES audit (spikes/gles-audit), since they only
+// touch GL through this header. Same value, so nothing changes on desktop.
+static const int TexEnvModulate = 0x2100;
+
 //////////////////////////////////////////////////////
 /// The texture state
 class TextureState
 {
 public:
 
-	TextureState(): TexEnv(GL_MODULATE), Min(GL_LINEAR_MIPMAP_LINEAR),
+	TextureState(): TexEnv(TexEnvModulate), Min(GL_LINEAR_MIPMAP_LINEAR),
 	Mag(GL_LINEAR), WrapS(GL_REPEAT), WrapT(GL_REPEAT), WrapR(GL_REPEAT),
 	Priority(1), MinLOD(-1000), MaxLOD(1000) {}
 

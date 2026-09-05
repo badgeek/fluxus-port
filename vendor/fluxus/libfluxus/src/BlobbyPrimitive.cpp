@@ -19,6 +19,7 @@
 #include "State.h"
 #include "ImplicitSurface.h"
 
+#include "RenderBackend.h"   // fluxus->JUCE port: lighting toggle via the seam
 using namespace Fluxus;
 
 BlobbyPrimitive::BlobbyPrimitive(int dimx, int dimy, int dimz, dVector size) :
@@ -183,7 +184,7 @@ void BlobbyPrimitive::Render()
 		glPolygonOffset(1,1);
 		glColor4fv(m_State.WireColour.arr());
 		glPolygonMode(GL_FRONT_AND_BACK,GL_LINE);
-		glDisable(GL_LIGHTING);
+		Backend()->setLighting(false);
 		if ((m_State.Hints & HINT_WIRE_STIPPLED) > HINT_WIRE)
 		{
 			glEnable(GL_LINE_STIPPLE);
@@ -193,7 +194,7 @@ void BlobbyPrimitive::Render()
 		Draw(1, false, false);
 		glEnd();
 		glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
-		glEnable(GL_LIGHTING);
+		Backend()->setLighting(true);
 		if ((m_State.Hints & HINT_WIRE_STIPPLED) > HINT_WIRE)
 		{
 			glDisable(GL_LINE_STIPPLE);

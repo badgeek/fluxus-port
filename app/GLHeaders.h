@@ -13,7 +13,15 @@
 // shim) in libfluxus/src/OpenGL.h; this is the app-side equivalent for TUs that
 // don't pull an engine header in.
 
-#ifdef __APPLE__
+#if defined(__ANDROID__)
+// GLES only — there is no desktop GL and no compatibility profile on Android, so
+// the fixed-function half of the engine has no symbols here at all. See
+// ANDROID-SUBSET.md for what that costs and spikes/gles-audit for the count.
+// GLES 3.2 is the widest surface Android offers (and, unlike the Pi's v3d, it
+// does include geometry shaders).
+#include <GLES3/gl32.h>
+#include <GLES2/gl2ext.h>
+#elif defined(__APPLE__)
 #include <OpenGL/gl.h>
 #include <OpenGL/glext.h>
 #else

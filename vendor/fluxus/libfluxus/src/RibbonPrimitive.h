@@ -51,16 +51,19 @@ protected:
 	virtual void PDataDirty();
 
 private:
-	void Realloc();
-
 	vector<dVector,FLX_ALLOC(dVector) > *m_VertData;
 	vector<dColour,FLX_ALLOC(dColour) > *m_ColData;
 	vector<float,FLX_ALLOC(float) > *m_WidthData;
 
-	vector<dVector,FLX_ALLOC(dVector) > *m_Vertices;
-	vector<dVector,FLX_ALLOC(dVector) > *m_Normals;
-	vector<dColour,FLX_ALLOC(dColour) > *m_VertCols;
-	vector<dVector,FLX_ALLOC(dVector) > *m_TexCoords;
+	// fluxus->JUCE port: the camera-facing strip is built into these each
+	// Render and handed to IRenderBackend as vertex arrays, replacing the
+	// glBegin/glVertex loop. They also replace four never-allocated, never-used
+	// pointer members (and a Realloc() that had no definition) left over from
+	// upstream. Kept as members so a steady ribbon does not reallocate per frame.
+	vector<dVector> m_DrawPos;
+	vector<dVector> m_DrawNrm;
+	vector<dVector> m_DrawTex;
+	vector<dColour> m_DrawCol;
 
     bool m_InverseNormals;
 };

@@ -113,7 +113,7 @@ void State::Apply()
 	Backend()->setFrontFaceCW((Hints&HINT_CULL_CCW)!=0);
 
 	if (Hints & HINT_NORMALISE)
-		glEnable(GL_NORMALIZE);
+		Backend()->setNormaliseNormals(true);
 
 	if (Hints & HINT_NOZWRITE)
 		glDepthMask(false);
@@ -123,7 +123,7 @@ void State::Apply()
 	if (Shader != NULL)
 	{
 		if (Hints & HINT_POINTS)
-			glEnable(GL_VERTEX_PROGRAM_POINT_SIZE);
+			Backend()->setProgramPointSize(true);
 
 		Shader->Apply();
 	}
@@ -133,7 +133,7 @@ void State::Apply()
 void State::Unapply()
 {
 	if (Hints & HINT_NORMALISE)
-		glDisable(GL_NORMALIZE);
+		Backend()->setNormaliseNormals(false);
 
 	if (Hints & HINT_NOZWRITE)
 		glDepthMask(true);
@@ -141,7 +141,7 @@ void State::Unapply()
 	if (Shader != NULL)
 	{
 		if (Hints & HINT_POINTS)
-			glDisable(GL_VERTEX_PROGRAM_POINT_SIZE);
+			Backend()->setProgramPointSize(false);
 	}
 }
 

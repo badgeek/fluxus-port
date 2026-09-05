@@ -26,13 +26,18 @@
 
 #include "Primitive.h"
 #include "PolyPrimitive.h"
-#include "NURBSPrimitive.h"
 
 namespace Fluxus
 {
 
+// fluxus->JUCE port: only NURBSGen's pointer parameter needs this type, so the
+// declaration is enough here and the header stays out of every TU that merely
+// includes SceneGraph.h. That include chain was dragging GLU's GLUnurbsObj into
+// 13 otherwise portable translation units (spikes/gles-audit).
+class NURBSPrimitive;
+
 /////////////////////////////////////
-/// Generates shadow volumes from 
+/// Generates shadow volumes from
 /// extruding light silhouette edges. These 
 /// volumes are then concatenated into a 
 /// single polygon primitive for rendering 

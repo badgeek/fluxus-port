@@ -189,3 +189,57 @@ external dependency — everything else is binding work against already-compiled
 5. Linux packaging: examples currently only ship via `.app` bundling; needs an
    `install(DIRECTORY …)` rule.
 
+---
+
+## Android
+
+A different class of work from the Pi: there the port is a build-system job,
+here the renderer has to be rewritten.
+
+**The blocker is GLES, and it is not a guess.** JUCE selects the GLES symbol set
+on Android — `modules/juce_opengl/juce_opengl.h:72`:
+
+```cpp
+#if JUCE_IOS || JUCE_ANDROID
+ #define JUCE_OPENGL_ES 1
+ #include "opengl/juce_gles2.h"
+```
+
+`juce_gles2.h` has no `glBegin`, `glPushMatrix`, `glMatrixMode`, `glPolygonMode`,
+`glLightfv`, `glVertexPointer` or `glEnableClientState` — all of which
+`libfluxus` uses, ~170 call sites in total. Unlike Mesa on the Pi there is no
+compatibility profile to fall back on. So Android needs the `IRenderBackend`
+seam finished (primitives still call GL directly today) plus a real
+`GLESBackend`: own matrix stack, lighting as shaders, QUADS split to triangles,
+wireframe as index lines or a barycentric shader. GLU is absent too, so
+`NURBSPrimitive` goes. **Effort: L, and it is the whole story — every other
+Android item is small next to it.**
+
+Build plumbing is lighter than it first looks: JUCE's CMake API does not support
+Android (`docs/CMake API.md:6`), but the Android Studio project the Projucer
+emits is itself Gradle + `externalNativeBuild` → CMake, so a hand-written Gradle
+shell around our existing CMake is viable. Effort: M.
+
+**Racket CS on Android is proven to work** — see `spikes/racket-android/`, which
+cross-builds it and runs it on an arm64 emulator. Native `tarm64le` code (no
+`pb` fallback), no W^X problem, ~77 ms to boot, and `(get-ffi-obj … #f)` reaches
+our C symbols under every loading shape including `System.loadLibrary`'s, so
+`racket-lib/fluxus-engine.ss` needs no change. One real catch: the default
+cross-build's `libracketcs.a` is non-PIC and cannot be linked into a `.so` —
+build with `CFLAGS+="-fPIC"`. Effort: M, and now de-risked.
+
+**A GLES backend is proven to render the engine's own geometry** —
+`spikes/gles-cube/` draws a real `PolyPrimitive` (built by `MakeCube`) offscreen
+on an Android device: solid, **wireframe without `glPolygonMode`**, and
+hidden-line, with no GL errors and **no edits under `vendor/`**. So the look our
+sketches depend on survives the move to GLES. What it does not cover:
+`Ribbon`/`Particle`/`Voxel`/`Blobby` still draw with `glBegin` and render
+nothing there — moving them behind `IRenderBackend` IS the remaining work — and
+wireframe on triangulated meshes needs edge dedup or a barycentric shader,
+because per-face edges on a TRILIST would expose every triangulation diagonal.
+
+Suggested order: finish the `IRenderBackend` seam while doing the Pi work (a
+GLES backend can be tested on desktop via ANGLE), and only then touch Gradle.
+The realistic first target is a player-style APK — bundled sketches, touch/OSC
+control — not live-coding on a touchscreen keyboard.
+

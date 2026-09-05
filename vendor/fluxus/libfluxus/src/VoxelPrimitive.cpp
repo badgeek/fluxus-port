@@ -19,6 +19,7 @@
 #include "BlobbyPrimitive.h"
 #include "State.h"
 
+#include "RenderBackend.h"   // fluxus->JUCE port: lighting toggle via the seam
 using namespace Fluxus;
 
 VoxelPrimitive::VoxelPrimitive(unsigned int w, unsigned int h, unsigned int d)
@@ -143,7 +144,7 @@ void VoxelPrimitive::PointLight(dVector lightpos, dColour col)
 	
 void VoxelPrimitive::Render()
 {
-	glDisable(GL_LIGHTING);
+	Backend()->setLighting(false);
 
 	if (m_State.Hints & HINT_SOLID)
 	{
@@ -175,7 +176,7 @@ void VoxelPrimitive::Render()
 		}
 		glEnd();
 	}
-	glEnable(GL_LIGHTING);
+	Backend()->setLighting(true);
 }
 
 BlobbyPrimitive *VoxelPrimitive::ConvertToBlobby()

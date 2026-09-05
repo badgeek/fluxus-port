@@ -174,7 +174,7 @@ void PolyPrimitive::Render()
 	if (m_State.Hints & HINT_NORMAL)
 	{
 		glColor4fv(m_State.NormalColour.arr());
-		glDisable(GL_LIGHTING);
+		Backend()->setLighting(false);
 		glBegin(GL_LINES);
 		for (unsigned int i=0; i<m_VertData->size(); i++)
 		{
@@ -182,10 +182,10 @@ void PolyPrimitive::Render()
 			glVertex3fv(((*m_VertData)[i]+(*m_NormData)[i]).arr());
 		}
 		glEnd();
-		glEnable(GL_LIGHTING);
+		Backend()->setLighting(true);
 		glColor4fv(m_State.Colour.arr());
 	}
-	if (m_State.Hints & HINT_UNLIT) glDisable(GL_LIGHTING);
+	if (m_State.Hints & HINT_UNLIT) Backend()->setLighting(false);
 
 #ifdef FLUXUS_ENABLE_VBO
 	// fluxus->JUCE port: only the SOLID pass draws from a VBO (below, via the
@@ -299,11 +299,11 @@ void PolyPrimitive::Render()
 			glLineStipple(m_State.StippleFactor, m_State.StipplePattern);
 		}
 
-		glDisable(GL_LIGHTING);
+		Backend()->setLighting(false);
 		if (m_IndexMode) glDrawElements(type,m_IndexData.size(),GL_UNSIGNED_INT,&(m_IndexData[0]));
 		else glDrawArrays(type,0,m_VertData->size());
 		glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
-		glEnable(GL_LIGHTING);
+		Backend()->setLighting(true);
 		glEnable(GL_TEXTURE_2D);
 		if ((m_State.Hints & HINT_WIRE_STIPPLED) > HINT_WIRE)
 		{
@@ -317,17 +317,17 @@ void PolyPrimitive::Render()
 		glDisable(GL_TEXTURE_2D);
 		glPolygonMode(GL_FRONT_AND_BACK,GL_POINT);
 		glColor4fv(m_State.WireColour.arr());
-		glDisable(GL_LIGHTING);
+		Backend()->setLighting(false);
 		if (m_IndexMode) glDrawElements(type,m_IndexData.size(),GL_UNSIGNED_INT,&(m_IndexData[0]));
 		else glDrawArrays(type,0,m_VertData->size());
 		glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
-		glEnable(GL_LIGHTING);
+		Backend()->setLighting(true);
 		glEnable(GL_TEXTURE_2D);
 		glColor4fv(m_State.Colour.arr());
 	}
 
 
-	if (m_State.Hints & HINT_UNLIT) glEnable(GL_LIGHTING);
+	if (m_State.Hints & HINT_UNLIT) Backend()->setLighting(true);
 	if (m_State.Hints & HINT_AALIAS) glDisable(GL_LINE_SMOOTH);
 	if (m_State.Hints & HINT_SPHERE_MAP)
 	{

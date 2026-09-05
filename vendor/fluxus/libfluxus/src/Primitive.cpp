@@ -15,6 +15,7 @@
 // Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 #include "Primitive.h"
+#include "RenderBackend.h"   // fluxus->JUCE port: lighting toggle via the seam
 
 using namespace Fluxus;
 
@@ -72,7 +73,7 @@ void Primitive::Prerender()
 
 void Primitive::RenderAxes()
 {
-	glDisable(GL_LIGHTING);
+	Backend()->setLighting(false);
 	glBegin(GL_LINES);
 		glColor3f(1,0,0);
 		glVertex3f(0,0,0);
@@ -96,7 +97,7 @@ void Primitive::RenderAxes()
 	glColor3f(0, 0, 1);
 	glRasterPos3f(0.0, 0.0, 1.1);
 	glutBitmapCharacter(GLUT_BITMAP_HELVETICA_12, 'z');*/
-	glEnable(GL_LIGHTING);
+	Backend()->setLighting(true);
 	glColor4fv(m_State.Colour.arr());
 }
 
@@ -104,7 +105,7 @@ void Primitive::RenderBoundingBox()
 {
 	dMatrix m;
 	dBoundingBox b = GetBoundingBox(m);
-	glDisable(GL_LIGHTING);
+	Backend()->setLighting(false);
 	glBegin(GL_LINES);
 	glVertex3f(b.min.x,b.min.y,b.min.z);
 	glVertex3f(b.max.x,b.min.y,b.min.z);
@@ -131,7 +132,7 @@ void Primitive::RenderBoundingBox()
 	glVertex3f(b.max.x,b.max.y,b.min.z);
 	glVertex3f(b.max.x,b.max.y,b.max.z);
 	glEnd();
-	glEnable(GL_LIGHTING);
+	Backend()->setLighting(true);
 }
 	
 void Primitive::SetSceneInfo(const dVector &dir, const dVector &up) 

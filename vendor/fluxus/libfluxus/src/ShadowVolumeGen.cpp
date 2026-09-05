@@ -16,6 +16,10 @@
 
 #include <algorithm>
 #include "ShadowVolumeGen.h"
+// fluxus->JUCE port: NURBSPrimitive.h moved out of ShadowVolumeGen.h (only a
+// pointer parameter needed it there) and down here, where it is really used.
+#include "NURBSPrimitive.h"
+#include "RenderBackend.h"   // fluxus->JUCE port: lighting toggle via the seam
 
 using namespace Fluxus;
 
@@ -174,7 +178,7 @@ void ShadowVolumeGen::AddEdge(dVector start, dVector end)
 {
 	if (m_Debug)
 	{
-		glDisable(GL_LIGHTING);
+		Backend()->setLighting(false);
 		glLineWidth(3);
 		glBegin(GL_LINES);					
 			glColor3f(1,0,0);
@@ -182,7 +186,7 @@ void ShadowVolumeGen::AddEdge(dVector start, dVector end)
 			glColor3f(0,0,1);
 			glVertex3fv(end.arr());
 		glEnd();
-		glEnable(GL_LIGHTING);
+		Backend()->setLighting(true);
 	}
 
 	m_ShadowVolume.AddVertex(dVertex(start,dVector(0,0,0),0,0));
@@ -244,14 +248,14 @@ void ShadowVolumeGen::NURBSGen(NURBSPrimitive *src)
 				dVector worldpoint2 = transform.transform(points->m_Data[edgeverts[i+1]]);
 
 				glPushMatrix();
-				glDisable(GL_LIGHTING);
+				Backend()->setLighting(false);
 				glBegin(GL_LINES);					
 					glColor3f(1,0,0);
 					glVertex3fv(worldpoint1.arr());
 					glColor3f(0,0,1);
 					glVertex3fv(worldpoint2.arr());
 				glEnd();
-				glEnable(GL_LIGHTING);
+				Backend()->setLighting(true);
 				glPopMatrix();
 
 				m_ShadowVolume.AddVertex(dVertex(worldpoint1,dVector(0,0,0),0,0));

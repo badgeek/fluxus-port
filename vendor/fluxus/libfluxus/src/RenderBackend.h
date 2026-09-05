@@ -9,7 +9,10 @@
 
 namespace Fluxus {
 
-enum class RPrim { Triangles, Quads, TriStrip, TriFan, Polygon, Lines };
+// fluxus->JUCE port: LineStrip added when RibbonPrimitive's wire pass moved
+// behind this seam — it draws one connected polyline, which Lines cannot express
+// without doubling every interior vertex.
+enum class RPrim { Triangles, Quads, TriStrip, TriFan, Polygon, Lines, LineStrip, Points };
 
 // Raw vertex-array views (contiguous PData arrays). col == nullptr => no per-
 // vertex colour. Stride in bytes (fluxus stores dVector = 4 floats).
@@ -35,6 +38,21 @@ struct IRenderBackend {
   virtual void popMatrix()  = 0;
   virtual void multMatrix(const float* m16) = 0;
   virtual void loadMatrix(const float* m16) = 0;
+  // fluxus->JUCE port: read the current modelview back. Fixed-function callers
+  // asked GL directly (glGetFloatv(GL_MODELVIEW_MATRIX)); a shader backend keeps
+  // its own stack and GLES has no such query, so the question comes through here.
+  // Used by ParticlePrimitive's depth sort.
+  virtual void getModelView(float* m16) = 0;
+  // Same reasoning for the projection, which SceneGraph needs to build the
+  // frustum planes it culls against.
+  virtual void getProjection(float* m16) = 0;
+
+  // Object identity for picking. Fixed-function GL had a name stack
+  // (glPushName/glPopName) feeding a selection buffer; GLES has neither, so a
+  // backend there implements these as no-ops (picking is listed as unsupported
+  // in ANDROID-SUBSET.md) or, later, as the id a colour-pick pass writes out.
+  virtual void pushPickName(unsigned int id) = 0;
+  virtual void popPickName() = 0;
 
   // per-object state
   virtual void setColour(float r, float g, float b, float a) = 0;
@@ -46,6 +64,18 @@ struct IRenderBackend {
   virtual void setBlend(int srcGL, int dstGL) = 0;   // GLenum values
   virtual void setCull(bool on) = 0;
   virtual void setFrontFaceCW(bool cw) = 0;
+  // fluxus->JUCE port: the last two pieces of per-primitive state that were
+  // still raw GL enums in State::Apply. Both are fixed-function concepts a
+  // shader backend answers differently — it normalises in the vertex shader, and
+  // always writes gl_PointSize — so a GLES backend implements them as no-ops.
+  virtual void setNormaliseNormals(bool on) = 0;
+  virtual void setProgramPointSize(bool on) = 0;
+  // fluxus->JUCE port: lighting on/off, which HINT_UNLIT and every wire pass
+  // toggle. It was raw glEnable/glDisable(GL_LIGHTING) — the single most common
+  // fixed-function enum left in the engine — and on a shader backend it is a
+  // uniform, not a capability. Without it on the seam, a GLES backend silently
+  // lights everything and HINT_UNLIT does nothing.
+  virtual void setLighting(bool on) = 0;
 
   // geometry (index/indexCount optional: index==nullptr => glDrawArrays-style)
   virtual void drawArrays(RPrim prim, const RVertexArrays& v, int count,

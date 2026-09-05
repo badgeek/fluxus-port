@@ -14,6 +14,8 @@ static GLenum toGL(RPrim p) {
     case RPrim::TriFan:    return GL_TRIANGLE_FAN;
     case RPrim::Polygon:   return GL_POLYGON;
     case RPrim::Lines:     return GL_LINES;
+    case RPrim::LineStrip: return GL_LINE_STRIP;
+    case RPrim::Points:    return GL_POINTS;
   }
   return GL_TRIANGLES;
 }
@@ -22,6 +24,10 @@ void GLBackend::pushMatrix()                 { glPushMatrix(); }
 void GLBackend::popMatrix()                  { glPopMatrix(); }
 void GLBackend::multMatrix(const float* m)   { glMultMatrixf(m); }
 void GLBackend::loadMatrix(const float* m)   { glLoadMatrixf(m); }
+void GLBackend::getModelView(float* m)       { glGetFloatv(GL_MODELVIEW_MATRIX, m); }
+void GLBackend::getProjection(float* m)      { glGetFloatv(GL_PROJECTION_MATRIX, m); }
+void GLBackend::pushPickName(unsigned int id){ glPushName(id); }
+void GLBackend::popPickName()                { glPopName(); }
 
 void GLBackend::setColour(float r, float g, float b, float a) { glColor4f(r, g, b, a); }
 
@@ -39,6 +45,9 @@ void GLBackend::setLineWidth(float w)        { glLineWidth(w); }
 void GLBackend::setPointSize(float s)        { glPointSize(s); }
 void GLBackend::setBlend(int src, int dst)   { glBlendFunc((GLenum) src, (GLenum) dst); }
 void GLBackend::setCull(bool on)             { if (on) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE); }
+void GLBackend::setNormaliseNormals(bool on) { if (on) glEnable(GL_NORMALIZE); else glDisable(GL_NORMALIZE); }
+void GLBackend::setLighting(bool on)         { if (on) glEnable(GL_LIGHTING); else glDisable(GL_LIGHTING); }
+void GLBackend::setProgramPointSize(bool on) { if (on) glEnable(GL_VERTEX_PROGRAM_POINT_SIZE); else glDisable(GL_VERTEX_PROGRAM_POINT_SIZE); }
 void GLBackend::setFrontFaceCW(bool cw)      { glFrontFace(cw ? GL_CW : GL_CCW); }
 
 void GLBackend::drawArrays(RPrim prim, const RVertexArrays& v, int count,
@@ -55,10 +64,16 @@ void GLBackend::drawArrays(RPrim prim, const RVertexArrays& v, int count,
     glBindBuffer(GL_ARRAY_BUFFER, v.posVBO);
     glVertexPointer(3, GL_FLOAT, v.stride, v.posVBO ? (void*) 0 : (void*) v.pos);
   }
+  // fluxus->JUCE port: DISABLE an array that this draw does not supply, the way
+  // the colour array below always has. Primitives that pass only positions and
+  // colours (particles as points, ribbon wire) would otherwise inherit whatever
+  // array the previous draw left enabled — a stale pointer, not just stale data.
   if (v.nrm) {
     glEnableClientState(GL_NORMAL_ARRAY);
     glBindBuffer(GL_ARRAY_BUFFER, v.nrmVBO);
     glNormalPointer(GL_FLOAT, v.stride, v.nrmVBO ? (void*) 0 : (void*) v.nrm);
+  } else {
+    glDisableClientState(GL_NORMAL_ARRAY);
   }
   if (v.tex) {
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
@@ -67,6 +82,8 @@ void GLBackend::drawArrays(RPrim prim, const RVertexArrays& v, int count,
     // the host GL context (JUCE) can leave a non-identity texture matrix, which
     // collapses our texcoords; reset it so texturing samples correctly.
     glMatrixMode(GL_TEXTURE); glLoadIdentity(); glMatrixMode(GL_MODELVIEW);
+  } else {
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
   }
 
   if (v.col) {
@@ -83,13 +100,17 @@ void GLBackend::drawArrays(RPrim prim, const RVertexArrays& v, int count,
   glBindBuffer(GL_ARRAY_BUFFER, 0);   // leave client-array state clean for others
 #else
   if (v.pos) { glEnableClientState(GL_VERTEX_ARRAY);        glVertexPointer(3, GL_FLOAT, v.stride, (void*) v.pos); }
+  // else-disable: see the note in the VBO path above.
   if (v.nrm) { glEnableClientState(GL_NORMAL_ARRAY);        glNormalPointer(GL_FLOAT, v.stride, (void*) v.nrm); }
+  else       { glDisableClientState(GL_NORMAL_ARRAY); }
   if (v.tex) {
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
     glTexCoordPointer(3, GL_FLOAT, v.stride, (void*) v.tex);
     // the host GL context (JUCE) can leave a non-identity texture matrix, which
     // collapses our texcoords; reset it so texturing samples correctly.
     glMatrixMode(GL_TEXTURE); glLoadIdentity(); glMatrixMode(GL_MODELVIEW);
+  } else {
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
   }
 
   if (v.col) {

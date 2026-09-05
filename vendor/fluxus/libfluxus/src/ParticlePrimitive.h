@@ -60,6 +60,16 @@ private:
 	vector<dColour,FLX_ALLOC(dColour) > *m_ColData;
 	vector<dVector,FLX_ALLOC(dVector) > *m_SizeData;
 	vector<float,FLX_ALLOC(float) > *m_RotateData;
+
+	// fluxus->JUCE port: the camera-facing quads are built into these each
+	// Render and handed to IRenderBackend, replacing the glBegin/glVertex loop.
+	// m_DrawOrder is what the depth-sorted and unsorted paths now differ by —
+	// everything after choosing the order is shared. Members so a steady
+	// particle count does not reallocate per frame.
+	vector<dVector> m_DrawPos;
+	vector<dVector> m_DrawTex;
+	vector<dColour> m_DrawCol;
+	vector<unsigned int> m_DrawOrder;
 	
 	class SortItem
 	{

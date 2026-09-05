@@ -18,6 +18,7 @@
 #include "NURBSPrimitive.h"
 #include "State.h"
 
+#include "RenderBackend.h"   // fluxus->JUCE port: lighting toggle via the seam
 using namespace Fluxus;
 
 NURBSPrimitive::NURBSPrimitive() :
@@ -84,7 +85,7 @@ void NURBSPrimitive::SetupSurface()
 
 void NURBSPrimitive::Render()
 {
-	if (m_State.Hints & HINT_UNLIT) glDisable(GL_LIGHTING);
+	if (m_State.Hints & HINT_UNLIT) Backend()->setLighting(false);
 
 	if (m_State.Hints & HINT_AALIAS) glEnable(GL_LINE_SMOOTH);
 	else glDisable(GL_LINE_SMOOTH);
@@ -131,7 +132,7 @@ void NURBSPrimitive::Render()
 			glEnable(GL_LINE_STIPPLE);
 			glLineStipple(m_State.StippleFactor, m_State.StipplePattern);
 		}
-		glDisable(GL_LIGHTING);
+		Backend()->setLighting(false);
 		glColor4fv(m_State.WireColour.arr());
 		gluNurbsProperty(m_Surface, GLU_DISPLAY_MODE, GLU_OUTLINE_POLYGON);
 
@@ -151,7 +152,7 @@ void NURBSPrimitive::Render()
 		glPopAttrib(); // restore the original GL_POLYGON_MODE
 #endif
 
-		glEnable(GL_LIGHTING);
+		Backend()->setLighting(true);
 		if ((m_State.Hints & HINT_WIRE_STIPPLED) > HINT_WIRE)
 		{
 			glDisable(GL_LINE_STIPPLE);
@@ -161,20 +162,20 @@ void NURBSPrimitive::Render()
 	if (m_State.Hints & HINT_POINTS)
 	{
 		glColor3f(0,0,1);
-		glDisable(GL_LIGHTING);
+		Backend()->setLighting(false);
 		glBegin(GL_POINTS);
 		for (unsigned int n=0; n<m_CVVec->size(); n++)
 		{
 			glVertex3fv((*m_CVVec)[n].arr());
 		}
 		glEnd();
-		glEnable(GL_LIGHTING);
+		Backend()->setLighting(true);
 	}
 
 	if (m_State.Hints & HINT_NORMAL)
 	{
 		glColor3f(1,0,0);
-		glDisable(GL_LIGHTING);
+		Backend()->setLighting(false);
 		glBegin(GL_LINES);
 		for (unsigned int i=0; i!=m_CVVec->size(); i++)
 		{
@@ -182,10 +183,10 @@ void NURBSPrimitive::Render()
 			glVertex3fv(((*m_CVVec)[i]+(*m_NVec)[i]).arr());
 		}
 		glEnd();
-		glEnable(GL_LIGHTING);
+		Backend()->setLighting(true);
 	}
 
-	if (m_State.Hints & HINT_UNLIT) glEnable(GL_LIGHTING);
+	if (m_State.Hints & HINT_UNLIT) Backend()->setLighting(true);
 }
 
 void NURBSPrimitive::RecalculateNormals(bool smooth)
