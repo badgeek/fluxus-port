@@ -89,6 +89,20 @@ target_compile_definitions(imgui PRIVATE GL_SILENCE_DEPRECATION)
 target_compile_options(imgui PRIVATE -w)
 target_link_libraries(imgui PUBLIC "-framework OpenGL")
 
+# --- shared fluxus command layer -------------------------------------------
+# The extern "C" flux_* engine binding surface both script hosts drive, split by
+# domain across these TUs (app/FluxusCommandsInternal.h holds what they share).
+# Every target that links a script host needs the whole set, so they are listed
+# once here — see app/FluxusCommands.h for the API itself.
+set(FLUXUS_CMD_SOURCES
+    app/FluxusCommandsCore.cpp
+    app/FluxusCommandsPdata.cpp
+    app/FluxusCommandsMaths.cpp
+    app/FluxusCommandsTerminal.cpp
+    app/FluxusCommandsGpu.cpp
+    app/FluxusCommandsInput.cpp
+    app/FluxusCommandsFx.cpp)
+
 # --- bundled example sketches ----------------------------------------------
 # Copy the upstream fluxus examples into <App>.app/Contents/Resources/examples;
 # FluxusMenu lists them under File > Examples (AppMenu.h). ~370 KB, so unlike the
@@ -120,7 +134,7 @@ target_sources(FluxusApp PRIVATE
     app/PostFX.cpp
     app/NTSCEffect.cpp
     app/TextureLoader.cpp
-    app/FluxusCommands.cpp
+    ${FLUXUS_CMD_SOURCES}
       app/AudioHost.cpp
       app/MidiHost.cpp
       app/OscHost.cpp
@@ -201,7 +215,7 @@ target_sources(FluxusGLApp PRIVATE
     app/PostFX.cpp
     app/NTSCEffect.cpp
     app/TextureLoader.cpp
-    app/FluxusCommands.cpp
+    ${FLUXUS_CMD_SOURCES}
       app/AudioHost.cpp
       app/MidiHost.cpp
       app/OscHost.cpp
@@ -278,7 +292,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       app/PostFX.cpp
       app/NTSCEffect.cpp
       app/TextureLoader.cpp
-      app/FluxusCommands.cpp
+      ${FLUXUS_CMD_SOURCES}
       app/AudioHost.cpp
       app/MidiHost.cpp
       app/OscHost.cpp
@@ -337,7 +351,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       app/PostFX.cpp
       app/NTSCEffect.cpp
       app/TextureLoader.cpp
-      app/FluxusCommands.cpp
+      ${FLUXUS_CMD_SOURCES}
       app/AudioHost.cpp
       app/MidiHost.cpp
       app/OscHost.cpp
@@ -411,7 +425,7 @@ target_link_libraries(fft_test PRIVATE
 # --- pdata FFI-layer benchmark + test (headless, no GL context, no JUCE) ----
 add_executable(pdata_bench
     spikes/pdata-bench/main.cpp
-    app/FluxusCommands.cpp)
+    ${FLUXUS_CMD_SOURCES})
 target_include_directories(pdata_bench PRIVATE app)
 target_compile_definitions(pdata_bench PRIVATE GL_SILENCE_DEPRECATION=1)
 target_link_libraries(pdata_bench PRIVATE libfluxus_min vterm "-framework OpenGL")
