@@ -12,6 +12,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <cstdio>
 #include <vector>
 
@@ -20,51 +21,6 @@ using namespace Fluxus;
 static long long nowMs() {
   using namespace std::chrono;
   return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
-}
-
-// Reprojection math for the post-shader pass. These stay hand-rolled ON PURPOSE:
-// the engine's dMatrix multiply IS equivalent (a GL column-major float[16] memcpy'd
-// into dMatrix is its transpose, and dMatrix's a*b is the storage product b.a, so
-// `dPr * dMv` reproduces mul4(pr, mv) bit-for-bit — measured max diff 0), but
-// `dMatrix::inverse()` is BROKEN like dQuat: it computes the adjugate then divides
-// by the determinant via scale(s,s,s), whose 4th diagonal entry is 1 — so the
-// matrix's 4th ROW is never divided by det. It is not even a self-inverse
-// (dVP*dVP.inverse() vs identity: max diff 323 on a real 12deg projection).
-// Correct for det==1 only, which a projection matrix never is. Don't route this
-// through dada.
-// column-major 4x4 multiply: out = a * b
-static void mul4(float* out, const float* a, const float* b) {
-  for (int c = 0; c < 4; ++c)
-    for (int r = 0; r < 4; ++r) {
-      float s = 0;
-      for (int k = 0; k < 4; ++k) s += a[k*4+r] * b[c*4+k];
-      out[c*4+r] = s;
-    }
-}
-// 4x4 inverse (MESA gluInvertMatrix); returns false if singular
-static bool invert4(float* o, const float* m) {
-  float inv[16];
-  inv[0]=m[5]*m[10]*m[15]-m[5]*m[11]*m[14]-m[9]*m[6]*m[15]+m[9]*m[7]*m[14]+m[13]*m[6]*m[11]-m[13]*m[7]*m[10];
-  inv[4]=-m[4]*m[10]*m[15]+m[4]*m[11]*m[14]+m[8]*m[6]*m[15]-m[8]*m[7]*m[14]-m[12]*m[6]*m[11]+m[12]*m[7]*m[10];
-  inv[8]=m[4]*m[9]*m[15]-m[4]*m[11]*m[13]-m[8]*m[5]*m[15]+m[8]*m[7]*m[13]+m[12]*m[5]*m[11]-m[12]*m[7]*m[9];
-  inv[12]=-m[4]*m[9]*m[14]+m[4]*m[10]*m[13]+m[8]*m[5]*m[14]-m[8]*m[6]*m[13]-m[12]*m[5]*m[10]+m[12]*m[6]*m[9];
-  inv[1]=-m[1]*m[10]*m[15]+m[1]*m[11]*m[14]+m[9]*m[2]*m[15]-m[9]*m[3]*m[14]-m[13]*m[2]*m[11]+m[13]*m[3]*m[10];
-  inv[5]=m[0]*m[10]*m[15]-m[0]*m[11]*m[14]-m[8]*m[2]*m[15]+m[8]*m[3]*m[14]+m[12]*m[2]*m[11]-m[12]*m[3]*m[10];
-  inv[9]=-m[0]*m[9]*m[15]+m[0]*m[11]*m[13]+m[8]*m[1]*m[15]-m[8]*m[3]*m[13]-m[12]*m[1]*m[11]+m[12]*m[3]*m[9];
-  inv[13]=m[0]*m[9]*m[14]-m[0]*m[10]*m[13]-m[8]*m[1]*m[14]+m[8]*m[2]*m[13]+m[12]*m[1]*m[10]-m[12]*m[2]*m[9];
-  inv[2]=m[1]*m[6]*m[15]-m[1]*m[7]*m[14]-m[5]*m[2]*m[15]+m[5]*m[3]*m[14]+m[13]*m[2]*m[7]-m[13]*m[3]*m[6];
-  inv[6]=-m[0]*m[6]*m[15]+m[0]*m[7]*m[14]+m[4]*m[2]*m[15]-m[4]*m[3]*m[14]-m[12]*m[2]*m[7]+m[12]*m[3]*m[6];
-  inv[10]=m[0]*m[5]*m[15]-m[0]*m[7]*m[13]-m[4]*m[1]*m[15]+m[4]*m[3]*m[13]+m[12]*m[1]*m[7]-m[12]*m[3]*m[5];
-  inv[14]=-m[0]*m[5]*m[14]+m[0]*m[6]*m[13]+m[4]*m[1]*m[14]-m[4]*m[2]*m[13]-m[12]*m[1]*m[6]+m[12]*m[2]*m[5];
-  inv[3]=-m[1]*m[6]*m[11]+m[1]*m[7]*m[10]+m[5]*m[2]*m[11]-m[5]*m[3]*m[10]-m[9]*m[2]*m[7]+m[9]*m[3]*m[6];
-  inv[7]=m[0]*m[6]*m[11]-m[0]*m[7]*m[10]-m[4]*m[2]*m[11]+m[4]*m[3]*m[10]+m[8]*m[2]*m[7]-m[8]*m[3]*m[6];
-  inv[11]=-m[0]*m[5]*m[11]+m[0]*m[7]*m[9]+m[4]*m[1]*m[11]-m[4]*m[3]*m[9]-m[8]*m[1]*m[7]+m[8]*m[3]*m[5];
-  inv[15]=m[0]*m[5]*m[10]-m[0]*m[6]*m[9]-m[4]*m[1]*m[10]+m[4]*m[2]*m[9]+m[8]*m[1]*m[6]-m[8]*m[2]*m[5];
-  float det = m[0]*inv[0]+m[1]*inv[4]+m[2]*inv[8]+m[3]*inv[12];
-  if (det == 0.0f) return false;
-  det = 1.0f/det;
-  for (int i = 0; i < 16; ++i) o[i] = inv[i]*det;
-  return true;
 }
 
 FluxusScene::FluxusScene(SharedScript* s, std::unique_ptr<IScriptHost> h)
@@ -225,9 +181,24 @@ void FluxusScene::renderWithPostFX(double t) {
     glGetFloatv(GL_PROJECTION_MATRIX, pr);
     postfx.end();
 
+    // view-projection this frame + its inverse via engine dMatrix. A GL
+    // column-major float[16] memcpy'd into dMatrix storage holds the transpose,
+    // and dMatrix's a*b is the storage product b.a — so dPr*dMv IS pr*mv in
+    // column-major, and memcpy'ing the inverse back out is the correct
+    // column-major inverse (inverse of transpose = transpose of inverse).
+    // Requires the det!=1 inverse() fix in dada.h (see comment there).
     float vp[16], vpInv[16];
-    mul4(vp, pr, mv);               // view-projection this frame
-    if (!invert4(vpInv, vp)) for (int i=0;i<16;++i) vpInv[i] = (i%5==0)?1.0f:0.0f;
+    dMatrix dPr, dMv;
+    std::memcpy(&dPr.m[0][0], pr, sizeof pr);
+    std::memcpy(&dMv.m[0][0], mv, sizeof mv);
+    dMatrix dVP = dPr * dMv;
+    std::memcpy(vp, &dVP.m[0][0], sizeof vp);
+    if (std::fabs(dVP.determinant()) < 1e-20f) {
+      for (int i=0;i<16;++i) vpInv[i] = (i%5==0)?1.0f:0.0f;   // singular: identity fallback
+    } else {
+      dMatrix dInv = dVP.inverse();
+      std::memcpy(vpInv, &dInv.m[0][0], sizeof vpInv);
+    }
     const long long now = nowMs();
     float dt = expOn ? (1.0f / (float) expFps)
                      : ((lastRenderMs > 0) ? (float) ((now - lastRenderMs) / 1000.0) : 0.016f);
