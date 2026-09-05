@@ -302,6 +302,29 @@ static inline int  gluBuild2DMipmaps(unsigned, int, int, int, unsigned, unsigned
 static inline const char* gluErrorString(unsigned)    { return "gl-error"; }
 static inline void gluPickMatrix(double, double, double, double, const int*)  { FLUXUS_ES_STUB("gluPickMatrix (picking)"); }
 
+// --- framebuffer objects: EXT/ARB spellings -> core --------------------------
+// These are REAL and fully supported on GLES 3, just under their core names.
+// app/FluxusCommandsGpu.cpp (the GPU particle system) uses the EXT/ARB spellings
+// that desktop GL 2.1 needed, so map rather than stub — nothing is lost here.
+// Renaming them at the source would be the tidier fix, but no golden case covers
+// GPU particles, so doing it in the compat layer keeps macOS provably untouched.
+#define GL_FRAMEBUFFER_EXT             GL_FRAMEBUFFER
+#define GL_COLOR_ATTACHMENT0_EXT       GL_COLOR_ATTACHMENT0
+#define GL_COLOR_ATTACHMENT1_EXT       GL_COLOR_ATTACHMENT1
+#define GL_FRAMEBUFFER_COMPLETE_EXT    GL_FRAMEBUFFER_COMPLETE
+#define GL_RENDERBUFFER_EXT            GL_RENDERBUFFER
+#define GL_DEPTH_ATTACHMENT_EXT        GL_DEPTH_ATTACHMENT
+#define GL_RGBA32F_ARB                 GL_RGBA32F
+#define glGenFramebuffersEXT           glGenFramebuffers
+#define glBindFramebufferEXT           glBindFramebuffer
+#define glDeleteFramebuffersEXT        glDeleteFramebuffers
+#define glFramebufferTexture2DEXT      glFramebufferTexture2D
+#define glCheckFramebufferStatusEXT    glCheckFramebufferStatus
+#define glGenRenderbuffersEXT          glGenRenderbuffers
+#define glBindRenderbufferEXT          glBindRenderbuffer
+#define glRenderbufferStorageEXT       glRenderbufferStorage
+#define glFramebufferRenderbufferEXT   glFramebufferRenderbuffer
+
 // --- extension spellings ----------------------------------------------------
 // GLES 3.2 HAS geometry shaders; it configures the stage with in-shader layout
 // qualifiers instead of this call, so the program still links and runs.

@@ -1,14 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// The two app-level symbols the command layer needs that this spike does not
-// build. Both belong to subsystems already listed as unsupported on Android in
-// ANDROID-SUBSET.md, so they stub rather than block — and, like the rest of the
-// Android compatibility work, they say so once instead of failing silently.
-//
-//   pixelsErase      — lives in app/FluxusCommandsGpu.cpp, which is excluded
-//                      until its FBO/float-texture calls drop the EXT spellings.
-//   flux_font_atlas  — lives in app/TextureLoader.cpp, which is JUCE code
-//                      (JUCE decodes the font image), so it cannot build here.
+// The app-level symbols the command layer needs that this spike cannot build.
+// Both belong to the font atlas, which lives in app/TextureLoader.cpp — JUCE code
+// (JUCE decodes the font image) — so it cannot compile for Android. They stub
+// rather than block, and say so once instead of failing silently, like the rest
+// of the Android compatibility work.
 
 #include <cstdio>
 
@@ -21,13 +17,10 @@ static void warnOnce(const char* what) {
   std::fprintf(stderr, "[fluxus] android spike: %s is not built in (see ANDROID-SUBSET.md)\n", what);
 }
 
-// Called by flux_destroy for every primitive; the GPU-pixels registry it would
-// clean up does not exist here, so there is nothing to erase.
-void pixelsErase(Fluxus::Primitive*) {}
-
-// flux_pdata_size asks this whether a primitive is a GPU-pixels one. None are.
-int pixelsCount(Fluxus::Primitive*) { return -1; }
-
+// pixelsErase and pixelsCount used to be stubbed here. They are not any more:
+// app/FluxusCommandsGpu.cpp compiles for Android now that the EXT/ARB framebuffer
+// spellings map to their core GLES 3 names, so the real ones are linked in.
+//
 // The terminal primitive maps characters to cells in the glyph atlas, which is
 // part of the same JUCE-built texture as flux_font_atlas.
 extern "C" unsigned flux_glyph_atlas_texture(void) { return 0; }

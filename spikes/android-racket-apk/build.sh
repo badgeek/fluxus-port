@@ -68,7 +68,7 @@ done
 echo "--- flux_* + Racket host ---"
 for f in FluxusCommandsCore FluxusCommandsPdata FluxusCommandsMaths \
          FluxusCommandsTerminal FluxusCommandsInput FluxusCommandsFx \
-         RacketScriptHost; do
+         FluxusCommandsGpu RacketScriptHost; do
   compile "$ROOT/app/$f.cpp" app
 done
 compile "$GLUE/android_stubs.cpp" app
