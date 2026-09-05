@@ -922,15 +922,29 @@ public:
                 get_vert_k().mag());
     }
 
+	// fluxus->JUCE port: this read the TRANSPOSED elements (m[1][2]/m[2][2] and
+	// m[0][2], m[0][1]/m[0][0]) and negated y, so it inverted neither rotxyz
+	// nor its transpose — rotxyz(20,-35,50) came back (58,35,-38). rotxyz
+	// composes to storage Rz*Ry*Rx, whose elements give sy = m[2][0],
+	// (-cy*sx, cy*cx) = (m[2][1], m[2][2]) and (-sz*cy, cz*cy) = (m[1][0],
+	// m[0][0]). Use atan2 as well: plain atan collapses two quadrants, so any
+	// angle outside (-90,90) came back wrong even in the intended convention.
+	// Dead code in this port (no caller in the engine, app/ or racket-lib/).
 	inline void extract_euler(float &x, float &y, float &z) const
 	{
 		dMatrix t=*this;
 		t.remove_scale();
-		if (t.m[2][2]==0) x=0;
-		else x = atan(t.m[1][2]/t.m[2][2])*RAD_CONV;
-		y = asin(-t.m[0][2])*RAD_CONV;
- 		if (t.m[0][0]==0) z=0;
-		else z=atan(t.m[0][1]/t.m[0][0])*RAD_CONV;
+		y = asin(clamp(t.m[2][0], -1.0f, 1.0f))*RAD_CONV;
+		if (fabs(t.m[2][0]) > 0.99999f)   // gimbal lock: fold x into z
+		{
+			x = 0;
+			z = atan2(t.m[0][1], t.m[1][1])*RAD_CONV;
+		}
+		else
+		{
+			x = atan2(-t.m[2][1], t.m[2][2])*RAD_CONV;
+			z = atan2(-t.m[1][0], t.m[0][0])*RAD_CONV;
+		}
 
 
 		/*dVector xvec = get_hori_i().normalise();
