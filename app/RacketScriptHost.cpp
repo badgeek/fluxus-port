@@ -7,9 +7,15 @@ extern "C" {
 #include "racketcs.h"
 }
 
+#include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
+#ifdef __ANDROID__
+#include <android/log.h>
+#include <sys/system_properties.h>
+#endif
 #include <sys/stat.h>
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -166,10 +172,45 @@ std::string requireLibForm() {
 }
 } // namespace
 
+namespace {
+// fluxus->JUCE port: per-phase startup timing, off unless FLUXUS_BOOT_TIMING is
+// set. Racket startup is the app's slowest step on every platform and it has
+// been optimised twice on guesses; this makes the next attempt start from a
+// measurement. Goes to the platform's log, since stderr does not reach logcat.
+bool bootTimingEnabled() {
+  if (std::getenv("FLUXUS_BOOT_TIMING") != nullptr) return true;
+#ifdef __ANDROID__
+  // An Android app inherits no shell environment, so the env var alone can
+  // never turn this on there: `adb shell setprop debug.fluxus.boot 1`.
+  char v[PROP_VALUE_MAX] = {0};
+  if (__system_property_get("debug.fluxus.boot", v) > 0 && v[0] == '1') return true;
+#endif
+  return false;
+}
+
+struct BootTimer {
+  bool on = bootTimingEnabled();
+  std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now();
+  void mark(const char* phase) {
+    if (!on) return;
+    const auto now = std::chrono::steady_clock::now();
+    const double ms =
+        std::chrono::duration<double, std::milli>(now - last).count();
+    last = now;
+#ifdef __ANDROID__
+    __android_log_print(ANDROID_LOG_INFO, "fluxus", "boot %-22s %8.1f ms", phase, ms);
+#else
+    std::fprintf(stderr, "[fluxus] boot %-22s %8.1f ms\n", phase, ms);
+#endif
+  }
+};
+}  // namespace
+
 RacketScriptHost::RacketScriptHost()  = default;
 RacketScriptHost::~RacketScriptHost() = default;
 
 void RacketScriptHost::init() {
+  BootTimer timer;
   if (!g_booted) {
     racket_boot_arguments_t ba;
     std::memset(&ba, 0, sizeof(ba));
@@ -192,6 +233,7 @@ void RacketScriptHost::init() {
     std::fprintf(stderr, "[fluxus] Racket boot: %s (%s)\n", prefix.c_str(),
                  bundleRoot().empty() ? "external install" : "bundled, self-contained");
     racket_boot(&ba);
+    timer.mark("racket_boot");
     g_booted = true;
   }
 
@@ -214,6 +256,7 @@ void RacketScriptHost::init() {
 
   racket_namespace_require(sym("racket/base"));
   racket_namespace_require(sym("ffi/unsafe"));
+  timer.mark("namespace requires");
 
   // The install keeps its compiled collects in a SEPARATE root
   // (<RACKET_DIR>/lib/racket/compiled), which the plain `racket` CLI has on
@@ -262,8 +305,11 @@ void RacketScriptHost::init() {
     eval_cstr(form.c_str());
   }
 
+  timer.mark("compile .zo pass");
   eval_cstr(requireLibForm().c_str());   // load the fluxus .ss library (FFI-backed)
+  timer.mark("require fluxus-lib");
   eval_cstr(kHostPrelude);               // host infra (error reporter + runner)
+  timer.mark("host prelude");
 
   // resolve the runners once; locked so the C globals stay valid across GCs
   ptr rg = eval_cstr("flux-run-guarded");
