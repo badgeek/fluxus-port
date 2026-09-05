@@ -41,6 +41,16 @@ private:
   // offline export: frame-locked time (t = expFrame/expFps, NOT wall clock) piped
   // as raw RGBA to a background ffmpeg process. Output is smooth at expFps no
   // matter how slow the per-frame grab is — it's a render, not a realtime capture.
+  // renderFrame() phases, in call order. `t` is the frame's time source (frame-
+  // locked while exporting) — computed once in renderFrame and passed down.
+  void          updateExportToggle();                              // export on/off transitions
+  void          clearFullViewport();                               // opaque-black incl. letterbox bars
+  void          pullScript(bool& isDirty);                         // mutex pull of the editor buffer
+  void          runScript(double t, bool isDirty, std::string& err);   // commit / retained / immediate
+  void          applyRenderState();                                // camera anchor + blend/antialias
+  void          renderWithPostFX(double t);                        // FBO + reprojection, or plain Render
+  void          captureOutputs();                                  // NTSC, screenshot, record, export
+
   std::FILE*    expPipe = nullptr;
   bool          expOn = false;
   long          expFrame = 0;

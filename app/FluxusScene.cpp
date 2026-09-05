@@ -119,33 +119,17 @@ void FluxusScene::setResolution(int w, int h) {
   resW = w; resH = h;
 }
 
-void FluxusScene::renderFrame() {
-  if (!renderer || !host) return;
+// --- per-frame phases (called in order by renderFrame) -----------------------
 
-  // JUCE renders synchronously on the MESSAGE thread during move/resize/fullscreen.
-  // The script engine (Racket CS / s7) is bound to the GL thread and is NOT
-  // thread-safe — calling it from another thread crashes. Skip those frames.
-  if (std::this_thread::get_id() != glThread) return;
-
-  ++frameCount;
-
+void FluxusScene::updateExportToggle() {
   // offline export toggle (message thread sets desired state; we own the pipe).
-  { char epath[1024]; int efps = 60;
-    const bool want = flux_export_state(epath, (int) sizeof epath, &efps);
-    if (want && !expOn) { expOn = true; expPathStr = epath; expFps = efps; }   // pipe opens lazily below
-    else if (!want && expOn) { expOn = false; exportEnd(); }
-  }
+  char epath[1024]; int efps = 60;
+  const bool want = flux_export_state(epath, (int) sizeof epath, &efps);
+  if (want && !expOn) { expOn = true; expPathStr = epath; expFps = efps; }   // pipe opens lazily below
+  else if (!want && expOn) { expOn = false; exportEnd(); }
+}
 
-  // Time source: wall clock normally, but frame-locked while exporting so motion
-  // advances exactly 1/fps per RENDERED frame — the output is smooth at expFps no
-  // matter how slow each grab is (a deterministic render, not a realtime capture).
-  const double t = expOn ? (double) expFrame / (double) expFps
-                         : (nowMs() - startMs) / 1000.0;
-  // audio-reactive export: feed THIS frame's pre-analysed features so (gain)/(gh)
-  // react to the soundtrack deterministically, synced to the frame-locked time.
-  if (expOn) flux_export_audio_apply(expFrame);
-  host->setRenderer(renderer.get());
-
+void FluxusScene::clearFullViewport() {
   // Paint the WHOLE window opaque-black first. With an aspect lock the camera
   // renders into a letterbox sub-rect; the renderer's clear/scissor only covers
   // that rect, so without this the bars stay uncleared and the transparent JUCE
@@ -156,23 +140,26 @@ void FluxusScene::renderFrame() {
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   }
+}
 
+void FluxusScene::pullScript(bool& isDirty) {
   // pull the latest editor buffer + dirty flag (message thread writes them)
-  bool isDirty = false;
+  isDirty = false;
   if (shared) {
     std::lock_guard<std::mutex> lk(shared->m);
     currentScript = shared->pending;
     isDirty = shared->dirty;
     shared->dirty = false;
   }
+}
 
+void FluxusScene::runScript(double t, bool isDirty, std::string& err) {
   // Two models:
   //  - immediate (default): wipe + re-eval the whole buffer every frame.
   //  - retained ((retained) opt-in): eval the buffer ONCE (build persistent
   //    geometry + register the every-frame thunk), then per frame run only that
   //    thunk — no Clear, no rebuild. Fast for heavy static meshes.
   const bool commit = isDirty || !committedOnce;
-  std::string err;
   if (commit) {
     flux_free_terminals();                // free any terminal parsers before the wipe
     renderer->Clear();
@@ -191,11 +178,9 @@ void FluxusScene::renderFrame() {
     host->setFrameInfo(t, frameCount);
     if (!currentScript.empty()) host->eval(currentScript, err);
   }
-  if (shared) {
-    std::lock_guard<std::mutex> lk(shared->m);
-    shared->lastError = err;   // "" = ok
-  }
+}
 
+void FluxusScene::applyRenderState() {
   // the script just moved any follow-cam target; anchor the camera-node to the FINAL
   // view before rendering so HUD prims parented to it pin exactly (see FluxusCommands).
   flux_camera_finalize();
@@ -211,7 +196,9 @@ void FluxusScene::renderFrame() {
   } else {
     glDisable(GL_LINE_SMOOTH);
   }
+}
 
+void FluxusScene::renderWithPostFX(double t) {
   // the script (just eval'd) may have installed a post-processing shader.
   std::string frag; bool dirty = false; double feedback = 0.0;
   const bool post = flux_post_state(frag, feedback, dirty) && resW > 0 && resH > 0
@@ -240,7 +227,9 @@ void FluxusScene::renderFrame() {
   } else {
     renderer->Render();
   }
+}
 
+void FluxusScene::captureOutputs() {
   // final stage: run the whole finished frame (scene + post pass) through the
   // software NTSC/CRT filter, in place on the default framebuffer. Kept BEFORE
   // the grab below so screenshots/recordings/exports capture the filtered image.
@@ -268,4 +257,43 @@ void FluxusScene::renderFrame() {
       if (expPipe)  exportWriteFrame();
     }
   }
+}
+
+void FluxusScene::renderFrame() {
+  if (!renderer || !host) return;
+
+  // JUCE renders synchronously on the MESSAGE thread during move/resize/fullscreen.
+  // The script engine (Racket CS / s7) is bound to the GL thread and is NOT
+  // thread-safe — calling it from another thread crashes. Skip those frames.
+  if (std::this_thread::get_id() != glThread) return;
+
+  ++frameCount;
+
+  updateExportToggle();
+
+  // Time source: wall clock normally, but frame-locked while exporting so motion
+  // advances exactly 1/fps per RENDERED frame — the output is smooth at expFps no
+  // matter how slow each grab is (a deterministic render, not a realtime capture).
+  const double t = expOn ? (double) expFrame / (double) expFps
+                         : (nowMs() - startMs) / 1000.0;
+  // audio-reactive export: feed THIS frame's pre-analysed features so (gain)/(gh)
+  // react to the soundtrack deterministically, synced to the frame-locked time.
+  if (expOn) flux_export_audio_apply(expFrame);
+  host->setRenderer(renderer.get());
+
+  clearFullViewport();
+
+  bool isDirty = false;
+  pullScript(isDirty);
+
+  std::string err;
+  runScript(t, isDirty, err);
+  if (shared) {
+    std::lock_guard<std::mutex> lk(shared->m);
+    shared->lastError = err;   // "" = ok
+  }
+
+  applyRenderState();
+  renderWithPostFX(t);
+  captureOutputs();
 }
