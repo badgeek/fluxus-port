@@ -425,10 +425,17 @@ dQuat::dQuat(const dMatrix& mat)
         s = sqrt (tr);
         w = s / 2.0;
         s = 0.5 / s;
-        x = (mat.m[2][1] - mat.m[1][2]) * s;
-        y = (mat.m[0][2] - mat.m[2][0]) * s;
-        z = (mat.m[1][0] - mat.m[0][1]) * s;
-    } else {		
+        // fluxus->JUCE port: the antisymmetric differences were the wrong way
+        // round, so this returned the CONJUGATE of the quaternion whose
+        // toMatrix() produced mat. toMatrix stores m[i][j] = R[j][i] (dada is
+        // row-vector, v' = v*M), so the textbook x = (R[2][1]-R[1][2])/4w is
+        // m[1][2]-m[2][1] here, not m[2][1]-m[1][2]. Invisible for years
+        // because the only in-tree caller (RigidBlend) conjugated both inputs
+        // and got a consistent — but inverted — blend.
+        x = (mat.m[1][2] - mat.m[2][1]) * s;
+        y = (mat.m[2][0] - mat.m[0][2]) * s;
+        z = (mat.m[0][1] - mat.m[1][0]) * s;
+    } else {
         i = 0;
         if (mat.m[1][1] > mat.m[0][0]) i = 1;
         if (mat.m[2][2] > mat.m[i][i]) i = 2;
@@ -441,7 +448,7 @@ dQuat::dQuat(const dMatrix& mat)
 
         if (s != 0.0) s = 0.5 / s;
 
-        q[3] = (mat.m[k][j] - mat.m[j][k]) * s;
+        q[3] = (mat.m[j][k] - mat.m[k][j]) * s;   // same transposition as above
         q[j] = (mat.m[j][i] + mat.m[i][j]) * s;
         q[k] = (mat.m[k][i] + mat.m[i][k]) * s;
 
@@ -481,8 +488,12 @@ void dQuat::toAxisAngle(dVector& axis, float& angle) const
     dQuat n = *this;
     n.renorm();
 
-    float cos_a = n.w;
-    angle = acos( cos_a ) * 2.0;
+    // fluxus->JUCE port: this returned RADIANS while setAxisAngle takes
+    // DEGREES (it multiplies by DEG_CONV), so the pair never round-tripped —
+    // (axis,40) came back as (axis,0.698). Return degrees, like every other
+    // angle in dada.
+    float cos_a = clamp(n.w, -1.0f, 1.0f);
+    angle = acos( cos_a ) * 2.0 * RAD_CONV;
 
     float sin_a = sqrt( 1.0 - cos_a * cos_a );
     if ( fabs( sin_a ) < 0.0005 ) sin_a = 1.0;
