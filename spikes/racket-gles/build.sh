@@ -95,5 +95,7 @@ adb shell chmod 755 $DEV/racketgles
 
 # --- run --------------------------------------------------------------------
 adb shell "cd $DEV && LD_LIBRARY_PATH=$DEV ./racketgles $DEV"
-adb pull $DEV/racket-scene.raw "$OUT/racket-scene.raw" > /dev/null 2>&1 &&
-  python3 "$CUBE/rgba2png.py" "$OUT/racket-scene.raw" "$OUT/racket-scene.png" $W $H
+for f in racket-scene sphere-centred; do
+  adb pull $DEV/$f.raw "$OUT/$f.raw" > /dev/null 2>&1 || continue
+  python3 "$CUBE/rgba2png.py" "$OUT/$f.raw" "$OUT/$f.png" $W $H
+done

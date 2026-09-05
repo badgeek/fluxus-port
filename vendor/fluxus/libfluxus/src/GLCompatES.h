@@ -20,6 +20,7 @@
 // warning no longer appears in a session, that path is genuinely ported.
 
 #include <cstdio>
+#include <cstdlib>
 
 namespace FluxusGLCompat {
 
@@ -108,6 +109,12 @@ typedef struct GLUnurbsObjOpaque   GLUnurbsObj;
 typedef struct GLUquadricObjOpaque GLUquadricObj;
 typedef struct GLUtesselatorOpaque GLUtesselator;
 
+// Renderer.cpp falls back to the old EXT spelling when GL_POLYGON_OFFSET is
+// undefined. On GLES the capability exists under its modern name, so map it
+// rather than stub it: polygon offset really works here, and it is what keeps
+// a hidden-line wire pass from z-fighting with its own fill.
+#define GL_POLYGON_OFFSET GL_POLYGON_OFFSET_FILL
+
 // --- glEnable / glDisable filtering -----------------------------------------
 // These two ARE real GLES calls, but the engine passes fixed-function
 // capabilities to them (GL_LIGHTING, GL_TEXTURE_2D, the texgen and client-array
@@ -143,8 +150,46 @@ inline bool isFixedFunctionCap(unsigned cap)
 }
 } // namespace FluxusGLCompat
 
-#define glEnable(cap)  do { if (!FluxusGLCompat::isFixedFunctionCap(cap)) ::glEnable(cap);  } while (0)
-#define glDisable(cap) do { if (!FluxusGLCompat::isFixedFunctionCap(cap)) ::glDisable(cap); } while (0)
+// The filter list cannot be complete by inspection — the engine is large and
+// some caps arrive through macros. So check right after the call, where the cap
+// is still known, and name it. Bisecting a GL_INVALID_ENUM after the fact costs
+// far more than this does. (It also swallows a pending error from earlier code,
+// which is a fair trade: an unattributed error is worth less than an attributed
+// one.)
+namespace FluxusGLCompat {
+inline void setCap(unsigned cap, bool on, const char* where)
+{
+	if (isFixedFunctionCap(cap)) return;
+
+	// Diagnostics are OFF unless FLUXUS_GL_DEBUG is set, and deliberately so.
+	// Attributing the error correctly means draining the queue first, and a
+	// drain on every enable/disable would SWALLOW errors raised anywhere else —
+	// the check would end up hiding the very bugs it exists to find.
+	static const bool debug = std::getenv("FLUXUS_GL_DEBUG") != 0;
+	if (!debug)
+	{
+		if (on) ::glEnable(cap); else ::glDisable(cap);
+		return;
+	}
+
+	while (::glGetError() != 0) {}
+	if (on) ::glEnable(cap); else ::glDisable(cap);
+	if (::glGetError() == 0x0500)
+	{
+		static bool warned = false;
+		if (!warned)
+		{
+			warned = true;
+			std::fprintf(stderr, "[fluxus] GLES: %s(0x%04X) is not a capability here "
+			                     "(%s) — add it to isFixedFunctionCap\n",
+			             on ? "glEnable" : "glDisable", cap, where);
+		}
+	}
+}
+} // namespace FluxusGLCompat
+
+#define glEnable(cap)  FluxusGLCompat::setCap((cap), true,  __FILE__)
+#define glDisable(cap) FluxusGLCompat::setCap((cap), false, __FILE__)
 
 // --- immediate mode ---------------------------------------------------------
 // The largest group. Every primitive still drawing this way renders NOTHING on
@@ -169,6 +214,21 @@ static inline void glNormalPointer(unsigned, int, const void*)        {}
 static inline void glColorPointer(int, unsigned, int, const void*)    {}
 static inline void glTexCoordPointer(int, unsigned, int, const void*) {}
 static inline void glClientActiveTexture(unsigned)   {}
+
+// --- matrix queries ---------------------------------------------------------
+// glGetFloatv is a real GLES call, but GL_MODELVIEW_MATRIX / GL_PROJECTION_MATRIX
+// are not GLES pnames — passing them through raises GL_INVALID_ENUM and leaves
+// the caller reading an uninitialised matrix. SceneGraph already asks the
+// backend instead (getModelView/getProjection); Renderer::PreRender does not
+// yet, so intercept until it does.
+namespace FluxusGLCompat {
+inline bool isMatrixPName(unsigned p) { return p == 0x0BA6 || p == 0x0BA7; }
+} // namespace FluxusGLCompat
+#define glGetFloatv(pname, dst) \
+	do { \
+		if (FluxusGLCompat::isMatrixPName(pname)) FLUXUS_ES_STUB("glGetFloatv(GL_*_MATRIX) — ask IRenderBackend instead"); \
+		else ::glGetFloatv((pname), (dst)); \
+	} while (0)
 
 // --- matrix stack -----------------------------------------------------------
 // IRenderBackend owns this now; anything still calling it directly is a path
