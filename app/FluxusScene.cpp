@@ -22,6 +22,16 @@ static long long nowMs() {
   return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
 }
 
+// Reprojection math for the post-shader pass. These stay hand-rolled ON PURPOSE:
+// the engine's dMatrix multiply IS equivalent (a GL column-major float[16] memcpy'd
+// into dMatrix is its transpose, and dMatrix's a*b is the storage product b.a, so
+// `dPr * dMv` reproduces mul4(pr, mv) bit-for-bit — measured max diff 0), but
+// `dMatrix::inverse()` is BROKEN like dQuat: it computes the adjugate then divides
+// by the determinant via scale(s,s,s), whose 4th diagonal entry is 1 — so the
+// matrix's 4th ROW is never divided by det. It is not even a self-inverse
+// (dVP*dVP.inverse() vs identity: max diff 323 on a real 12deg projection).
+// Correct for det==1 only, which a projection matrix never is. Don't route this
+// through dada.
 // column-major 4x4 multiply: out = a * b
 static void mul4(float* out, const float* a, const float* b) {
   for (int c = 0; c < 4; ++c)
