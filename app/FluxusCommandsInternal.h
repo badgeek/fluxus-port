@@ -30,27 +30,37 @@
 // ---- build context ----------------------------------------------------------
 // The immediate-mode turtle state every command reads. Defined in
 // FluxusCommandsCore.cpp.
-struct BuildCtx {
-  Fluxus::Renderer* r = nullptr;
+//
+// BuildState is the part that describes the NEXT-BUILT primitive — exactly the
+// set addPrim() reads — and it is what (push)/(pop), i.e. (with-state), saves and
+// restores as a whole. Upstream fluxus keeps all of it in the State it pushes
+// (Parent included: vendor/fluxus/libfluxus/src/State.h:81); the port used to
+// push only tx+col, so (parent id), the hints, the wire colour, the texture and
+// the shader all LEAKED out of (with-state) onto every prim built afterwards.
+struct BuildState {
   Fluxus::dMatrix   tx;
   Fluxus::dColour   col{1, 1, 1, 1};
-  std::vector<std::pair<Fluxus::dMatrix, Fluxus::dColour>> stack;
-  double    time  = 0.0;
-  int       frame = 0;
   int       hints = 0;      // hints turned ON for newly built prims
   int       hintsOff = 0;   // hints turned OFF (e.g. (hint-solid #f) clears the
                             // primitive's default HINT_SOLID — OR alone can't)
   bool      wireColSet = false;           // (wire-colour) outside a grab colours the
   Fluxus::dColour   wireCol{1, 1, 1, 1};  // next-built prims (same asymmetry as hints)
   float     lineWidth = 2.0f;
-  Fluxus::Primitive* grabbed = nullptr;   // current pdata target
-  int        grabbedId = -1;      // its scene-graph id (for scene-graph queries / save)
   Fluxus::GLSLShader* shader = nullptr;   // current shader for newly built prims (not owned)
   int         parent = -1;        // parent id for newly built prims (-1 = root)
   unsigned    texture = 0;        // GL texture id for newly built prims (0 = none)
   int         srcBlend = GL_SRC_ALPHA;           // blend factors for newly built prims
   int         dstBlend = GL_ONE_MINUS_SRC_ALPHA;
   Fluxus::COLOUR_MODE colourMode = Fluxus::MODE_RGB;   // (colour-mode): interpret rgb vs hsv
+};
+
+struct BuildCtx : BuildState {
+  Fluxus::Renderer* r = nullptr;
+  std::vector<BuildState> stack;
+  double    time  = 0.0;
+  int       frame = 0;
+  Fluxus::Primitive* grabbed = nullptr;   // current pdata target
+  int        grabbedId = -1;      // its scene-graph id (for scene-graph queries / save)
 };
 extern BuildCtx g_ctx;
 

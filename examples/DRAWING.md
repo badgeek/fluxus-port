@@ -137,15 +137,15 @@ red geometry is invisible even when perfectly positioned. Give calibration marks
 distinct colour (e.g. `CYAN`), extra width, and clear space away from the geometry
 they measure — otherwise you can't verify the alignment you just computed.
 
-**8. `wire-cube` (any `hint-wire` prim) LEAKS its wire state into later prims.**
-The nastiest one this session: build a wireframe cube, then every ribbon built
-*after* it comes out red — regardless of the `(colour …)` you set. Two facts
-combine:
+**8. `wire-cube` (any `hint-wire` prim) LEAKED its wire state into later prims —
+FIXED at the seam, see gotcha 21.** The nastiest one that session: build a
+wireframe cube, then every ribbon built *after* it comes out red — regardless of
+the `(colour …)` you set. Two facts combined:
 - A ribbon's SOLID pass uses `State.Colour` **only when `HINT_WIRE` is off**;
   with `HINT_WIRE` on it instead draws a wire in `State.WireColour`.
 - `wire-look` sets `(hint-solid #f)(hint-wire)(wire-colour …)` on the *global*
-  build context, and `with-state` does **not** restore hints / wire-colour on
-  exit — so `HINT_WIRE` and the last red `WireColour` persist into the next prim.
+  build context, and `with-state` used **not** to restore hints / wire-colour on
+  exit — so `HINT_WIRE` and the last red `WireColour` persisted into the next prim.
 
 So `line-col`/`circle` inherited `HINT_WIRE` + red `WireColour` and rendered as a
 red wire; the ground grid escaped only because it's built *before* the cubes. Fix:
@@ -286,6 +286,39 @@ tracking a target that moves through the ±up cone snaps ~180° as each arrow's 
 direction crosses vertical — reads as chaotic jitter/scatter. Keep the target OUT of
 that cone: orbit it in the arrows' OWN plane (same height, no latitude) so they only
 yaw, or clamp its elevation. (`node-look-at` uses world-up `(0,1,0)`.)
+
+**21. `with-state` now restores the WHOLE build state — including `(parent …)`.
+Before that it saved only the transform and the colour, and the leak read as a
+matrix bug.** Symptom that burned a session: two locator nodes, each given a child
+gizmo by a helper that does `(with-state (parent id) … (build-cube))`, and the
+SECOND node renders on top of the first, tumbling with it; every label built after
+them tilts and follows the gizmos. It looks exactly like `set-transform` or
+`qtomatrix` composing in the wrong convention, so that is where you start reading —
+and the matrices are all fine.
+
+Measure instead of eyeballing. `(get-global-transform)` / `(node-global-pos id)`
+turn it into numbers in one reload:
+
+```scheme
+(p "B.local" (with-primitive B (get-transform)))   ; #(… 3.6 1.9 0.0 1.0)  <- asked for
+(p "B.gpos " (node-global-pos B))                  ; #(0.0 3.8 0.0)        <- got
+(p "B.par  " (with-primitive B (get-parent)))      ; A, not the root
+```
+
+`(0, 3.8, 0)` is not a transposed or mis-ordered `(3.6, 1.9, 0)` — it is that
+translation COMPOSED with node A's `(-3.6, 1.9, 0)`. A global position that equals
+your local one plus some other node's is a PARENTING bug, never a matrix-convention
+bug; `(get-parent)` confirms it outright. The `(get-parent)` of a prim you never
+parented is the one-line check for the whole leak family.
+
+The fix is in `flux_push`/`flux_pop` (`app/FluxusCommandsCore.cpp`): they now save
+and restore every field `addPrim` reads — parent, hints, wire colour, texture,
+shader, line width, blend, colour mode — matching upstream, which pushes the whole
+`State` (`Parent` is `State.h:81`). So the defensive `(parent -1)` resets and the
+`(hint-solid #t)(hint-wire #f)` pinning in older sketches are no longer required;
+they stay harmless, and pinning is still good style when a prim's look must not
+depend on what ran before it. State set at TOP level (outside any `with-state`)
+still applies to everything after it, as it always did.
 
 ---
 

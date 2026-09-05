@@ -186,9 +186,20 @@ void flux_rotate(double x, double y, double z)    { dMatrix m; m.rotxyz((float) 
 void flux_scale(double x, double y, double z)     { dMatrix m; m.scale((float) x, (float) y, (float) z);     applyOp(m); }
 void flux_identity(void) { if (State* s = grabbedState()) s->Transform = dMatrix(); else g_ctx.tx = dMatrix(); }
 
-void flux_push(void) { g_ctx.stack.push_back({g_ctx.tx, g_ctx.col}); }
+// (push)/(pop) — i.e. (with-state) — save and restore the WHOLE build state, the
+// same set addPrim() reads, as upstream's Renderer::PushState does with its State.
+// Saving only tx+col let (parent id) escape a (with-state): building a gizmo under
+// a locator left the build context parented to it, so the NEXT node built became
+// that gizmo's child and inherited its pose (measured: a node whose own transform
+// says (3.6 1.9 0) reported get-global-transform (0 3.8 0) — its own translation
+// composed with the previous node's). Hints, wire colour, texture and shader
+// leaked the same way (the old with-state caveat in CLAUDE.md).
+void flux_push(void) { g_ctx.stack.push_back(g_ctx); }
 void flux_pop(void) {
-  if (!g_ctx.stack.empty()) { g_ctx.tx = g_ctx.stack.back().first; g_ctx.col = g_ctx.stack.back().second; g_ctx.stack.pop_back(); }
+  if (!g_ctx.stack.empty()) {
+    static_cast<BuildState&>(g_ctx) = g_ctx.stack.back();
+    g_ctx.stack.pop_back();
+  }
 }
 
 int flux_build_cube(void) {
