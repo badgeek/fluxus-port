@@ -4,6 +4,13 @@ package cc.fluxus.racket;
 import android.app.Activity;
 import android.opengl.GLSurfaceView;
 import android.os.Bundle;
+import android.util.Log;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
@@ -21,8 +28,50 @@ public class MainActivity extends Activity {
 
     private GLSurfaceView view;
 
+    // The Racket runtime ships as ONE compressed asset rather than a tree of
+    // files. Racket opens its boot files and collects with ordinary file I/O and
+    // cannot read from inside an APK, so it has to land on the filesystem — and
+    // the collects alone are thousands of small files, which AssetManager copies
+    // far more slowly than a single ZipInputStream pass.
+    //
+    // Guarded by a marker file: extraction happens on first launch and after an
+    // upgrade, never on an ordinary start.
+    private static final String RUNTIME_ASSET = "runtime.zip";
+    private static final String MARKER = ".runtime-" + BuildId.ID;
+
+    private void extractRuntimeIfNeeded(File filesDir) {
+        File marker = new File(filesDir, MARKER);
+        if (marker.exists()) return;
+
+        long t0 = System.currentTimeMillis();
+        Log.i("fluxus", "extracting the Racket runtime (first launch)...");
+        try (InputStream raw = getAssets().open(RUNTIME_ASSET);
+             ZipInputStream zin = new ZipInputStream(raw)) {
+            byte[] buf = new byte[64 * 1024];
+            ZipEntry e;
+            while ((e = zin.getNextEntry()) != null) {
+                File out = new File(filesDir, e.getName());
+                if (e.isDirectory()) { out.mkdirs(); continue; }
+                File parent = out.getParentFile();
+                if (parent != null) parent.mkdirs();
+                try (OutputStream os = new FileOutputStream(out)) {
+                    int n;
+                    while ((n = zin.read(buf)) > 0) os.write(buf, 0, n);
+                }
+            }
+            marker.createNewFile();
+            Log.i("fluxus", "runtime extracted in "
+                            + (System.currentTimeMillis() - t0) + " ms");
+        } catch (Exception ex) {
+            // Deliberately not fatal here: the native side reports a missing
+            // runtime far more precisely than a stack trace at this point would.
+            Log.e("fluxus", "runtime extraction failed: " + ex);
+        }
+    }
+
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        extractRuntimeIfNeeded(getFilesDir());
         final String root = getFilesDir().getAbsolutePath();
         view = new GLSurfaceView(this);
         view.setEGLContextClientVersion(3);
