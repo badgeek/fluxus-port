@@ -898,19 +898,28 @@ public:
 	   m[0][2] * m[1][0] * m[2][1] * m[3][3]-m[0][0] * m[1][2] * m[2][1] * m[3][3]-m[0][1] * m[1][0] * m[2][2] * m[3][3]+m[0][0] * m[1][1] * m[2][2] * m[3][3];
 	}
 
+	// fluxus->JUCE port: remove_scale/get_scale normalised the get_hori_*
+	// vectors, which are the COLUMNS of the storage — but dada is row-vector
+	// (v' = v*M, m[i][j] with i the input axis), and the transform stack
+	// composes as Transform*op = storage op*Transform, so a (rotate)(scale)
+	// leaves the scale factors on the ROWS: row i = s_i * basis_i. Reading the
+	// columns gave sqrt(sum_i s_i^2 R[i][j]^2) instead of s_j — correct only
+	// for a pure rotation or a uniform/axis-aligned scale, which is every case
+	// the engine happened to hit (get_scale's only callers are RigidBlend and
+	// the ODE Physics module, neither of which is built in this port).
 	inline void remove_scale()
 	{
-		set_hori_i( get_hori_i().normalise() );
-		set_hori_j( get_hori_j().normalise() );
-		set_hori_k( get_hori_k().normalise() );
+		set_vert_i( get_vert_i().normalise() );
+		set_vert_j( get_vert_j().normalise() );
+		set_vert_k( get_vert_k().normalise() );
 	}
 
-    inline dVector get_scale() const 
+    inline dVector get_scale() const
     {
         return dVector(
-                get_hori_i().mag(),
-                get_hori_j().mag(),
-                get_hori_k().mag());
+                get_vert_i().mag(),
+                get_vert_j().mag(),
+                get_vert_k().mag());
     }
 
 	inline void extract_euler(float &x, float &y, float &z) const
