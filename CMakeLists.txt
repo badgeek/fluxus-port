@@ -13,7 +13,8 @@ include(FetchContent)
 
 # --- video texture (AVFoundation, Objective-C++) ---------------------------
 # app/VideoHost.mm decodes a movie -> GL texture. Needs ARC + these frameworks
-# (OpenGL comes in via juce_opengl). Applied to every app target below.
+# (OpenGL comes in via juce_opengl). Both TUs live in fluxus_render, which
+# re-exports these frameworks to every app target.
 set(FLUXUS_VIDEO_FRAMEWORKS
     "-framework AVFoundation" "-framework CoreVideo"
     "-framework CoreMedia"    "-framework QuartzCore"
@@ -103,6 +104,52 @@ set(FLUXUS_CMD_SOURCES
     app/FluxusCommandsInput.cpp
     app/FluxusCommandsFx.cpp)
 
+# --- fluxus_core / fluxus_render: the JUCE-free TUs, compiled ONCE ----------
+# These sources used to be listed in every app target, so each was compiled four
+# (five, with pdata_bench) times. They are all JUCE-free by design — CRITICAL
+# gotcha 2 in CLAUDE.md: juce_opengl hides the system GL symbols in juce::gl, so
+# engine-side code must never see a juce_* header — which is exactly what makes
+# them safe to share as plain static libs. Anything that DOES include juce_*
+# (TextureLoader, GlyphAtlas, the components/Main*, Audio/Midi/Osc/Control hosts)
+# stays per-target.
+#
+# Two libs, not one, so pdata_bench keeps its current dependency footprint
+# (libfluxus_min + vterm + OpenGL — no GL context, no imgui, no Rust/ntsc-rs):
+#   fluxus_core   — the flux_* command layer alone; what pdata_bench needs.
+#   fluxus_render — the on-GL-thread app pieces every app target needs.
+# juce_recommended_{warning,config}_flags carry no headers, only flags: linking
+# them keeps these TUs compiling under exactly the flags the app targets used.
+add_library(fluxus_core STATIC ${FLUXUS_CMD_SOURCES})
+target_include_directories(fluxus_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/app)
+target_compile_definitions(fluxus_core PRIVATE GL_SILENCE_DEPRECATION=1)
+target_link_libraries(fluxus_core
+    PUBLIC libfluxus_min vterm "-framework OpenGL"
+           juce::juce_recommended_config_flags
+    PRIVATE juce::juce_recommended_warning_flags)
+# force_load: these TUs used to be compiled straight into each executable, so
+# every object was present. From an archive the linker would keep only what
+# something references — and the Racket host reaches flux_* by dlsym at runtime
+# (get-ffi-obj), which the linker cannot see. Whole-archive keeps the link
+# content identical to before, so no binding silently falls back to its
+# failure thunk. Same reasoning for fluxus_render below.
+target_link_options(fluxus_core INTERFACE "-Wl,-force_load,$<TARGET_FILE:fluxus_core>")
+
+# EditorOverlay.cpp is JUCE-free too but only the GLEditor apps use it, and it
+# would drag fluxus_editor/FreeType into the others — so it stays per-target.
+add_library(fluxus_render STATIC
+    app/FluxusScene.cpp
+    app/PostFX.cpp
+    app/NTSCEffect.cpp
+    app/ImguiOverlay.cpp
+    app/AppActivity.mm
+    ${FLUXUS_HAND_SRC}
+    app/VideoHost.mm)
+target_compile_definitions(fluxus_render PRIVATE GL_SILENCE_DEPRECATION=1)
+target_link_libraries(fluxus_render
+    PUBLIC fluxus_core imgui ntsc_ffi ${FLUXUS_VIDEO_FRAMEWORKS}
+    PRIVATE juce::juce_recommended_warning_flags)
+target_link_options(fluxus_render INTERFACE "-Wl,-force_load,$<TARGET_FILE:fluxus_render>")
+
 # --- bundled example sketches ----------------------------------------------
 # Copy the upstream fluxus examples into <App>.app/Contents/Resources/examples;
 # FluxusMenu lists them under File > Examples (AppMenu.h). ~370 KB, so unlike the
@@ -124,22 +171,14 @@ juce_add_gui_app(FluxusApp PRODUCT_NAME "FluxusApp"
     CAMERA_PERMISSION_TEXT "Fluxus uses the camera as a live video texture.")
 
 target_sources(FluxusApp PRIVATE
-    app/AppActivity.mm
     app/Main.cpp
     app/GlyphAtlas.cpp
     app/FluxusComponent.cpp
-    app/ImguiOverlay.cpp
     app/ControlServer.cpp
-    app/FluxusScene.cpp
-    app/PostFX.cpp
-    app/NTSCEffect.cpp
     app/TextureLoader.cpp
-    ${FLUXUS_CMD_SOURCES}
-      app/AudioHost.cpp
-      app/MidiHost.cpp
-      app/OscHost.cpp
-      ${FLUXUS_HAND_SRC}
-      app/VideoHost.mm
+    app/AudioHost.cpp
+    app/MidiHost.cpp
+    app/OscHost.cpp
     app/S7ScriptHost.cpp)
 
 target_compile_definitions(FluxusApp PRIVATE
@@ -150,17 +189,13 @@ target_compile_definitions(FluxusApp PRIVATE
     JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:FluxusApp,JUCE_VERSION>")
 
 target_link_libraries(FluxusApp PRIVATE
-    libfluxus_min
+    fluxus_render
     s7
-    ntsc_ffi
-    vterm
-    imgui
     juce::juce_opengl
     juce::juce_gui_extra
     juce::juce_audio_utils
     juce::juce_dsp
     juce::juce_osc
-    ${FLUXUS_VIDEO_FRAMEWORKS}
     PUBLIC
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
@@ -205,22 +240,14 @@ juce_add_gui_app(FluxusGLApp PRODUCT_NAME "FluxusGLApp"
     CAMERA_PERMISSION_TEXT "Fluxus uses the camera as a live video texture.")
 
 target_sources(FluxusGLApp PRIVATE
-    app/AppActivity.mm
     app/MainGL.cpp
     app/GlyphAtlas.cpp
     app/FluxusGLComponent.cpp
-    app/ImguiOverlay.cpp
     app/EditorOverlay.cpp
-    app/FluxusScene.cpp
-    app/PostFX.cpp
-    app/NTSCEffect.cpp
     app/TextureLoader.cpp
-    ${FLUXUS_CMD_SOURCES}
-      app/AudioHost.cpp
-      app/MidiHost.cpp
-      app/OscHost.cpp
-      ${FLUXUS_HAND_SRC}
-      app/VideoHost.mm
+    app/AudioHost.cpp
+    app/MidiHost.cpp
+    app/OscHost.cpp
     app/S7ScriptHost.cpp)
 
 target_compile_definitions(FluxusGLApp PRIVATE
@@ -232,18 +259,14 @@ target_compile_definitions(FluxusGLApp PRIVATE
     JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:FluxusGLApp,JUCE_VERSION>")
 
 target_link_libraries(FluxusGLApp PRIVATE
-    libfluxus_min
+    fluxus_render
     s7
-    ntsc_ffi
-    vterm
-    imgui
     fluxus_editor
     juce::juce_opengl
     juce::juce_gui_extra
     juce::juce_audio_utils
     juce::juce_dsp
     juce::juce_osc
-    ${FLUXUS_VIDEO_FRAMEWORKS}
     PUBLIC
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
@@ -282,22 +305,14 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
     CAMERA_PERMISSION_TEXT "Fluxus uses the camera as a live video texture.")
 
   target_sources(FluxusRacketApp PRIVATE
-    app/AppActivity.mm
       app/MainRacket.cpp
       app/GlyphAtlas.cpp
       app/FluxusComponent.cpp
-      app/ImguiOverlay.cpp
       app/ControlServer.cpp
-      app/FluxusScene.cpp
-      app/PostFX.cpp
-      app/NTSCEffect.cpp
       app/TextureLoader.cpp
-      ${FLUXUS_CMD_SOURCES}
       app/AudioHost.cpp
       app/MidiHost.cpp
       app/OscHost.cpp
-      ${FLUXUS_HAND_SRC}
-      app/VideoHost.mm
       app/RacketScriptHost.cpp)
 
   target_include_directories(FluxusRacketApp PRIVATE "${RACKET_DIR}/include/racket")
@@ -312,10 +327,7 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:FluxusRacketApp,JUCE_VERSION>")
 
   target_link_libraries(FluxusRacketApp PRIVATE
-      libfluxus_min
-      ntsc_ffi
-      vterm
-      imgui
+      fluxus_render
       juce::juce_opengl
       juce::juce_gui_extra
     juce::juce_audio_utils
@@ -324,7 +336,6 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       "${RACKET_DIR}/lib/libracketcs.a"
       "-liconv" "-lncurses"
       "-framework CoreFoundation"
-      ${FLUXUS_VIDEO_FRAMEWORKS}
       "-Wl,-export_dynamic"        # export flux_* for get-ffi-obj (dlsym)
       PUBLIC
       juce::juce_recommended_config_flags
@@ -341,22 +352,14 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
     CAMERA_PERMISSION_ENABLED TRUE
     CAMERA_PERMISSION_TEXT "Fluxus uses the camera as a live video texture.")
   target_sources(FluxusGLRacketApp PRIVATE
-    app/AppActivity.mm
       app/MainGLRacket.cpp
       app/GlyphAtlas.cpp
       app/FluxusGLComponent.cpp
-      app/ImguiOverlay.cpp
       app/EditorOverlay.cpp
-      app/FluxusScene.cpp
-      app/PostFX.cpp
-      app/NTSCEffect.cpp
       app/TextureLoader.cpp
-      ${FLUXUS_CMD_SOURCES}
       app/AudioHost.cpp
       app/MidiHost.cpp
       app/OscHost.cpp
-      ${FLUXUS_HAND_SRC}
-      app/VideoHost.mm
       app/RacketScriptHost.cpp)
   target_include_directories(FluxusGLRacketApp PRIVATE "${RACKET_DIR}/include/racket")
   target_compile_definitions(FluxusGLRacketApp PRIVATE
@@ -369,11 +372,8 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:FluxusGLRacketApp,JUCE_PRODUCT_NAME>"
       JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:FluxusGLRacketApp,JUCE_VERSION>")
   target_link_libraries(FluxusGLRacketApp PRIVATE
-      libfluxus_min
+      fluxus_render
       fluxus_editor
-      ntsc_ffi
-      vterm
-      imgui
       juce::juce_opengl
       juce::juce_gui_extra
     juce::juce_audio_utils
@@ -382,7 +382,6 @@ if(EXISTS "${RACKET_DIR}/lib/libracketcs.a")
       "${RACKET_DIR}/lib/libracketcs.a"
       "-liconv" "-lncurses"
       "-framework CoreFoundation"
-      ${FLUXUS_VIDEO_FRAMEWORKS}
       "-Wl,-export_dynamic"
       PUBLIC
       juce::juce_recommended_config_flags
@@ -423,9 +422,6 @@ target_link_libraries(fft_test PRIVATE
     PUBLIC juce::juce_recommended_config_flags)
 
 # --- pdata FFI-layer benchmark + test (headless, no GL context, no JUCE) ----
-add_executable(pdata_bench
-    spikes/pdata-bench/main.cpp
-    ${FLUXUS_CMD_SOURCES})
-target_include_directories(pdata_bench PRIVATE app)
+add_executable(pdata_bench spikes/pdata-bench/main.cpp)
 target_compile_definitions(pdata_bench PRIVATE GL_SILENCE_DEPRECATION=1)
-target_link_libraries(pdata_bench PRIVATE libfluxus_min vterm "-framework OpenGL")
+target_link_libraries(pdata_bench PRIVATE fluxus_core)
