@@ -396,6 +396,14 @@ regression guard: `./build/model_test [model…]` (also self-contained with no a
   `bindLocals()` derives each bind global as `meshWorld * offset^-1` and converts to
   locals. `model_test` compares against that reference formula on every skinned
   vertex — currently 0.0000 on fox/astroBoy/druid. Keep that check.
+- **`(model-draw-mode h 'fill|'points|'wireframe|'hidden-line)`** = openFrameworks'
+  `ofPolyRenderMode` over a whole model (`OF_MESH_FILL` / `_POINTS` / `_WIREFRAME`),
+  plus fluxus's own occluded-wire mode. It just applies one consistent hint set to
+  every mesh prim. **Points and wireframe MUST drop the texture and the shader**:
+  with the built-in texturing shader bound, GL ignores `glPointSize` unless the
+  vertex shader writes `gl_PointSize`, so a textured model in points mode drew
+  literally nothing (an untextured .ply in the same mode was fine — that contrast is
+  the tell). The model keeps its texture id so `'fill` can put it back.
 - **Two skinning paths, selected by `(model-skinning 'dual|'linear)`.**
   `'linear` is the ENGINE's `SkinningPrimFunc`: two locator trees (live + bindpose)
   + one `w<n>` float channel per skeleton NODE in `SceneGraph::GetNodes` order

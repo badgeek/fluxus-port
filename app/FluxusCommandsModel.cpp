@@ -88,6 +88,8 @@ struct Model {
   int rootId = -1;
   std::vector<int>         prims;
   std::vector<std::string> names;
+  std::vector<unsigned>    texOf;      // each mesh's diffuse texture, so a draw-mode
+                                       // switch can put it back after points/wireframe
   // skeleton, in the SceneGraph::GetNodes order (pre-order DFS) that decides which
   // "w<n>" pdata channel belongs to which node
   std::vector<const aiNode*> nodes;
@@ -673,6 +675,7 @@ void walk(Model& mo, const aiNode* node, const dMatrix& parentXf, const aiMatrix
     applyMaterial(*mo.src, m, g_ctx.r->GetPrimitive(id));
     mo.prims.push_back(id);
     mo.names.push_back(m->mName.length ? m->mName.C_Str() : node->mName.C_Str());
+    mo.texOf.push_back(g_ctx.r->GetPrimitive(id)->GetState()->Textures[0]);
     if (m->mNumBones > 0) mo.pendingSkin.push_back({m, id, worldAi, aiMatrix4x4()});
   }
   for (unsigned i = 0; i < node->mNumChildren; ++i) walk(mo, node->mChildren[i], world, worldAi);
@@ -836,6 +839,46 @@ int flux_model_bone_count(int h) { Model* m = model(h); return m ? (int) m->skel
 int flux_model_bone(int h, int i) {
   Model* m = model(h);
   return (m && i >= 0 && i < (int) m->skelIds.size()) ? m->skelIds[(size_t) i] : -1;
+}
+
+// openFrameworks' ofPolyRenderMode applied to a whole model: 0 = FILL
+// (model.draw(OF_MESH_FILL) / drawFaces), 1 = POINTS (drawVertices), 2 = WIREFRAME
+// (drawWireframe), plus 3 = hidden-line, which fluxus does natively and oF does
+// not (solid fill AND wire, so the wire is occluded by the surface).
+//
+// The engine already has these as per-primitive hints; this applies one consistent
+// set across every mesh of the model. The wire and point passes ignore the texture
+// and draw in WireColour, so the material colour is mirrored into it — otherwise a
+// textured model goes to whatever wire colour happened to be set last.
+void flux_model_draw_mode(int h, int mode) {
+  Model* m = model(h);
+  if (!m || !g_ctx.r) return;
+  for (size_t i = 0; i < m->prims.size(); ++i) {
+    Primitive* p = g_ctx.r->GetPrimitive(m->prims[i]);
+    if (!p) continue;
+    State* s = p->GetState();
+    s->Hints &= ~(HINT_SOLID | HINT_WIRE | HINT_POINTS);
+    switch (mode) {
+      case 1:  s->Hints |= HINT_POINTS; s->PointWidth = 3.0f;           break;
+      case 2:  s->Hints |= HINT_WIRE;   s->LineWidth  = 1.0f;           break;
+      case 3:  s->Hints |= HINT_SOLID | HINT_WIRE; s->LineWidth = 1.0f; break;
+      default: s->Hints |= HINT_SOLID;                                  break;
+    }
+    // Points and wireframe are UNTEXTURED (as they are in oF), and they have to
+    // be: with the built-in texturing shader bound, GL ignores glPointSize unless
+    // the vertex shader writes gl_PointSize, so a textured model in points mode
+    // drew nothing at all. Dropping the shader also makes the lines/dots take
+    // WireColour, which is set from the material so they stay visible.
+    const bool wireish = (mode == 1 || mode == 2);
+    if (wireish) {
+      s->Textures[0] = 0;
+      setStateShader(s, nullptr);
+      s->WireColour = s->Colour;
+    } else if (i < m->texOf.size() && m->texOf[i]) {
+      s->Textures[0] = m->texOf[i];
+      if (!s->Shader) setStateShader(s, builtinTexShader());
+    }
+  }
 }
 
 // 0 = 'linear (the engine's SkinningPrimFunc), 1 = 'dual (dual quaternion).

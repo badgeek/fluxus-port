@@ -364,6 +364,18 @@
 (define (model-error) (_mdlerr))
 (define (model-free h) (_mdlfree h))
 
+;; (model-draw-mode h 'fill|'points|'wireframe|'hidden-line) — openFrameworks'
+;; ofPolyRenderMode over the whole model: fill = model.draw(OF_MESH_FILL),
+;; points = OF_MESH_POINTS, wireframe = OF_MESH_WIREFRAME. hidden-line is fluxus's
+;; own extra (solid + wire, so the wire is occluded).
+(define _mdldraw (cfun "flux_model_draw_mode" (_fun _int _int -> _void) (lambda (h m) (void))))
+(define (model-draw-mode h mode)
+  (_mdldraw h (case mode
+                ((points vertices) 1)
+                ((wireframe wire)  2)
+                ((hidden-line hidden) 3)
+                (else 0))))
+
 ;; (model-skinning 'dual) or 'linear — dual quaternion (default) keeps a folded
 ;; joint's volume; linear is the engine's pfunc, i.e. exactly what assimp/glTF define.
 (define _mdlskin (cfun "flux_model_skinning" (_fun _int -> _void) (lambda (m) (void))))

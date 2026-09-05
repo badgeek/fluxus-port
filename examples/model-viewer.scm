@@ -8,16 +8,21 @@
 ;;   LEFT / RIGHT arrow   previous / next model
 ;;   UP / DOWN arrow      previous / next animation clip of this model
 ;;   SPACE                pause / resume the animation
+;;   M                    draw mode: fill / points / wireframe / hidden-line
+;;                        (openFrameworks' OF_MESH_FILL / _POINTS / _WIREFRAME,
+;;                         plus fluxus's own occluded-wire mode)
+;;   K                    skinning: dual quaternion / linear blend
 ;;   S                    turntable spin on / off (off by default — a spinning
 ;;                        rig makes it impossible to tell a pose from an angle)
 ;;   R                    back to the front view
 ;;
-;; Note on what you see: the skinning is plain linear blend (what the engine's
-;; 'skinning pfunc does, and what assimp/glTF define). On a long-limbed rig a clip
-;; that folds an arm across the body will collapse the elbow — the classic
-;; "candy wrapper" of LBS. That is the clip, not the importer: this port's posed
-;; vertices match a from-scratch glTF-spec skinner to within float noise.
-;; Try another clip with UP / DOWN before blaming the loader.
+;; Note on what you see: K switches between dual-quaternion skinning (the default)
+;; and the engine's linear blend. Linear is exactly what assimp/glTF define — this
+;; port's posed vertices match a from-scratch glTF-spec skinner to within float
+;; noise — but on a long-limbed rig a clip that folds an arm across the body
+;; collapses the elbow, the classic "candy wrapper". Dual quaternions keep the
+;; joint's volume. If a pose still looks odd in both, try another clip (UP / DOWN)
+;; before blaming the loader.
 ;;
 ;; Arrow keys reach a sketch as (key-down? 1) .. (key-down? 4) — JUCE's arrow key
 ;; codes are too large for the key-down table, so the message thread maps them into
@@ -93,9 +98,12 @@
 (define *label*   (box -1))
 (define *clip*    (box 0))
 (define *spinning* (box #f))
+(define *draw-modes* (list 'fill 'points 'wireframe 'hidden-line))
+(define *draw*    (box 0))
+(define *skin*    (box 'dual))
 (define *fit-scale* (box 1.0))
 (define *fit-mid*   (box (vector 0 0 0)))
-(define *prev-keys* (box (list #f #f #f #f #f)))   ; left, right, space, up, down
+(define *prev-keys* (box (list #f #f #f #f #f #f #f)))  ; left right space up down mode skin
 
 ;; ---- fitting ---------------------------------------------------------------
 ;; Models arrive in whatever units the file used (the fox is ~157 long, the druid
@@ -161,7 +169,11 @@
                                (if (> clips 0)
                                    (string-append "  clip " (number->string (+ 1 (unbox *clip*)))
                                                   "/" (number->string clips))
-                                   "  (no animation)"))))
+                                   "  (no animation)")
+                               "  " (symbol->string (list-ref *draw-modes* (unbox *draw*)))
+                               (if (> clips 0)
+                                   (string-append "  " (symbol->string (unbox *skin*)))
+                                   ""))))
       (set-box! *label*
                 (with-state
                   (parent (camera-node))
@@ -197,7 +209,8 @@
               ;; the size of anything the clip actually shows, and fitting that
               ;; leaves the animation looking tiny
               (when (model-animated? h) (model-play h 0 0))
-              (fit! h))
+              (fit! h)
+              (model-draw-mode h (list-ref *draw-modes* (unbox *draw*))))
             (display (string-append "model-viewer: " (cdr entry) " failed: " (model-error) "\n")))
         (relabel!)))))
 
@@ -229,6 +242,15 @@
   (when (edge! 4 4) (cycle-clip!  1))                   ; down arrow
   (when (edge! 32 2)                                    ; space
     (set-box! *paused* (not (unbox *paused*))))
+  (when (edge! 109 5)                                   ; M: cycle the draw mode
+    (set-box! *draw* (modulo (+ 1 (unbox *draw*)) (length *draw-modes*)))
+    (when (model-ok? (unbox *current*))
+      (model-draw-mode (unbox *current*) (list-ref *draw-modes* (unbox *draw*))))
+    (relabel!))
+  (when (edge! 107 6)                                   ; K: dual <-> linear skinning
+    (set-box! *skin* (if (eq? (unbox *skin*) 'dual) 'linear 'dual))
+    (model-skinning (unbox *skin*))
+    (relabel!))
   (when (key-down? 115)                                 ; S: turntable on/off
     (set-box! *spinning* (not (unbox *spinning*))))
   (when (key-down? 114)                                 ; R: back to the front view

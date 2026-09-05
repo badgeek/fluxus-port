@@ -430,6 +430,11 @@ extern "C" {
   int    flux_model_anim_count(int h);
   double flux_model_anim_duration(int h, int anim);        // seconds
   void   flux_model_set_anim_time(int h, int anim, double t);
+  // draw mode for every mesh of a model, after openFrameworks' ofPolyRenderMode:
+  // 0 = fill (OF_MESH_FILL), 1 = points (OF_MESH_POINTS), 2 = wireframe
+  // (OF_MESH_WIREFRAME), 3 = hidden-line (fill + wire, which oF has no mode for).
+  void   flux_model_draw_mode(int h, int mode);
+
   // skinning algorithm: 0 = linear blend (the engine's 'skinning pfunc, exactly
   // what assimp/glTF define), 1 = dual quaternion (default — keeps a folded
   // joint's volume, and is sparse so it costs ~9x less on a big rig).

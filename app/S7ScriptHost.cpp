@@ -205,6 +205,16 @@ static s7_pointer f_model_set_anim_time(s7_scheme* sc, s7_pointer a){
                            (int) s7_number_to_real(sc, s7_cadr(a)),
                            s7_number_to_real(sc, s7_caddr(a)));
   return s7_nil(sc); }
+// (model-draw-mode h 'fill|'points|'wireframe|'hidden-line) — oF's ofPolyRenderMode
+static s7_pointer f_model_draw_mode(s7_scheme* sc, s7_pointer a){
+  s7_pointer v = s7_cadr(a);
+  const char* m = s7_is_symbol(v) ? s7_symbol_name(v) : (s7_is_string(v) ? s7_string(v) : "fill");
+  int mode = 0;
+  if      (m[0] == 'p' || m[0] == 'P') mode = 1;      // points
+  else if (m[0] == 'w' || m[0] == 'W') mode = 2;      // wireframe
+  else if (m[0] == 'h' || m[0] == 'H') mode = 3;      // hidden-line
+  flux_model_draw_mode((int) s7_number_to_real(sc, s7_car(a)), mode);
+  return s7_nil(sc); }
 static s7_pointer f_model_skinning(s7_scheme* sc, s7_pointer a){
   s7_pointer v = s7_car(a);
   const char* m = s7_is_symbol(v) ? s7_symbol_name(v) : (s7_is_string(v) ? s7_string(v) : "");
@@ -891,6 +901,7 @@ void S7ScriptHost::init() {
   def("model-anim-count",       f_model_anim_count,       1, 0, false);
   def("model-anim-duration",    f_model_anim_duration,    2, 0, false);
   def("model-set-anim-time",    f_model_set_anim_time,    3, 0, false);
+  def("model-draw-mode",        f_model_draw_mode,        2, 0, false);
   def("model-skinning",         f_model_skinning,         1, 0, false);
   def("model-bone-count",       f_model_bone_count,       1, 0, false);
   def("model-bone",             f_model_bone,             2, 0, false);
