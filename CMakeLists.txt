@@ -425,3 +425,7 @@ target_link_libraries(fft_test PRIVATE
 add_executable(pdata_bench spikes/pdata-bench/main.cpp)
 target_compile_definitions(pdata_bench PRIVATE GL_SILENCE_DEPRECATION=1)
 target_link_libraries(pdata_bench PRIVATE fluxus_core)
+
+# --- dada math regression test (dMatrix::inverse / dQuat fixes) -------------
+add_executable(math_test spikes/math-test/main.cpp)
+target_link_libraries(math_test PRIVATE libfluxus_min)
