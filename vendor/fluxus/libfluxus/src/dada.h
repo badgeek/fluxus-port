@@ -872,8 +872,18 @@ public:
 		temp.m[3][1] = m[0][1]*m[2][2]*m[3][0] - m[0][2]*m[2][1]*m[3][0] + m[0][2]*m[2][0]*m[3][1] - m[0][0]*m[2][2]*m[3][1] - m[0][1]*m[2][0]*m[3][2] + m[0][0]*m[2][1]*m[3][2];
 		temp.m[3][2] = m[0][2]*m[1][1]*m[3][0] - m[0][1]*m[1][2]*m[3][0] - m[0][2]*m[1][0]*m[3][1] + m[0][0]*m[1][2]*m[3][1] + m[0][1]*m[1][0]*m[3][2] - m[0][0]*m[1][1]*m[3][2];
 		temp.m[3][3] = m[0][1]*m[1][2]*m[2][0] - m[0][2]*m[1][1]*m[2][0] + m[0][2]*m[1][0]*m[2][1] - m[0][0]*m[1][2]*m[2][1] - m[0][1]*m[1][0]*m[2][2] + m[0][0]*m[1][1]*m[2][2];
-	   float scale=1/temp.determinant();
-	   temp.scale(scale,scale,scale);
+	   // fluxus->JUCE port: the original scaling was wrong TWICE — it divided by
+	   // temp.determinant(), i.e. det(adjugate) = det(M)^3, not det(M); and it
+	   // divided via scale(s,s,s) = multiply by diag(s,s,s,1), which never
+	   // touches the 4th row. Both errors cancel only when det==1 (rigid
+	   // transforms), which is why it looked fine for years — scaled transforms
+	   // and projection matrices came back silently wrong (dVP*dVP.inverse()
+	   // differed from identity by ~det). Divide the adjugate by det(M),
+	   // element-wise, all 16 entries.
+	   float scale=1/determinant();
+	   for (int i=0; i<4; i++)
+		   for (int j=0; j<4; j++)
+			   temp.m[i][j]*=scale;
 	   return temp;
 	}
 
