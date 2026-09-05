@@ -131,6 +131,9 @@ auto withChannel(PDataCacheEntry* c, F&& f) {
 void pixelsErase(Fluxus::Primitive* p);       // FluxusCommandsGpu.cpp
 int  pixelsCount(Fluxus::Primitive* p);       // w*h, 0 if p is not a pixels prim
 void terminalErase(Fluxus::Primitive* p);     // FluxusCommandsTerminal.cpp
+// drop last frame's (load-model …) handles in immediate mode (the parsed-scene
+// cache is kept) — same reasoning as the per-frame pfunc clear.
+void modelsFrameBegin();                      // FluxusCommandsModel.cpp
 
 // snapshot of the audio bands (taken under the audio mutex) for the native
 // deformers, which run on the GL thread while the audio host writes.

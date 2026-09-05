@@ -17,6 +17,10 @@
 #include <cstdlib>
 #include <cstring>
 
+// The model loader lives in fluxus_render (it needs assimp); fluxus_core's
+// frame-begin calls into it, so the bench stubs it out.
+void modelsFrameBegin() {}
+
 // Glyph-atlas hooks normally provided by TextureLoader/GlyphAtlas (JUCE TUs).
 // The bench never builds text/terminal prims, so stubs satisfy the linker.
 extern "C" {

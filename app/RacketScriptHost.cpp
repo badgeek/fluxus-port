@@ -160,6 +160,8 @@ std::string requireLibForm() {
          "         (file \"" + lib + "/planetarium.ss\")"      // dome-* projection helpers
          "         (file \"" + lib + "/ansi.ss\")"             // ANSI string helpers for build-terminal
          "         (file \"" + lib + "/gpu-noise.ss\")"        // GLSL curl-noise sources for GPU particles
+         "         (file \"" + lib + "/tricks.ss\")"           // expand, cheap-toon, occlusion-texture-bake
+         "         (file \"" + lib + "/model.ss\")"            // assimp model import ergonomics
          "         (file \"" + lib + "/collada-import.ss\"))"; // collada-import
 }
 } // namespace

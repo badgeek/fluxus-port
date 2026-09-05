@@ -344,6 +344,42 @@
 (define (load-primitive path) (_loadp path))
 (define (save-primitive path) (_savep path))
 
+;; ---- model import (assimp: fbx/gltf/glb/dae/ply/stl/3ds) --------------------
+;; (load-model path [flags]) returns a HANDLE, not a primitive: a model is a set of
+;; prims (one per mesh) parented to one locator. See racket-lib/model.ss for the
+;; ergonomic wrappers. Absent assimp the failure thunks make these no-ops returning
+;; -1 / 0 / "", so a sketch can test (>= h 0) rather than crash.
+(define _loadmodel (cfun "flux_load_model"       (_fun _string _int -> _int) (lambda (p f) -1)))
+(define _mdlroot   (cfun "flux_model_root"       (_fun _int -> _int) (lambda (h) -1)))
+(define _mdlcount  (cfun "flux_model_mesh_count" (_fun _int -> _int) (lambda (h) 0)))
+(define _mdlprim   (cfun "flux_model_prim"       (_fun _int _int -> _int) (lambda (h i) -1)))
+(define _mdlname   (cfun "flux_model_mesh_name"  (_fun _int _int -> _string) (lambda (h i) "")))
+(define _mdlerr    (cfun "flux_model_error"      (_fun -> _string) (lambda () "no assimp in this build")))
+(define _mdlfree   (cfun "flux_model_free"       (_fun _int -> _void) (lambda (h) (void))))
+(define (load-model path . flags) (_loadmodel path (if (null? flags) 0 (car flags))))
+(define (model-root h) (_mdlroot h))
+(define (model-mesh-count h) (_mdlcount h))
+(define (model-prim h i) (_mdlprim h i))
+(define (model-mesh-name h i) (_mdlname h i))
+(define (model-error) (_mdlerr))
+(define (model-free h) (_mdlfree h))
+
+;; skeletal animation: (model-set-anim-time h anim seconds) poses the skeleton and
+;; re-skins every skinned mesh — call it once per frame from the every-frame thunk.
+;; (model-bone h i) is a grabbable locator, so a sketch can read or override a bone.
+(define _mdlacount (cfun "flux_model_anim_count"    (_fun _int -> _int) (lambda (h) 0)))
+(define _mdladur   (cfun "flux_model_anim_duration" (_fun _int _int -> _double) (lambda (h a) 0.0)))
+(define _mdlatime  (cfun "flux_model_set_anim_time" (_fun _int _int _double -> _void) (lambda (h a t) (void))))
+(define _mdlbcount (cfun "flux_model_bone_count"    (_fun _int -> _int) (lambda (h) 0)))
+(define _mdlbone   (cfun "flux_model_bone"          (_fun _int _int -> _int) (lambda (h i) -1)))
+(define _mdlbname  (cfun "flux_model_bone_name"     (_fun _int _int -> _string) (lambda (h i) "")))
+(define (model-anim-count h) (_mdlacount h))
+(define (model-anim-duration h a) (_mdladur h a))
+(define (model-set-anim-time h a t) (_mdlatime h a (->fl t)))
+(define (model-bone-count h) (_mdlbcount h))
+(define (model-bone h i) (_mdlbone h i))
+(define (model-bone-name h i) (_mdlbname h i))
+
 ;; ---- matrices: flat length-16, row-major, point as ROW vector (v' = v·M);
 ;; translation lives in the last row (indices 12 13 14), matching the engine's
 ;; dMatrix::transform. Replaces the old always-identity stubs.

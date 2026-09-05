@@ -67,6 +67,28 @@ extern "C" unsigned flux_load_texture(const char* path) {
   return id;
 }
 
+// Same, for an image that lives INSIDE another file: glTF/FBX embed png/jpg bytes
+// (assimp reports the path as "*0"), so there is nothing on disk to open. cacheKey
+// is what identifies it in the shared cache — the model loader passes
+// "<model dir>#<embedded name>" so two models can't collide.
+extern "C" unsigned flux_load_texture_mem(const void* bytes, int len, const char* cacheKey) {
+  if (!bytes || len <= 0) return 0;
+  const std::string key = cacheKey ? cacheKey : "";
+  if (!key.empty()) {
+    std::lock_guard<std::mutex> lk(g_texMutex);
+    auto it = g_texCache.find(key);
+    if (it != g_texCache.end()) return it->second;
+  }
+  juce::Image img = juce::ImageFileFormat::loadFrom(bytes, (size_t) len);
+  if (!img.isValid()) return 0;
+  const unsigned id = uploadImage(img, /*flipY*/ true);
+  if (!key.empty()) {
+    std::lock_guard<std::mutex> lk(g_texMutex);
+    g_texCache[key] = id;
+  }
+  return id;
+}
+
 // 16x16 ASCII glyph atlas for build-text: cell (c%16, c/16) holds char c, matching
 // TextPrimitive's texcoords (S=(c%16)/16, T=(c/16)/16). Generated once with JUCE.
 extern "C" unsigned flux_font_atlas(void) {

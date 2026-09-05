@@ -152,6 +152,9 @@ void flux_frame_begin(double t, int frame) {
   // immediate mode re-makes pfuncs every eval — free last frame's set so they
   // don't leak. Retained mode makes them once in setup, so keep them there.
   if (!flux_retained_on()) flux_pfunc_clear();
+#ifdef FLUXUS_HAVE_ASSIMP
+  modelsFrameBegin();                  // same, for (load-model …) handles
+#endif
   applyCamera();   // orbit camera survives the per-frame scene Clear()
 }
 

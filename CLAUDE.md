@@ -86,18 +86,21 @@ editor (JUCE TextEditor | fluxus GLEditor)
 6. **`hint-solid` defaults ON for a freshly built prim.** For a see-through
    wireframe you MUST `(hint-solid #f)` explicitly — otherwise a solid fill draws
    in the current `(colour …)` (looked like "black/orange blobs" not wireframe).
-7. **`with-state` does NOT restore hints/wire-colour → wire prims LEAK into later
-   prims.** Build a `(hint-wire)` cube and every prim built AFTER it inherits
-   `HINT_WIRE` + the last `WireColour`. A ribbon's solid pass uses `State.Colour`
-   only when `HINT_WIRE` is OFF; otherwise it draws a wire in `State.WireColour`, so
-   ribbons come out the wrong colour (burned a session: cyan/yellow marks rendered
-   red — only the geometry built *before* the wire cubes was correct). Fix: pin
-   `(hint-solid #t)(hint-wire #f)` before `(colour …)` on each prim that must be
-   solid. Related: `concat` is a **no-op stub** here, so `(concat (get-inv-camera-
-   transform))` HUD billboards silently do nothing. The clean fix now is to parent
-   HUD prims to `(camera-node)` (eye-space, see the camera-as-node note below);
-   `camera-yaw`/`pitch`/`dist` manual basis math still works as a fallback. Full
-   writeup + 20 drawing/positioning gotchas in `examples/DRAWING.md`.
+7. **[FIXED in 220f4da] `with-state` used to restore only transform+colour — hints,
+   wire-colour, `(parent id)`, texture, shader etc. all LEAKED into later prims.**
+   `flux_push/flux_pop` now save/restore the WHOLE build state (upstream parity), so
+   a `(hint-wire)` or `(parent id)` inside `(with-state …)` no longer escapes. The
+   historical symptoms — wire hints bleeding into ribbons (cyan/yellow marks
+   rendering red), and labels/prims silently becoming CHILDREN of the last gizmo
+   node and following its rotation (burned the gimbal-lock session; the tell is a
+   global position = your local one PLUS another node's — check `(get-parent)`
+   before suspecting matrix math) — are gone. Defensive pinning like
+   `(hint-solid #t)(hint-wire #f)` stays harmless; a sketch that RELIED on the leak
+   would change. Related: `concat` is a **no-op stub** here, so `(concat (get-inv-
+   camera-transform))` HUD billboards silently do nothing. The clean fix now is to
+   parent HUD prims to `(camera-node)` (eye-space, see the camera-as-node note
+   below); `camera-yaw`/`pitch`/`dist` manual basis math still works as a fallback.
+   Full writeup + 21 drawing/positioning gotchas in `examples/DRAWING.md`.
 
 ## Performance (measure before "optimizing")
 - **Startup was ~25s; it's now ~4s — don't undo the fix.** The embedded Racket
@@ -344,6 +347,55 @@ piece). Reuse these patterns; they keep it cheap AND readable.
 - **Verify visually every step** (screenshot→Read, per the calibration loop above)
   — composition, colour, and "does it read as X" are not derivable from code.
 
+## Model import = assimp (`(load-model …)`) — optional dep, `brew install assimp`
+`app/FluxusCommandsModel.cpp` imports fbx/gltf/glb/dae/ply/stl/3ds/obj: one
+**indexed** `PolyPrimitive(TRILIST)` per aiMesh (node transform baked into the
+verts, `p`/`n`/`t`/`c` filled, material colours + diffuse texture applied), all
+parented to one locator. `(load-model path)` returns a HANDLE, not a prim —
+`racket-lib/model.ss` wraps it: `(model-ok? m)`, `(model-prims m)`, `(with-model m …)`,
+`(model-apply m proc)`, `(model-play m anim (time))`, `(model-bone-named m "head")`.
+Examples: `examples/model-load.scm`, `examples/model-anim.scm`. Headless test +
+regression guard: `./build/model_test [model…]` (also self-contained with no args).
+- **assimp is OPTIONAL** (`find_package(assimp CONFIG)`): without it the apps still
+  build and the Racket bindings fall back to their failure thunks (`load-model` → -1,
+  `(model-error)` says so). The TU lives in **`fluxus_render`, not `fluxus_core`** —
+  `pdata_bench` links `fluxus_core` and must not grow an assimp dependency; the
+  frame-begin hook into it is `#ifdef FLUXUS_HAVE_ASSIMP` and pdata_bench stubs it.
+  Release bundling of the dylib is NOT done yet (brew ships no static lib).
+- **Matrix order:** assimp composes `world = parentWorld * local` in ITS
+  column-vector convention. Transposed into fluxus's row-vector `dMatrix` that is the
+  standard product `local·parentWorld`, and because the engine's `operator*` is
+  reversed the code reads **`world = parentXf * aiToD(node)`** — parent first. Verified
+  against assimp's own product across astroBoy's rig; the other order is exact only
+  for a FLAT hierarchy (a two-node fbx renders fine either way) and is 42 units off
+  on a real skeleton.
+- **The bind pose is the bones' `mOffsetMatrix`, NOT the node rest transforms.** In
+  FBX the two routinely disagree — the rest pose is just the pose the file was saved
+  in. Building the bindpose locator tree from node transforms produced an animation
+  that *looked* plausible but was **35.9 units** off assimp's own
+  `globalAnim*offset*v` (fox; astroBoy 0.11 — small enough to miss by eye). So
+  `bindLocals()` derives each bind global as `meshWorld * offset^-1` and converts to
+  locals. `model_test` compares against that reference formula on every skinned
+  vertex — currently 0.0000 on fox/astroBoy/druid. Keep that check.
+- Skinning itself is the ENGINE's (`SkinningPrimFunc`): two locator trees (live +
+  bindpose) + one `w<n>` float channel per skeleton NODE in `SceneGraph::GetNodes`
+  order (**pre-order DFS**, zero-filled for nodes that deform nothing) + `pref`/`nref`.
+  Both trees hang off the model root so a transform on the root cancels out of
+  `skeleton*bindpose^-1`. `(make-pfunc 'genskinweights)` is unrelated and looks
+  broken — never needed here, the file supplies real weights.
+- **A pfunc writes pdata behind the pdata layer's back, so the VBO cache goes
+  stale**: `flux_model_set_anim_time` calls `BumpPDataVersion()` after each
+  `pfunc-run` or `PolyPrimitive::UpdateVBO` keeps drawing the bind pose in retained
+  mode. Any other per-frame pfunc user needs the same bump.
+- Cost: import 5-6 ms (cached by path+flags — an immediate-mode sketch re-BUILDS
+  prims each frame but does not re-parse), prim build ~0.1 ms, indexed geometry is
+  ~4x fewer verts than unindexed. Skinning runs the engine's DENSE loop (every node ×
+  every vertex): 0.15 ms/frame at 65 nodes × 2073 verts, but **4.9 ms at 50k verts** —
+  a sparse per-bone skinner is ~9x faster if a heavy model ever needs it.
+- Embedded textures (glTF/FBX `*0`) decode through `flux_load_texture_mem`
+  (`app/TextureLoader.cpp`); external ones resolve relative to the model's folder.
+  UVs are flipped in V at import because `flux_load_texture` uploads flipped.
+
 ## NTSC filter = ntsc-rs (Rust) — build needs cargo
 `(ntsc …)` runs the vendored [ntsc-rs](https://github.com/ntsc-rs/ntsc-rs) signal
 simulation (`vendor/ntsc-rs`: core crate + C-FFI staticlib, built by cargo via
@@ -408,7 +460,21 @@ with failure-thunk fallbacks so the files also load standalone on the racket CLI
 `RacketScriptHost::requireLibForm()`, then iterate `racket -e '(require (file …))'`
 — on `already required X in Y.ss` drop `X` from `Y.ss`'s provide; on unbound `X`
 add a stub to `fluxus-engine.ss`; on `already defined` add to its `except-out`.
-Skip `scheme/class`-based files (frisbee/gui/drflux/itchy/joylisten/tricks).
+- **`racket/class` WORKS — the class system was never the blocker, the legacy module
+  PATH was.** brew `minimal-racket` ships no `scheme` collection (that's
+  `compatibility-lib`), so upstream's `(require scheme/class)` dies with
+  *"collection not found … collection: `scheme`"*; swap it to `racket/class` and
+  classes run fine, in library files AND in sketches (`(require racket/class)` at
+  the top of a sketch works — `flux-run-guarded` compiles form-by-form, so the
+  require is live before later forms expand; verified live with
+  `class`/`define/public`/`define/override`/`super`/`init-field`). Caveat: immediate
+  mode re-evals the buffer each frame, so class definitions are REBUILT every frame
+  and instances held across frames go stale against their own class — use
+  `(retained)` + the every-frame thunk when objects must live. s7 has no class
+  system, so a class sketch is Racket-only.
+  `tricks.ss` is loaded now (its `scheme/class` require was unused). Still skipped:
+  `frisbee.ss` (needs the `frtime` package), `gui/drflux/itchy/joylisten` (real
+  `scheme/class` GUI code — portable in principle, no engine payoff).
 - **After editing ANY `.ss`, `make precompile` before running a Racket app — a stale
   `.zo` silently shadows your source.** The host pins `use-compiled-file-check` to
   `'exists` (the startup win), so Racket loads `racket-lib/compiled/<name>_ss.zo`

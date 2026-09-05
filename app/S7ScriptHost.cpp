@@ -180,6 +180,38 @@ static s7_pointer f_get_children(s7_scheme* sc, s7_pointer){ int n=flux_get_chil
 static s7_pointer f_recalc_bb(s7_scheme* sc, s7_pointer){ flux_recalc_bb(); return s7_nil(sc); }
 static s7_pointer f_load_primitive(s7_scheme* sc, s7_pointer a){ return s7_make_integer(sc, flux_load_primitive(s7_is_string(s7_car(a))?s7_string(s7_car(a)):"")); }
 static s7_pointer f_save_primitive(s7_scheme* sc, s7_pointer a){ if(s7_is_string(s7_car(a))) flux_save_primitive(s7_string(s7_car(a))); return s7_nil(sc); }
+// model import (assimp). (load-model path [flags]) -> handle; the mesh prims are
+// reached with (model-prims h) / (model-root h).
+static s7_pointer f_load_model(s7_scheme* sc, s7_pointer a){
+  const char* p = s7_is_string(s7_car(a)) ? s7_string(s7_car(a)) : "";
+  int flags = (s7_is_pair(s7_cdr(a)) && s7_is_number(s7_cadr(a))) ? (int) s7_number_to_real(sc, s7_cadr(a)) : 0;
+  return s7_make_integer(sc, flux_load_model(p, flags)); }
+static s7_pointer f_model_root(s7_scheme* sc, s7_pointer a){ return s7_make_integer(sc, flux_model_root((int) s7_number_to_real(sc, s7_car(a)))); }
+static s7_pointer f_model_mesh_count(s7_scheme* sc, s7_pointer a){ return s7_make_integer(sc, flux_model_mesh_count((int) s7_number_to_real(sc, s7_car(a)))); }
+static s7_pointer f_model_prim(s7_scheme* sc, s7_pointer a){
+  return s7_make_integer(sc, flux_model_prim((int) s7_number_to_real(sc, s7_car(a)),
+                                             (int) s7_number_to_real(sc, s7_cadr(a)))); }
+static s7_pointer f_model_mesh_name(s7_scheme* sc, s7_pointer a){
+  return s7_make_string(sc, flux_model_mesh_name((int) s7_number_to_real(sc, s7_car(a)),
+                                                 (int) s7_number_to_real(sc, s7_cadr(a)))); }
+static s7_pointer f_model_error(s7_scheme* sc, s7_pointer){ return s7_make_string(sc, flux_model_error()); }
+static s7_pointer f_model_free(s7_scheme* sc, s7_pointer a){ flux_model_free((int) s7_number_to_real(sc, s7_car(a))); return s7_nil(sc); }
+static s7_pointer f_model_anim_count(s7_scheme* sc, s7_pointer a){ return s7_make_integer(sc, flux_model_anim_count((int) s7_number_to_real(sc, s7_car(a)))); }
+static s7_pointer f_model_anim_duration(s7_scheme* sc, s7_pointer a){
+  return s7_make_real(sc, flux_model_anim_duration((int) s7_number_to_real(sc, s7_car(a)),
+                                                   (int) s7_number_to_real(sc, s7_cadr(a)))); }
+static s7_pointer f_model_set_anim_time(s7_scheme* sc, s7_pointer a){
+  flux_model_set_anim_time((int) s7_number_to_real(sc, s7_car(a)),
+                           (int) s7_number_to_real(sc, s7_cadr(a)),
+                           s7_number_to_real(sc, s7_caddr(a)));
+  return s7_nil(sc); }
+static s7_pointer f_model_bone_count(s7_scheme* sc, s7_pointer a){ return s7_make_integer(sc, flux_model_bone_count((int) s7_number_to_real(sc, s7_car(a)))); }
+static s7_pointer f_model_bone(s7_scheme* sc, s7_pointer a){
+  return s7_make_integer(sc, flux_model_bone((int) s7_number_to_real(sc, s7_car(a)),
+                                             (int) s7_number_to_real(sc, s7_cadr(a)))); }
+static s7_pointer f_model_bone_name(s7_scheme* sc, s7_pointer a){
+  return s7_make_string(sc, flux_model_bone_name((int) s7_number_to_real(sc, s7_car(a)),
+                                                 (int) s7_number_to_real(sc, s7_cadr(a)))); }
 static s7_pointer f_get_transform(s7_scheme* sc, s7_pointer){ double m[16]; flux_get_transform(m); return makeVecN(sc,m,16); }
 static s7_pointer f_get_global_transform(s7_scheme* sc, s7_pointer){ double m[16]; flux_get_global_transform(m); return makeVecN(sc,m,16); }
 // primitive functions (pfunc) + skinning
@@ -844,6 +876,19 @@ void S7ScriptHost::init() {
   def("recalc-bb",              f_recalc_bb,              0, 0, false);
   def("load-primitive",         f_load_primitive,         1, 0, false);
   def("save-primitive",         f_save_primitive,         1, 0, false);
+  def("load-model",             f_load_model,             1, 1, false);
+  def("model-root",             f_model_root,             1, 0, false);
+  def("model-mesh-count",       f_model_mesh_count,       1, 0, false);
+  def("model-prim",             f_model_prim,             2, 0, false);
+  def("model-mesh-name",        f_model_mesh_name,        2, 0, false);
+  def("model-error",            f_model_error,            0, 0, false);
+  def("model-free",             f_model_free,             1, 0, false);
+  def("model-anim-count",       f_model_anim_count,       1, 0, false);
+  def("model-anim-duration",    f_model_anim_duration,    2, 0, false);
+  def("model-set-anim-time",    f_model_set_anim_time,    3, 0, false);
+  def("model-bone-count",       f_model_bone_count,       1, 0, false);
+  def("model-bone",             f_model_bone,             2, 0, false);
+  def("model-bone-name",        f_model_bone_name,        2, 0, false);
   def("get-transform",          f_get_transform,          0, 0, false);
   def("get-global-transform",   f_get_global_transform,   0, 0, false);
   def("make-pfunc",             f_make_pfunc,             1, 0, false);

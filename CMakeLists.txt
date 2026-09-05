@@ -85,6 +85,22 @@ target_compile_definitions(imgui PRIVATE GL_SILENCE_DEPRECATION)
 target_compile_options(imgui PRIVATE -w)
 target_link_libraries(imgui PUBLIC fluxus_gl)
 
+# --- assimp: 3D model import (fbx/gltf/glb/dae/ply/stl/3ds) -----------------
+# Optional, like the Racket targets: without it the apps still build, they just
+# lack (load-model …). brew install assimp. NOTE brew ships a DYLIB only, so a
+# self-contained release .app would need a vendored static assimp (BUILD_SHARED_LIBS
+# =OFF, importers trimmed) or a dylib copy + rpath fix + a
+# `codesign --force --deep --sign -` re-sign, the way cmake/bundle_racket.cmake
+# does for the Racket runtime. Dev builds link the brew dylib directly.
+find_package(assimp CONFIG QUIET)
+if(assimp_FOUND)
+  message(STATUS "fluxus: assimp found (${assimp_VERSION}) — (load-model) enabled")
+  set(FLUXUS_MODEL_SRC app/FluxusCommandsModel.cpp)
+else()
+  message(STATUS "fluxus: assimp NOT found — (load-model) disabled (brew install assimp)")
+  set(FLUXUS_MODEL_SRC "")
+endif()
+
 # --- shared fluxus command layer -------------------------------------------
 # The extern "C" flux_* engine binding surface both script hosts drive, split by
 # domain across these TUs (app/FluxusCommandsInternal.h holds what they share).
@@ -117,6 +133,12 @@ set(FLUXUS_CMD_SOURCES
 add_library(fluxus_core STATIC ${FLUXUS_CMD_SOURCES})
 target_include_directories(fluxus_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/app)
 target_compile_definitions(fluxus_core PRIVATE GL_SILENCE_DEPRECATION=1)
+# PUBLIC: frame-begin calls into the model TU (which lives in fluxus_render, so
+# pdata_bench keeps its dependency footprint), and that call must compile away
+# when there is no assimp.
+if(assimp_FOUND)
+  target_compile_definitions(fluxus_core PUBLIC FLUXUS_HAVE_ASSIMP=1)
+endif()
 target_link_libraries(fluxus_core
     PUBLIC libfluxus_min vterm fluxus_gl
            juce::juce_recommended_config_flags
@@ -139,11 +161,17 @@ add_library(fluxus_render STATIC
     app/FluxusScene.cpp
     app/PostFX.cpp
     app/ImguiOverlay.cpp
+    ${FLUXUS_MODEL_SRC}
     ${FLUXUS_PLATFORM_SOURCES})
 target_compile_definitions(fluxus_render PRIVATE GL_SILENCE_DEPRECATION=1)
 target_link_libraries(fluxus_render
     PUBLIC fluxus_core imgui ${FLUXUS_NTSC_LIB} ${FLUXUS_PLATFORM_LIBS}
     PRIVATE juce::juce_recommended_warning_flags)
+# assimp lives here, not in fluxus_core: pdata_bench links fluxus_core and must
+# keep its (deliberately small) dependency footprint.
+if(assimp_FOUND)
+  target_link_libraries(fluxus_render PUBLIC assimp::assimp)
+endif()
 fluxus_whole_archive(fluxus_render)
 
 # --- bundled example sketches ----------------------------------------------
@@ -432,3 +460,12 @@ target_link_libraries(pdata_bench PRIVATE fluxus_core)
 # --- dada math regression test (dMatrix::inverse / dQuat fixes) -------------
 add_executable(math_test spikes/math-test/main.cpp)
 target_link_libraries(math_test PRIVATE libfluxus_min)
+
+# --- assimp model import test (headless, no GL context, no JUCE) ------------
+# Compiles the model TU straight in rather than linking fluxus_render, which
+# would drag JUCE/imgui into a console test. Only built when assimp is present.
+if(assimp_FOUND)
+  add_executable(model_test spikes/model-load/main.cpp app/FluxusCommandsModel.cpp)
+  target_compile_definitions(model_test PRIVATE GL_SILENCE_DEPRECATION=1)
+  target_link_libraries(model_test PRIVATE fluxus_core assimp::assimp)
+endif()

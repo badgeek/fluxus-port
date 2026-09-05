@@ -89,6 +89,9 @@ extern "C" {
   // textures: (load-texture path) -> GL id (implemented in TextureLoader.cpp via
   // JUCE image decode); (texture id) applies it to the grabbed prim / next-built.
   unsigned flux_load_texture(const char* path);
+  // same, from an in-memory encoded image (png/jpg bytes) — glTF/FBX carry textures
+  // embedded in the model file. cacheKey identifies it in the texture cache.
+  unsigned flux_load_texture_mem(const void* bytes, int len, const char* cacheKey);
   unsigned flux_font_atlas(void);              // 16x16 ASCII glyph atlas (TextureLoader.cpp)
   void     flux_texture(int id);
 
@@ -405,6 +408,31 @@ extern "C" {
   // ---- primitive IO (OBJ meshes) --------------------------------------------
   int  flux_load_primitive(const char* path);   // read a mesh -> new prim id (-1 fail)
   void flux_save_primitive(const char* path);   // write the grabbed prim to path
+
+  // ---- model IO (assimp: fbx/gltf/glb/dae/ply/stl/3ds/obj) -------------------
+  // A model is a SET of primitives (one indexed PolyPrimitive per aiMesh, node
+  // transforms baked in) parented to one locator, plus the materials/textures the
+  // file declares. The imported scene is cached by path, so calling this every
+  // frame from an immediate-mode sketch re-BUILDS the prims but does not re-parse
+  // the file. Returns a handle (>=0), or -1 if the file could not be read.
+  int  flux_load_model(const char* path, int flags);   // flags: 0 default, 1 no-optimize, 2 high
+  int  flux_model_root(int h);              // locator id every mesh prim is parented to
+  int  flux_model_mesh_count(int h);
+  int  flux_model_prim(int h, int i);       // prim id of mesh i (-1 out of range)
+  const char* flux_model_mesh_name(int h, int i);
+  const char* flux_model_error(void);       // assimp's message for the last failed load
+  void flux_model_free(int h);              // drop the handle (prims are NOT destroyed)
+
+  // Skeletal animation. A skinned model also builds two locator trees mirroring the
+  // file's node hierarchy — the live skeleton and a bindpose copy — which is what
+  // the engine's 'skinning pfunc consumes. set-anim-time poses the skeleton at t
+  // (seconds, wrapped into the clip) and re-skins every skinned mesh.
+  int    flux_model_anim_count(int h);
+  double flux_model_anim_duration(int h, int anim);        // seconds
+  void   flux_model_set_anim_time(int h, int anim, double t);
+  int    flux_model_bone_count(int h);
+  int    flux_model_bone(int h, int i);     // the live skeleton locator (grabbable)
+  const char* flux_model_bone_name(int h, int i);
 
   void flux_get_transform(double out[16]);         // grabbed prim's local transform (or build ctx)
   void flux_get_global_transform(double out[16]);  // grabbed prim's world transform (scene graph)
