@@ -21,6 +21,17 @@ enum class RPrim { Triangles, Quads, TriStrip, TriFan, Polygon, Lines, LineStrip
 // mechanism, which is the only form both backends can answer.
 enum class RFill { Fill, Line, Point };
 
+// fluxus->JUCE port: fixed-function light parameters. Mapped one-to-one from the
+// glLight* calls Light.cpp used to make, deliberately: a struct-at-render-time
+// design would have moved WHEN the state is applied, and the golden cases do not
+// exercise lights, so there would be nothing to catch a regression. A shader
+// backend collects these into uniforms; ours currently uses index 0's diffuse
+// and ignores the rest (see ANDROID-SUBSET.md — spot and multiple lights are
+// listed as unsupported).
+enum class RLightColour { Ambient, Diffuse, Specular };
+enum class RLightFloat  { SpotCutoff, SpotExponent,
+                          ConstantAttenuation, LinearAttenuation, QuadraticAttenuation };
+
 // Raw vertex-array views (contiguous PData arrays). col == nullptr => no per-
 // vertex colour. Stride in bytes (fluxus stores dVector = 4 floats).
 struct RVertexArrays {
@@ -53,6 +64,11 @@ struct IRenderBackend {
   // Same reasoning for the projection, which SceneGraph needs to build the
   // frustum planes it culls against.
   virtual void getProjection(float* m16) = 0;
+  // fluxus->JUCE port: set the projection explicitly. Fixed-function GL had a
+  // second matrix stack selected by glMatrixMode, so Camera::DoProjection could
+  // just call glFrustum and rely on the mode being right. GLES has neither the
+  // mode nor glFrustum, so the seam has to say WHICH matrix is being set.
+  virtual void setProjectionMatrix(const float* m16) = 0;
 
   // Object identity for picking. Fixed-function GL had a name stack
   // (glPushName/glPopName) feeding a selection buffer; GLES has neither, so a
@@ -84,6 +100,13 @@ struct IRenderBackend {
   // lights everything and HINT_UNLIT does nothing.
   virtual void setLighting(bool on) = 0;
   virtual void setFillMode(RFill mode) = 0;
+
+  // lights
+  virtual void setLightEnabled(int index, bool on) = 0;
+  virtual void setLightColour(int index, RLightColour which, const float* rgba) = 0;
+  virtual void setLightFloat(int index, RLightFloat which, float v) = 0;
+  virtual void setLightPosition(int index, const float* xyzw) = 0;
+  virtual void setLightSpotDirection(int index, const float* xyzw) = 0;
 
   // geometry (index/indexCount optional: index==nullptr => glDrawArrays-style)
   virtual void drawArrays(RPrim prim, const RVertexArrays& v, int count,

@@ -29,6 +29,7 @@ class GLESBackend : public Fluxus::IRenderBackend {
   void loadMatrix(const float* m16) override;
   void getModelView(float* m16) override;   // our own stack — GLES has no query
   void getProjection(float* m16) override;
+  void setProjectionMatrix(const float* m16) override { setProjection(m16); }
   // Picking is unsupported on GLES (no selection buffer) — see ANDROID-SUBSET.md.
   void pushPickName(unsigned int) override {}
   void popPickName() override {}
@@ -52,6 +53,16 @@ class GLESBackend : public Fluxus::IRenderBackend {
   // GLES has no glPolygonMode, so the mode is remembered and the topology is
   // turned into line or point geometry at draw time instead.
   void setFillMode(Fluxus::RFill mode) override { fill = mode; }
+  // Only light 0's diffuse reaches the shader; spot and multiple lights are
+  // listed as unsupported in ANDROID-SUBSET.md.
+  void setLightEnabled(int, bool) override {}
+  void setLightColour(int index, Fluxus::RLightColour which, const float* rgba) override {
+    if (index == 0 && which == Fluxus::RLightColour::Diffuse)
+      for (int i = 0; i < 3; ++i) lightColour[i] = rgba[i];
+  }
+  void setLightFloat(int, Fluxus::RLightFloat, float) override {}
+  void setLightPosition(int, const float*) override {}
+  void setLightSpotDirection(int, const float*) override {}
   void drawArrays(Fluxus::RPrim prim, const Fluxus::RVertexArrays& v, int count,
                   const unsigned int* index, int indexCount) override;
 
@@ -74,5 +85,6 @@ class GLESBackend : public Fluxus::IRenderBackend {
   float colour[4] = {1, 1, 1, 1};
   bool  unlit = false;
   Fluxus::RFill fill = Fluxus::RFill::Fill;
+  float lightColour[3] = {1, 1, 1};
   std::vector<unsigned int> scratch; // index expansion buffer
 };

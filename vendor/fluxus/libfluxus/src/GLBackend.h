@@ -15,6 +15,7 @@ struct GLBackend : public IRenderBackend {
   void loadMatrix(const float* m16) override;
   void getModelView(float* m16) override;
   void getProjection(float* m16) override;
+  void setProjectionMatrix(const float* m16) override;
   void pushPickName(unsigned int id) override;
   void popPickName() override;
 
@@ -29,6 +30,11 @@ struct GLBackend : public IRenderBackend {
   void setNormaliseNormals(bool on) override;
   void setLighting(bool on) override;
   void setFillMode(Fluxus::RFill mode) override;
+  void setLightEnabled(int index, bool on) override;
+  void setLightColour(int index, Fluxus::RLightColour which, const float* rgba) override;
+  void setLightFloat(int index, Fluxus::RLightFloat which, float v) override;
+  void setLightPosition(int index, const float* xyzw) override;
+  void setLightSpotDirection(int index, const float* xyzw) override;
   void setProgramPointSize(bool on) override;
   void setFrontFaceCW(bool cw) override;
 

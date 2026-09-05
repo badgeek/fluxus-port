@@ -1,5 +1,9 @@
 #include "Light.h"
 #include "State.h"
+// fluxus->JUCE port: light parameters go through IRenderBackend rather than
+// straight to glLight*, which GLES does not have. Same calls in the same order
+// at the same time, so desktop output is identical by construction.
+#include "RenderBackend.h"
 
 using namespace Fluxus;
 
@@ -17,38 +21,38 @@ m_CameraLock(false)
 
 Light::~Light()
 {
-	glDisable(GL_LIGHT0+m_Index);
+	Backend()->setLightEnabled(m_Index, false);
 }
 
 void Light::SetIndex(int s)
 {
 	m_Index=s;
-	glEnable(GL_LIGHT0+m_Index);
+	Backend()->setLightEnabled(m_Index, true);
 }
 
 void Light::SetAmbient(dColour s)
 {
-	glLightfv(GL_LIGHT0+m_Index, GL_AMBIENT,  s.arr());
+	Backend()->setLightColour(m_Index, RLightColour::Ambient, s.arr());
 }
 
 void Light::SetDiffuse(dColour s)
 {
-	glLightfv(GL_LIGHT0+m_Index, GL_DIFFUSE,  s.arr());
+	Backend()->setLightColour(m_Index, RLightColour::Diffuse, s.arr());
 }
 
 void Light::SetSpecular(dColour s)
 {
-	glLightfv(GL_LIGHT0+m_Index, GL_SPECULAR,  s.arr());
+	Backend()->setLightColour(m_Index, RLightColour::Specular, s.arr());
 }
 
 void Light::SetSpotAngle(float s)
 {
-	if (m_Type==SPOT) glLightf(GL_LIGHT0+m_Index, GL_SPOT_CUTOFF,  s);
+	if (m_Type==SPOT) Backend()->setLightFloat(m_Index, RLightFloat::SpotCutoff, s);
 }
 
 void Light::SetSpotExponent(float s)
 {
-	if (m_Type==SPOT) glLightf(GL_LIGHT0+m_Index, GL_SPOT_EXPONENT,  s);
+	if (m_Type==SPOT) Backend()->setLightFloat(m_Index, RLightFloat::SpotExponent, s);
 }
 
 void Light::SetPosition(dVector s)
@@ -60,9 +64,9 @@ void Light::SetAttenuation(int type, float s)
 {
 	switch (type)
 	{
-		case 0: glLightf(GL_LIGHT0+m_Index, GL_CONSTANT_ATTENUATION, s); break;
-		case 1: glLightf(GL_LIGHT0+m_Index, GL_LINEAR_ATTENUATION, s); break;
-		case 2: glLightf(GL_LIGHT0+m_Index, GL_QUADRATIC_ATTENUATION, s); break;
+		case 0: Backend()->setLightFloat(m_Index, RLightFloat::ConstantAttenuation, s); break;
+		case 1: Backend()->setLightFloat(m_Index, RLightFloat::LinearAttenuation, s); break;
+		case 2: Backend()->setLightFloat(m_Index, RLightFloat::QuadraticAttenuation, s); break;
 	}
 }
 
@@ -74,26 +78,30 @@ void Light::SetDirection(dVector s)
 
 void Light::Render()
 {
-	glPushMatrix();
-	glTranslatef(m_Position.x,m_Position.y,m_Position.z);
+	// The position is applied through the modelview, as the glTranslatef did:
+	// the light then sits at the origin of that translated space.
+	Backend()->pushMatrix();
+	float t[16] = { 1,0,0,0,  0,1,0,0,  0,0,1,0,
+	                m_Position.x, m_Position.y, m_Position.z, 1 };
+	Backend()->multMatrix(t);
 
 	if (m_Type==DIRECTIONAL)
 	{
 		float pos[4] = { m_Direction.x,m_Direction.y,m_Direction.z,0 };
-		glLightfv(GL_LIGHT0+m_Index, GL_POSITION, pos);
+		Backend()->setLightPosition(m_Index, pos);
 	}
 	else
 	{
 		if (m_Type==SPOT)
 		{
 			float pos[4] = { m_Direction.x,m_Direction.y,m_Direction.z,1 };
-			glLightfv(GL_LIGHT0+m_Index, GL_SPOT_DIRECTION, pos);
+			Backend()->setLightSpotDirection(m_Index, pos);
 		}
 
 		float pos[4] = { 0,0,0,1 };
-		glLightfv(GL_LIGHT0+m_Index, GL_POSITION, pos);
+		Backend()->setLightPosition(m_Index, pos);
 	}
 
-	glPopMatrix();
+	Backend()->popMatrix();
 }
 

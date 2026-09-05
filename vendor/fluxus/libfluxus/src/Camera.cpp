@@ -19,6 +19,7 @@
 
 //#define DEBUG_CAMERA
 
+#include "RenderBackend.h"   // fluxus->JUCE port: projection + camera via the seam
 using namespace Fluxus;
 
 Camera::Camera() :
@@ -48,19 +49,50 @@ Camera::~Camera()
 {
 }
 
+// fluxus->JUCE port: the projection is BUILT here now instead of being asked of
+// GL. glFrustum/glOrtho do not exist on GLES, and they were the only reason this
+// code needed a second matrix stack. These are the matrices those two calls
+// produce, in the same column-major layout GL reads (which is what dMatrix::arr()
+// already hands it), so the result on desktop is identical.
+static void frustumMatrix(float *m, float l, float r, float b, float t, float n, float f)
+{
+	for (int i=0; i<16; i++) m[i]=0;
+	m[0]  = 2.0f*n/(r-l);
+	m[5]  = 2.0f*n/(t-b);
+	m[8]  = (r+l)/(r-l);
+	m[9]  = (t+b)/(t-b);
+	m[10] = -(f+n)/(f-n);
+	m[11] = -1.0f;
+	m[14] = -2.0f*f*n/(f-n);
+}
+
+static void orthoMatrix(float *m, float l, float r, float b, float t, float n, float f)
+{
+	for (int i=0; i<16; i++) m[i]=0;
+	m[0]  =  2.0f/(r-l);
+	m[5]  =  2.0f/(t-b);
+	m[10] = -2.0f/(f-n);
+	m[12] = -(r+l)/(r-l);
+	m[13] = -(t+b)/(t-b);
+	m[14] = -(f+n)/(f-n);
+	m[15] =  1.0f;
+}
+
 void Camera::DoProjection()
 {
 	if (m_CustomProjection)
 	{
-		glLoadMatrixf(m_CustomProjectionMatrix.arr());
-	}
-	else if (m_Ortho)
-	{
-	  glOrtho(m_Left*m_OrthZoom,m_Right*m_OrthZoom,m_Bottom*m_OrthZoom,m_Top*m_OrthZoom,m_Front,m_Back);
+		Backend()->setProjectionMatrix(m_CustomProjectionMatrix.arr());
 	}
 	else
 	{
-		glFrustum(m_Left,m_Right,m_Bottom,m_Top,m_Front,m_Back);
+		float m[16];
+		if (m_Ortho)
+			orthoMatrix(m, m_Left*m_OrthZoom, m_Right*m_OrthZoom,
+			               m_Bottom*m_OrthZoom, m_Top*m_OrthZoom, m_Front, m_Back);
+		else
+			frustumMatrix(m, m_Left, m_Right, m_Bottom, m_Top, m_Front, m_Back);
+		Backend()->setProjectionMatrix(m);
 	}
 	#ifdef DEBUG_CAMERA
 	cerr<<"camera:"<<this<<" frustum:"<<m_Left<<" "<<m_Right<<" "<<m_Bottom<<" "<<m_Top<<" "<<m_Front<<" "<<m_Back<<endl;
@@ -69,7 +101,7 @@ void Camera::DoProjection()
 
 void Camera::DoCamera(Renderer * renderer)
 {
-	glMultMatrixf(m_Transform.arr());
+	Backend()->multMatrix(m_Transform.arr());
 
 	#ifdef DEBUG_CAMERA
 	cerr<<"camera:"<<this<<" transform:"<<m_Transform<<endl;
@@ -88,7 +120,7 @@ void Camera::DoCamera(Renderer * renderer)
 			m_LockedMatrix=worldmat;
 		}
 		m_FirstAttach=false;
-		glMultMatrixf(m_LockedMatrix.arr());
+		Backend()->multMatrix(m_LockedMatrix.arr());
 	}
 }
 
@@ -101,7 +133,7 @@ void Camera::LockCamera(int p)
 dMatrix Camera::GetProjection()
 {
 	dMatrix Projection;
-	glGetFloatv(GL_PROJECTION_MATRIX,Projection.arr());
+	Backend()->getProjection(Projection.arr());
 	return Projection;
 }
 

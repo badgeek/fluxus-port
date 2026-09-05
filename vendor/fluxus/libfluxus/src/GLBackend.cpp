@@ -26,6 +26,14 @@ void GLBackend::multMatrix(const float* m)   { glMultMatrixf(m); }
 void GLBackend::loadMatrix(const float* m)   { glLoadMatrixf(m); }
 void GLBackend::getModelView(float* m)       { glGetFloatv(GL_MODELVIEW_MATRIX, m); }
 void GLBackend::getProjection(float* m)      { glGetFloatv(GL_PROJECTION_MATRIX, m); }
+
+// Select the projection stack, load, and put the mode back — callers expect to
+// be left in GL_MODELVIEW, which is what the surrounding engine code assumes.
+void GLBackend::setProjectionMatrix(const float* m) {
+  glMatrixMode(GL_PROJECTION);
+  glLoadMatrixf(m);
+  glMatrixMode(GL_MODELVIEW);
+}
 void GLBackend::pushPickName(unsigned int id){ glPushName(id); }
 void GLBackend::popPickName()                { glPopName(); }
 
@@ -61,6 +69,41 @@ void GLBackend::setFillMode(RFill mode) {
 }
 void GLBackend::setProgramPointSize(bool on) { if (on) glEnable(GL_VERTEX_PROGRAM_POINT_SIZE); else glDisable(GL_VERTEX_PROGRAM_POINT_SIZE); }
 void GLBackend::setFrontFaceCW(bool cw)      { glFrontFace(cw ? GL_CW : GL_CCW); }
+
+// One-to-one with the glLight* calls Light.cpp used to make.
+void GLBackend::setLightEnabled(int index, bool on) {
+  if (on) glEnable(GL_LIGHT0 + index); else glDisable(GL_LIGHT0 + index);
+}
+
+void GLBackend::setLightColour(int index, RLightColour which, const float* rgba) {
+  GLenum p = GL_AMBIENT;
+  switch (which) {
+    case RLightColour::Ambient:  p = GL_AMBIENT;  break;
+    case RLightColour::Diffuse:  p = GL_DIFFUSE;  break;
+    case RLightColour::Specular: p = GL_SPECULAR; break;
+  }
+  glLightfv(GL_LIGHT0 + index, p, rgba);
+}
+
+void GLBackend::setLightFloat(int index, RLightFloat which, float v) {
+  GLenum p = GL_SPOT_CUTOFF;
+  switch (which) {
+    case RLightFloat::SpotCutoff:           p = GL_SPOT_CUTOFF;           break;
+    case RLightFloat::SpotExponent:         p = GL_SPOT_EXPONENT;         break;
+    case RLightFloat::ConstantAttenuation:  p = GL_CONSTANT_ATTENUATION;  break;
+    case RLightFloat::LinearAttenuation:    p = GL_LINEAR_ATTENUATION;    break;
+    case RLightFloat::QuadraticAttenuation: p = GL_QUADRATIC_ATTENUATION; break;
+  }
+  glLightf(GL_LIGHT0 + index, p, v);
+}
+
+void GLBackend::setLightPosition(int index, const float* xyzw) {
+  glLightfv(GL_LIGHT0 + index, GL_POSITION, xyzw);
+}
+
+void GLBackend::setLightSpotDirection(int index, const float* xyzw) {
+  glLightfv(GL_LIGHT0 + index, GL_SPOT_DIRECTION, xyzw);
+}
 
 void GLBackend::drawArrays(RPrim prim, const RVertexArrays& v, int count,
                            const unsigned int* index, int indexCount) {
