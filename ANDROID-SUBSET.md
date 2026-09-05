@@ -51,6 +51,28 @@ move as work lands — total was 529 at the first measurement, **425** now.
    barycentric-coordinate shader. This is a **design decision**, not a port step,
    because it changes how the look is produced.
 
+## Known defects — TODO
+
+Real bugs found and deliberately parked, not deferred features.
+
+- **Sphere shows a dark sawtooth band on one limb.** View-dependent: present in
+  two of three sampled frames, absent in the third, and sitting at exactly the
+  ambient-only colour value (so the triangles are lit as if facing away, not
+  missing — a flood fill finds no holes). Visible in the offscreen renders too,
+  so it is not an APK or emulator artifact.
+  Suspicion, unverified: `GLESBackend`'s TriStrip-to-triangles expansion
+  mishandling the seam between rings, where `MakeSphere` stitches with
+  degenerate vertices. The odd/even winding swap is the place to look first.
+  Only affects TRISTRIP primitives; QUADS (cubes) are clean.
+
+- **Wireframe on triangulated meshes is untested and probably wrong.** Per-face
+  edges are correct for QUADS, but on a TRILIST or TRISTRIP every triangulation
+  diagonal would be drawn as a visible line. Needs edge dedup or a
+  barycentric-coordinate shader — a design decision, not a fix.
+
+- **The light path has no test.** No golden case uses `(make-light …)`, so the
+  seam mapping in `Light.cpp` is verified by construction and compilation only.
+
 ## Deferred — not supported on Android, with the reason
 
 Not "hard", but genuinely absent from GLES or requiring a rewrite. A sketch using

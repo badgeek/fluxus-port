@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later
+     android:debuggable is set on purpose: the build script pushes the ~91 MB
+     Racket runtime into this app's files directory with `adb shell run-as`,
+     which only works for a debuggable package. A shipping build would carry the
+     runtime as APK assets and extract it on first launch instead — see README. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="cc.fluxus.racket"
+    android:versionCode="1"
+    android:versionName="0.1">
+
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35" />
+    <uses-feature android:glEsVersion="0x00030000" android:required="true" />
+
+    <application android:label="Fluxus Racket" android:hasCode="true"
+                 android:debuggable="true">
+        <activity android:name=".MainActivity"
+                  android:exported="true"
+                  android:screenOrientation="landscape"
+                  android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+                  android:configChanges="orientation|screenSize|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
