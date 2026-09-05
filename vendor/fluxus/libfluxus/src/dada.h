@@ -936,10 +936,17 @@ public:
 		Trace::Stream<<d1<<" "<<d2<<" "<<z<<endl;*/
 	}
 
+	// fluxus->JUCE port: was l=v.cross(up), which puts u=v.cross(l) on the
+	// WRONG side — for v=+X, up=+Y the third basis row came out -Y, i.e. the
+	// frame was rolled 180 degrees about the aim axis and `up` pointed down.
+	// (Still right-handed both ways, which is why it never looked mirrored.)
+	// dVector::get_rot, the older sibling of this function, already does the
+	// crosses in the order that keeps up up. Crossing up into v instead fixes
+	// the roll and keeps det==+1.
 	inline void aim(dVector v, const dVector& up)
 	{
 		v.normalise();
-		dVector l=v.cross(up);
+		dVector l=up.cross(v);
 		dVector u=v.cross(l);
 		l.normalise();
 		u.normalise();
