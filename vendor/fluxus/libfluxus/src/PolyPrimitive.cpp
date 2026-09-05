@@ -244,24 +244,28 @@ void PolyPrimitive::Render()
 		glDisableClientState(GL_COLOR_ARRAY);
 	}
 
-	if (m_State.Hints & HINT_SOLID)
+	// fluxus->JUCE port: all three passes (solid, wire, points) go through
+	// IRenderBackend now, so the primitive type is mapped once and the vertex
+	// arrays are described once, below.
+	RPrim rp;
+	switch (m_Type)
 	{
-		// fluxus->JUCE port: solid geometry draw routed through IRenderBackend.
-		// (pointers above are left for the wire/points raw paths below.)
-		RPrim rp;
-		switch (m_Type)
-		{
-			case QUADS:    rp=RPrim::Quads;     break;
-			case TRILIST:  rp=RPrim::Triangles; break;
-			case TRIFAN:   rp=RPrim::TriFan;    break;
-			case POLYGON:  rp=RPrim::Polygon;   break;
-			// fluxus->JUCE port: without this a LINES prim (GPU velocity streaks)
-			// falls through to TriStrip and draws one giant ribbon through every
-			// particle instead of 2-vertex line segments.
-			case LINES:    rp=RPrim::Lines;     break;
-			case TRISTRIP:
-			default:       rp=RPrim::TriStrip;  break;
-		}
+		case QUADS:    rp=RPrim::Quads;     break;
+		case TRILIST:  rp=RPrim::Triangles; break;
+		case TRIFAN:   rp=RPrim::TriFan;    break;
+		case POLYGON:  rp=RPrim::Polygon;   break;
+		// fluxus->JUCE port: without this a LINES prim (GPU velocity streaks)
+		// falls through to TriStrip and draws one giant ribbon through every
+		// particle instead of 2-vertex line segments.
+		case LINES:    rp=RPrim::Lines;     break;
+		case TRISTRIP:
+		default:       rp=RPrim::TriStrip;  break;
+	}
+
+	// useVBO=false for the wire and points passes: drawing lines out of a VBO is
+	// a net loss on Apple's Metal-emulated GL, which is why they used client
+	// arrays before this went through the seam.
+	auto arrays = [&](bool useVBO) {
 		RVertexArrays va;
 		va.pos = m_VertData->begin()->arr();
 		va.nrm = m_NormData->begin()->arr();
@@ -269,30 +273,39 @@ void PolyPrimitive::Render()
 		va.col = (m_State.Hints & HINT_VERTCOLS) ? m_ColData->begin()->arr() : 0;
 		va.stride = sizeof(dVector);
 #ifdef FLUXUS_ENABLE_VBO
-		// fluxus->JUCE port: draw from cached GPU buffers (0 => client pointer).
-		va.posVBO = m_VBOPos; va.nrmVBO = m_VBONrm; va.texVBO = m_VBOTex;
-		va.colVBO = (m_State.Hints & HINT_VERTCOLS) ? m_VBOCol : 0;
+		if (useVBO)
+		{
+			va.posVBO = m_VBOPos; va.nrmVBO = m_VBONrm; va.texVBO = m_VBOTex;
+			va.colVBO = (m_State.Hints & HINT_VERTCOLS) ? m_VBOCol : 0;
+		}
+#else
+		(void)useVBO;
 #endif
+		return va;
+	};
+
+	auto draw = [&](const RVertexArrays &va) {
 		if (m_IndexMode)
 			Backend()->drawArrays(rp, va, 0, &(m_IndexData[0]), (int)m_IndexData.size());
 		else
 			Backend()->drawArrays(rp, va, (int)m_VertData->size(), 0, 0);
+	};
 
-#ifdef FLUXUS_ENABLE_VBO
-		// fluxus->JUCE port: the backend bound the vertex array to the VBO; restore
-		// the client pointer so the wire/points passes below stay on client arrays
-		// (drawing lines from a VBO is a net loss on Apple's Metal-emulated GL).
-		if (m_VBOReady)
-			glVertexPointer(3,GL_FLOAT,sizeof(dVector),(void*)m_VertData->begin()->arr());
-#endif
+	if (m_State.Hints & HINT_SOLID)
+	{
+		draw(arrays(true));
 	}
 
 	if (m_State.Hints & HINT_WIRE)
 	{
 		glDisable(GL_TEXTURE_2D);
 		glPolygonOffset(1,1);
-		glPolygonMode(GL_FRONT_AND_BACK,GL_LINE);
-		glColor4fv(m_State.WireColour.arr());
+		// fluxus->JUCE port: the wire pass through the seam. setFillMode carries
+		// the intent; a desktop backend answers it with glPolygonMode, a GLES one
+		// by drawing the topology's edges as real lines.
+		Backend()->setFillMode(RFill::Line);
+		const float *wc = m_State.WireColour.arr();
+		Backend()->setColour(wc[0],wc[1],wc[2],wc[3]);
 		if ((m_State.Hints & HINT_WIRE_STIPPLED) > HINT_WIRE)
 		{
 			glEnable(GL_LINE_STIPPLE);
@@ -300,30 +313,31 @@ void PolyPrimitive::Render()
 		}
 
 		Backend()->setLighting(false);
-		if (m_IndexMode) glDrawElements(type,m_IndexData.size(),GL_UNSIGNED_INT,&(m_IndexData[0]));
-		else glDrawArrays(type,0,m_VertData->size());
-		glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
+		draw(arrays(false));
+		Backend()->setFillMode(RFill::Fill);
 		Backend()->setLighting(true);
 		glEnable(GL_TEXTURE_2D);
 		if ((m_State.Hints & HINT_WIRE_STIPPLED) > HINT_WIRE)
 		{
 			glDisable(GL_LINE_STIPPLE);
 		}
-		glColor4fv(m_State.Colour.arr());
+		const float *sc = m_State.Colour.arr();
+		Backend()->setColour(sc[0],sc[1],sc[2],sc[3]);
 	}
 
 	if (m_State.Hints & HINT_POINTS)
 	{
 		glDisable(GL_TEXTURE_2D);
-		glPolygonMode(GL_FRONT_AND_BACK,GL_POINT);
-		glColor4fv(m_State.WireColour.arr());
+		Backend()->setFillMode(RFill::Point);
+		const float *pc = m_State.WireColour.arr();
+		Backend()->setColour(pc[0],pc[1],pc[2],pc[3]);
 		Backend()->setLighting(false);
-		if (m_IndexMode) glDrawElements(type,m_IndexData.size(),GL_UNSIGNED_INT,&(m_IndexData[0]));
-		else glDrawArrays(type,0,m_VertData->size());
-		glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
+		draw(arrays(false));
+		Backend()->setFillMode(RFill::Fill);
 		Backend()->setLighting(true);
 		glEnable(GL_TEXTURE_2D);
-		glColor4fv(m_State.Colour.arr());
+		const float *psc = m_State.Colour.arr();
+		Backend()->setColour(psc[0],psc[1],psc[2],psc[3]);
 	}
 
 

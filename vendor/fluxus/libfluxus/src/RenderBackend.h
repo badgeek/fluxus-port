@@ -14,6 +14,13 @@ namespace Fluxus {
 // without doubling every interior vertex.
 enum class RPrim { Triangles, Quads, TriStrip, TriFan, Polygon, Lines, LineStrip, Points };
 
+// fluxus->JUCE port: how the NEXT draws rasterize their faces. Fixed-function GL
+// expressed this as glPolygonMode, which GLES does not have at all — there, a
+// backend has to turn the topology into real line or point geometry instead. So
+// the seam carries the INTENT ("draw this as wireframe") rather than the
+// mechanism, which is the only form both backends can answer.
+enum class RFill { Fill, Line, Point };
+
 // Raw vertex-array views (contiguous PData arrays). col == nullptr => no per-
 // vertex colour. Stride in bytes (fluxus stores dVector = 4 floats).
 struct RVertexArrays {
@@ -76,6 +83,7 @@ struct IRenderBackend {
   // uniform, not a capability. Without it on the seam, a GLES backend silently
   // lights everything and HINT_UNLIT does nothing.
   virtual void setLighting(bool on) = 0;
+  virtual void setFillMode(RFill mode) = 0;
 
   // geometry (index/indexCount optional: index==nullptr => glDrawArrays-style)
   virtual void drawArrays(RPrim prim, const RVertexArrays& v, int count,

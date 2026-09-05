@@ -28,6 +28,7 @@ struct GLBackend : public IRenderBackend {
   void setCull(bool on) override;
   void setNormaliseNormals(bool on) override;
   void setLighting(bool on) override;
+  void setFillMode(Fluxus::RFill mode) override;
   void setProgramPointSize(bool on) override;
   void setFrontFaceCW(bool cw) override;
 

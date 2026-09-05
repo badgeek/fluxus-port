@@ -88,6 +88,16 @@ const char* kSketch =
     "(colour (vector 0.3 0.9 0.5))\n"
     "(translate (vector 0 1.3 0))\n"
     "(scale (vector 0.6 0.6 0.6))\n"
+    "(build-cube)\n"
+    // Wireframe: the look most of our sketches depend on, and the last thing
+    // PolyPrimitive was still drawing with raw client arrays.
+    "(identity)\n"
+    "(hint-solid #f)\n"
+    "(hint-wire)\n"
+    "(hint-unlit)\n"
+    "(backfacecull #f)\n"
+    "(wire-colour (vector 0.2 1.0 0.9))\n"
+    "(translate (vector 0 -1.4 0))\n"
     "(build-cube)\n";
 
 }  // namespace

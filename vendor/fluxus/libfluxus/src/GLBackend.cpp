@@ -47,6 +47,18 @@ void GLBackend::setBlend(int src, int dst)   { glBlendFunc((GLenum) src, (GLenum
 void GLBackend::setCull(bool on)             { if (on) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE); }
 void GLBackend::setNormaliseNormals(bool on) { if (on) glEnable(GL_NORMALIZE); else glDisable(GL_NORMALIZE); }
 void GLBackend::setLighting(bool on)         { if (on) glEnable(GL_LIGHTING); else glDisable(GL_LIGHTING); }
+
+// Desktop GL has the rasterizer state the seam is describing, so this stays a
+// direct translation — the same glPolygonMode call the primitives used to make.
+void GLBackend::setFillMode(RFill mode) {
+  GLenum m = GL_FILL;
+  switch (mode) {
+    case RFill::Fill:  m = GL_FILL;  break;
+    case RFill::Line:  m = GL_LINE;  break;
+    case RFill::Point: m = GL_POINT; break;
+  }
+  glPolygonMode(GL_FRONT_AND_BACK, m);
+}
 void GLBackend::setProgramPointSize(bool on) { if (on) glEnable(GL_VERTEX_PROGRAM_POINT_SIZE); else glDisable(GL_VERTEX_PROGRAM_POINT_SIZE); }
 void GLBackend::setFrontFaceCW(bool cw)      { glFrontFace(cw ? GL_CW : GL_CCW); }
 

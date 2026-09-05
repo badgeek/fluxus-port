@@ -49,6 +49,9 @@ class GLESBackend : public Fluxus::IRenderBackend {
   // the seam: as raw glDisable(GL_LIGHTING) it was a no-op here and HINT_UNLIT
   // silently did nothing.
   void setLighting(bool on) override { unlit = !on; }
+  // GLES has no glPolygonMode, so the mode is remembered and the topology is
+  // turned into line or point geometry at draw time instead.
+  void setFillMode(Fluxus::RFill mode) override { fill = mode; }
   void drawArrays(Fluxus::RPrim prim, const Fluxus::RVertexArrays& v, int count,
                   const unsigned int* index, int indexCount) override;
 
@@ -70,5 +73,6 @@ class GLESBackend : public Fluxus::IRenderBackend {
   float proj[16];
   float colour[4] = {1, 1, 1, 1};
   bool  unlit = false;
+  Fluxus::RFill fill = Fluxus::RFill::Fill;
   std::vector<unsigned int> scratch; // index expansion buffer
 };

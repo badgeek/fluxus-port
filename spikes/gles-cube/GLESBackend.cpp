@@ -184,7 +184,9 @@ void GLESBackend::applyUniforms() {
 
 void GLESBackend::drawArrays(RPrim prim, const RVertexArrays& v, int count,
                              const unsigned int* index, int indexCount) {
-  bool asLines = false;
+  // This is where GLES pays for having no glPolygonMode: a wireframe request
+  // becomes real edge geometry, built from the same topology.
+  const bool asLines = (fill == Fluxus::RFill::Line);
   unsigned legacy = fluxspike::kTriangles;
   switch (prim) {
     case RPrim::Triangles: legacy = fluxspike::kTriangles; break;
