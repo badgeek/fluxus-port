@@ -98,21 +98,29 @@ Java_cc_fluxus_spike_MainActivity_nativeDraw(JNIEnv*, jclass) {
   glClearColor(0.05f, 0.05f, 0.08f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-  const Fluxus::dVector camDir(0, 0, 1), camUp(0, 1, 0);
+  // The camera vectors have to be derived from the CURRENT view every frame,
+  // the way Renderer::PostRender does it (Renderer.cpp:380) — from the inverse
+  // modelview, not from a constant. Ribbons and particles build themselves to
+  // face the camera, so a stale direction makes them turn edge-on and then get
+  // backface-culled as the view orbits away from where it was fixed.
+  Fluxus::dMatrix mv;
+  std::memcpy(mv.arr(), view, 16 * sizeof(float));
+  Fluxus::dMatrix inv = mv.inverse();
+  // SetSceneInfo is static — once per frame is the whole scene.
+  Fluxus::Primitive::SetSceneInfo(inv.transform_no_trans(Fluxus::dVector(0, 0, 1)),
+                                  inv.transform_no_trans(Fluxus::dVector(0, 1, 0)));
 
   Fluxus::PolyPrimitive cube(Fluxus::PolyPrimitive::QUADS);
   Fluxus::MakeCube(&cube, 1.0f);
   cube.GetState()->Colour     = Fluxus::dColour(0.9f, 0.5f, 0.15f, 1.0f);
   cube.GetState()->WireColour = Fluxus::dColour(0.2f, 1.0f, 0.9f, 1.0f);
   cube.GetState()->Hints      = HINT_SOLID | HINT_WIRE;   // hidden-line
-  cube.SetSceneInfo(camDir, camUp);
   drawPrim(&cube, -1.6f, 0.0f, 0.0f, view);
 
   Fluxus::PolyPrimitive sphere(Fluxus::PolyPrimitive::TRISTRIP);
   Fluxus::MakeSphere(&sphere, 0.8f, 14, 14);
   sphere.GetState()->Colour = Fluxus::dColour(0.25f, 0.75f, 0.95f, 1.0f);
   sphere.GetState()->Hints  = HINT_SOLID;
-  sphere.SetSceneInfo(camDir, camUp);
   drawPrim(&sphere, 1.6f, 0.0f, 0.0f, view);
 
   // A see-through wireframe cube: the look the port had to earn, since GLES has
@@ -121,7 +129,6 @@ Java_cc_fluxus_spike_MainActivity_nativeDraw(JNIEnv*, jclass) {
   Fluxus::MakeCube(&wire, 1.4f);
   wire.GetState()->WireColour = Fluxus::dColour(0.4f, 1.0f, 0.5f, 1.0f);
   wire.GetState()->Hints      = HINT_WIRE | HINT_UNLIT;
-  wire.SetSceneInfo(camDir, camUp);
   drawPrim(&wire, 0.0f, 1.6f, 0.0f, view);
 
   Fluxus::RibbonPrimitive ribbon;
@@ -138,7 +145,6 @@ Java_cc_fluxus_spike_MainActivity_nativeDraw(JNIEnv*, jclass) {
   }
   ribbon.GetState()->Colour = Fluxus::dColour(1.0f, 0.55f, 0.15f, 1.0f);
   ribbon.GetState()->Hints  = HINT_SOLID | HINT_UNLIT;
-  ribbon.SetSceneInfo(camDir, camUp);
   drawPrim(&ribbon, 0.0f, -1.5f, 0.0f, view);
 
   Fluxus::ParticlePrimitive particles;
@@ -159,7 +165,6 @@ Java_cc_fluxus_spike_MainActivity_nativeDraw(JNIEnv*, jclass) {
     }
   }
   particles.GetState()->Hints = HINT_SOLID | HINT_UNLIT;
-  particles.SetSceneInfo(camDir, camUp);
   drawPrim(&particles, 0.0f, 0.0f, -1.0f, view);
 }
 
