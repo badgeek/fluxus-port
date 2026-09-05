@@ -405,6 +405,12 @@ Skip `scheme/class`-based files (frisbee/gui/drflux/itchy/joylisten/tricks).
   fine once the source decodes correctly (`_string` FFI marshals back to UTF-8).
 
 ## Conventions
+- **`fluxus_core`/`fluxus_render` static libs MUST stay `-force_load` (whole-archive).**
+  The Racket host resolves every `flux_*` command via `get-ffi-obj` (dlsym) at RUNTIME —
+  invisible to the linker, which would otherwise drop unreferenced archive members, and
+  every binding in a dropped TU silently falls back to its failure-thunk stub (commands
+  become no-ops, no error). Any future lib factoring of command TUs needs the same
+  whole-archive link. Canary check: `nm <app binary> | grep flux_vadd`.
 - **Racket runtime: dev builds point at the brew install; release builds bundle it.**
   Dev (default) bakes the absolute `RACKET_DIR` / `RACKET_LIB_DIR` into the binary —
   fast, but the `.app` only runs on this machine. Configure with
