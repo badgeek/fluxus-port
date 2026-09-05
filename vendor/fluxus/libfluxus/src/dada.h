@@ -1032,7 +1032,12 @@ class dBoundingBox
 {
 public:
 	dBoundingBox() : m_Empty(true) {}
-	dBoundingBox(const dVector &cmin, const dVector &cmax) : min(cmin), max(cmax) {}
+	// fluxus->JUCE port: this ctor left m_Empty UNINITIALISED, so the first
+	// expand() read an indeterminate bool — clang traps on it under the
+	// sanitiser, and when it read as true the constructed bounds were silently
+	// thrown away and replaced by the expanded point.
+	// LocatorPrimitive::GetBoundingBox uses this ctor.
+	dBoundingBox(const dVector &cmin, const dVector &cmax) : min(cmin), max(cmax), m_Empty(false) {}
 	virtual ~dBoundingBox() {}
 	
 	bool empty() { return m_Empty; }
