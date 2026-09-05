@@ -205,6 +205,11 @@ static s7_pointer f_model_set_anim_time(s7_scheme* sc, s7_pointer a){
                            (int) s7_number_to_real(sc, s7_cadr(a)),
                            s7_number_to_real(sc, s7_caddr(a)));
   return s7_nil(sc); }
+static s7_pointer f_model_skinning(s7_scheme* sc, s7_pointer a){
+  s7_pointer v = s7_car(a);
+  const char* m = s7_is_symbol(v) ? s7_symbol_name(v) : (s7_is_string(v) ? s7_string(v) : "");
+  flux_model_skinning((m && (m[0] == 'l' || m[0] == 'L')) ? 0 : 1);   // 'linear | 'dual
+  return s7_nil(sc); }
 static s7_pointer f_model_bone_count(s7_scheme* sc, s7_pointer a){ return s7_make_integer(sc, flux_model_bone_count((int) s7_number_to_real(sc, s7_car(a)))); }
 static s7_pointer f_model_bone(s7_scheme* sc, s7_pointer a){
   return s7_make_integer(sc, flux_model_bone((int) s7_number_to_real(sc, s7_car(a)),
@@ -886,6 +891,7 @@ void S7ScriptHost::init() {
   def("model-anim-count",       f_model_anim_count,       1, 0, false);
   def("model-anim-duration",    f_model_anim_duration,    2, 0, false);
   def("model-set-anim-time",    f_model_set_anim_time,    3, 0, false);
+  def("model-skinning",         f_model_skinning,         1, 0, false);
   def("model-bone-count",       f_model_bone_count,       1, 0, false);
   def("model-bone",             f_model_bone,             2, 0, false);
   def("model-bone-name",        f_model_bone_name,        2, 0, false);

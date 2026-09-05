@@ -72,6 +72,11 @@
 (define (model-animated? h)
   (and (model-ok? h) (> (model-anim-count h) 0) (> (model-bone-count h) 0)))
 
+;; Skinning is DUAL QUATERNION by default: linear blending averages matrices, so a
+;; joint folded by a large rotation loses volume (the "candy wrapper" — an elbow
+;; crossing the body collapses). `(model-skinning 'linear)` switches to the engine's
+;; pfunc, which is exactly what assimp/glTF define, if you want the reference result.
+;;
 ;; play clip `anim` at wall-clock time t, optionally rate-scaled. Call once per
 ;; frame — it poses the skeleton AND re-skins the meshes.
 ;;   (every-frame (model-play m 0 (time)))

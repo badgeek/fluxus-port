@@ -320,6 +320,54 @@ they stay harmless, and pinning is still good style when a prim's look must not
 depend on what ran before it. State set at TOP level (outside any `with-state`)
 still applies to everything after it, as it always did.
 
+**22. `(get-bb)` comes back EMPTY for a freshly built primitive.** The engine's
+bounding box is lazily computed, so an auto-fit that does
+`(/ target (extent-of (get-bb)))` on a just-built prim divides by its `max 0.001`
+guard and scales the model by ~2600 — it fills the screen with a dark slab and
+reads as "the loader is broken". Either `(recalc-bb)` first, or measure from pdata,
+which is exact and cheap enough at load time:
+
+```scheme
+(define (prim-bounds mn mx)                ; call inside (with-primitive p …)
+  (let ((n (pdata-size)))
+    (let loop ((i 0) (mn mn) (mx mx))
+      (if (>= i n) (list mn mx)
+          (let ((p (pdata-ref "p" i)))
+            (loop (+ i 1)
+                  (if mn (vector (min (vx mn) (vx p)) …) p)
+                  (if mx (vector (max (vx mx) (vx p)) …) p)))))))
+```
+
+**23. Fit an animated model AFTER posing it, never on the bind pose.** A rig's rest
+layout is not the size of anything the clip shows: the druid stands 3.11 tall with
+arms out and a staff held away from the body, and 1.70 once posed. Fit the bind pose
+and the animation plays at half the size you asked for. `(model-play h 0 0)` then
+fit.
+
+**24. Accumulating `(rotate …)` on a fitted transform spins the model about its FILE
+origin, not its centre.** Ops apply in REVERSE order to the geometry, so a per-frame
+`(rotate)` lands *before* the centring translate that the fit installed — the model
+orbits its own feet, drifts out of frame, and the symptom ("it grows / the camera is
+weird / it is only visible from the top") points at everything except the pivot.
+Recompose the whole transform each frame from the stored fit instead of accumulating:
+
+```scheme
+(with-primitive (model-root h)
+  (identity)
+  (rotate (vector 0 spin 0))     ; applied LAST to the geometry
+  (scale (vector s s s))
+  (translate (vmul mid -1)))     ; applied FIRST — centre, then scale, then spin
+```
+
+A corollary for inspection: keep the turntable OFF while judging a rig. With the
+model spinning you cannot tell a bad pose from a bad camera angle, and every
+question turns into "is that the animation or the spin?".
+
+**25. A key-driven sketch has to `(hide-editor)` itself.** The held-key poll only
+runs while the editor is hidden (the editor owns the keyboard otherwise), so
+`(key-down? …)` silently returns `#f` forever in a sketch that forgets it — the keys
+look dead, the sketch looks broken. Arrows arrive in slots 1..4 (left/right/up/down).
+
 ---
 
 ## 4. Verify visually, every step
@@ -330,3 +378,29 @@ edit → `cli/fluxus load <file>` (never `eval`, which replaces the whole buffer
 look at the live window (or `(screenshot)` + Read). When the user is watching, ask
 one concrete question per round ("top tick above the cube's top edge? by how
 much?") instead of Reading PNGs yourself.
+
+**Bring the window to the FRONT before judging motion.** macOS throttles an occluded
+window hard: `(time)` advances a fraction of real time, so two grabs 1.5 s apart come
+back nearly identical and an animating sketch reads as frozen. Nothing is wrong with
+the sketch.
+
+```sh
+osascript -e 'tell application "System Events" to set frontmost of (first process \
+  whose unix id is (do shell script "pgrep -n FluxusRacketApp") as integer) to true'
+```
+
+The cheap tell: keep a `(* k (sin (time)))` probe cube in the scene while debugging —
+if it barely moves between grabs, it is the throttle, not your code. (Synthetic key
+events via `osascript … key code` are also unreliable here: the held-key poll runs at
+30 Hz and a synthetic tap can fall between two polls. A human press is long enough.)
+
+**When the eye can't referee, write an INDEPENDENT reference and diff numbers.**
+Skinning, projection, matrix chains: a wrong result still looks smooth and plausible,
+and "it looks off" cannot tell you *which* stage. Recompute the same quantity a second
+way and print the worst delta (`spikes/model-load/main.cpp` does this per vertex).
+
+The trap: a reference derived from the same library shares its bugs. Both this port's
+sampler and its first checker defaulted a partially-animated channel to identity, so
+they agreed to 0.0000 while both were wrong — the error only surfaced when a model
+rendered 50x too big. A checker built from the SPEC (or from a different library) is
+worth ten built from the same call you are testing.

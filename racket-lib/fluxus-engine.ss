@@ -364,6 +364,12 @@
 (define (model-error) (_mdlerr))
 (define (model-free h) (_mdlfree h))
 
+;; (model-skinning 'dual) or 'linear — dual quaternion (default) keeps a folded
+;; joint's volume; linear is the engine's pfunc, i.e. exactly what assimp/glTF define.
+(define _mdlskin (cfun "flux_model_skinning" (_fun _int -> _void) (lambda (m) (void))))
+(define (model-skinning mode)
+  (_mdlskin (if (memq mode '(linear lbs 0)) 0 1)))
+
 ;; skeletal animation: (model-set-anim-time h anim seconds) poses the skeleton and
 ;; re-skins every skinned mesh — call it once per frame from the every-frame thunk.
 ;; (model-bone h i) is a grabbable locator, so a sketch can read or override a bone.

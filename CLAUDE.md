@@ -169,6 +169,25 @@ editor (JUCE TextEditor | fluxus GLEditor)
   the sketch), NOT the capture. Correct loop: put `(screenshot "/tmp/x.png")`
   inside the every-frame thunk of the sketch FILE, `cli/fluxus load <file>`, wait
   a beat, `Read /tmp/x.png`, adjust the file, reload. Do NOT `eval` the screenshot.
+- **macOS THROTTLES an occluded window — `(time)` nearly freezes, so a screenshot
+  A/B of motion looks broken when it isn't.** Two grabs 1.5 s apart come back
+  near-identical and an animated sketch reads as frozen. Bring the window forward
+  first: `osascript -e 'tell application "System Events" to set frontmost of (first
+  process whose unix id is (do shell script "pgrep -n FluxusRacketApp") as integer)
+  to true'`. Cheap tell while debugging: keep a `(* k (sin (time)))` probe cube in
+  the scene — if it barely moves between grabs it's the throttle, not the sketch.
+  (Synthetic `osascript … key code` presses are unreliable too: the held-key poll
+  is 30 Hz and a synthetic tap can fall between polls. Human presses are fine.)
+- **When the eye can't referee — skinning, matrix chains, projection — write an
+  INDEPENDENT reference and diff numbers, and make sure it's independent.** A wrong
+  result still looks smooth and plausible, and "it looks off" never says which
+  stage. But a checker derived from the same library shares its bugs: this port's
+  animation sampler and its first checker both defaulted a partially-animated
+  channel to identity, agreed to 0.0000, and were both wrong — the error only
+  surfaced when a model rendered 50x too big. A reference written from the SPEC (or
+  another library) is worth ten written from the call under test.
+  `spikes/model-load/main.cpp` is the pattern: recompute per vertex, assert the
+  worst delta.
 - `(key-poll)` returns the last-pressed char code (0 if none), consumed once —
   poll it in the thunk for hotkeys. Keys reach scripts even with `(hide-editor)`
   (the component grabs focus). **For hold-to-move (WASD flight etc) use
@@ -377,12 +396,25 @@ regression guard: `./build/model_test [model…]` (also self-contained with no a
   `bindLocals()` derives each bind global as `meshWorld * offset^-1` and converts to
   locals. `model_test` compares against that reference formula on every skinned
   vertex — currently 0.0000 on fox/astroBoy/druid. Keep that check.
-- Skinning itself is the ENGINE's (`SkinningPrimFunc`): two locator trees (live +
-  bindpose) + one `w<n>` float channel per skeleton NODE in `SceneGraph::GetNodes`
-  order (**pre-order DFS**, zero-filled for nodes that deform nothing) + `pref`/`nref`.
+- **Two skinning paths, selected by `(model-skinning 'dual|'linear)`.**
+  `'linear` is the ENGINE's `SkinningPrimFunc`: two locator trees (live + bindpose)
+  + one `w<n>` float channel per skeleton NODE in `SceneGraph::GetNodes` order
+  (**pre-order DFS**, zero-filled for nodes that deform nothing) + `pref`/`nref`.
   Both trees hang off the model root so a transform on the root cancels out of
-  `skeleton*bindpose^-1`. `(make-pfunc 'genskinweights)` is unrelated and looks
-  broken — never needed here, the file supplies real weights.
+  `skeleton*bindpose^-1` (verified: same pose with and without a scaled root).
+  `(make-pfunc 'genskinweights)` is unrelated and looks broken — never needed here,
+  the file supplies real weights.
+  `'dual` (the DEFAULT) is a C-side dual-quaternion skinner in the same TU. Linear
+  blending averages MATRICES, so a joint folded by a large rotation loses volume —
+  the "candy wrapper" that makes an arm crossing the body look tangled. Blending
+  unit dual quaternions interpolates the rigid motion instead. It reads the pose
+  back out of the LIVE locators, so script bone overrides still drive it, and it is
+  sparse (≤4 influences/vertex instead of every node). Measured against linear:
+  0.9–2.4% of model size — a local joint correction, same overall pose. Bones with
+  non-uniform scale/shear fall back to matrix blending per vertex.
+  `model_test` checks `'linear` against assimp's reference formula (must stay
+  0.0000) and separately checks `'dual` stays finite and near it — don't "fix" a
+  dual-vs-linear difference, that difference IS the feature.
 - **A pfunc writes pdata behind the pdata layer's back, so the VBO cache goes
   stale**: `flux_model_set_anim_time` calls `BumpPDataVersion()` after each
   `pfunc-run` or `PolyPrimitive::UpdateVBO` keeps drawing the bind pose in retained

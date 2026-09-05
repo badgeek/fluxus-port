@@ -60,9 +60,27 @@ std::string g_lastError;
 // global(skeleton) * global(bindpose)^-1). Both trees hang off the model root, so
 // whatever transform a sketch puts on the root cancels out of that product and the
 // skinning stays in model space.
+// Per skinned mesh we keep BOTH skinning paths:
+//
+//  * the engine's SkinningPrimFunc ('linear): dense, one w<n> channel per skeleton
+//    node, matrices read out of the scene graph. Faithful to assimp/glTF.
+//  * a C-side DUAL-QUATERNION skinner ('dual, the default): compact per-vertex
+//    influence lists, matrices composed here. Linear blending averages MATRICES,
+//    which collapses a joint when two bones disagree by a large rotation — the
+//    "candy wrapper" you see when a clip folds an arm across the body. Blending
+//    unit dual quaternions instead interpolates the RIGID motion, so the joint
+//    keeps its volume. It is also sparse: 4 influences per vertex rather than
+//    every skeleton node (measured 9x cheaper on a 65-node rig).
+static const int kMaxInfluences = 4;      // what aiProcess_LimitBoneWeights leaves
+
 struct SkinnedMesh {
   int primId = -1;
-  int pfunc  = -1;      // 'skinning' pfunc, args already set
+  int pfunc  = -1;                        // 'skinning' pfunc, args already set
+  const aiMesh* mesh = nullptr;
+  std::vector<int>   boneNode;            // bone index -> index into Model::nodes
+  std::vector<int>   infBone;             // kMaxInfluences per vertex, -1 = unused
+  std::vector<float> infWeight;
+  aiMatrix4x4 meshWorldInv;               // undo the transform baked into the verts
 };
 
 struct Model {
@@ -82,7 +100,7 @@ struct Model {
   // meshes that carry bones, noted during the walk (with the world transform baked
   // into their vertices) and wired up once the skeleton exists; plus the
   // per-animation channel lookup, filled lazily (one entry per node)
-  struct PendingSkin { const aiMesh* mesh; int primId; aiMatrix4x4 meshWorld; };
+  struct PendingSkin { const aiMesh* mesh; int primId; aiMatrix4x4 meshWorld; aiMatrix4x4 meshWorldInv; };
   std::vector<PendingSkin> pendingSkin;
   std::map<int, std::vector<const aiNodeAnim*>> animChannels;
 };
@@ -316,7 +334,7 @@ std::vector<aiMatrix4x4> bindLocals(const std::vector<const aiNode*>& nodes,
 
 // pdata the engine's skinning needs: w<i> per skeleton node, plus pref/nref (the
 // bind-pose copies it interpolates from).
-void setupSkin(Model& mo, const aiMesh* m, int primId) {
+void setupSkin(Model& mo, const aiMesh* m, int primId, const aiMatrix4x4& meshWorldInv) {
   Primitive* p = g_ctx.r->GetPrimitive(primId);
   if (!p) return;
   const size_t nodes = mo.nodes.size();
@@ -346,6 +364,41 @@ void setupSkin(Model& mo, const aiMesh* m, int primId) {
 
   SkinnedMesh sm;
   sm.primId = primId;
+  sm.mesh   = m;
+  sm.meshWorldInv = meshWorldInv;
+
+  // compact influence lists for the dual-quaternion path: at most
+  // kMaxInfluences (bone, weight) pairs per vertex, keeping the largest weights
+  // if a file somehow carries more.
+  sm.boneNode.assign(m->mNumBones, -1);
+  for (unsigned b = 0; b < m->mNumBones; ++b) {
+    auto it = slot.find(m->mBones[b]->mName.C_Str());
+    sm.boneNode[b] = (it == slot.end()) ? -1 : (int) it->second;
+  }
+  sm.infBone.assign((size_t) nverts * kMaxInfluences, -1);
+  sm.infWeight.assign((size_t) nverts * kMaxInfluences, 0.0f);
+  for (unsigned b = 0; b < m->mNumBones; ++b) {
+    if (sm.boneNode[b] < 0) continue;
+    const aiBone* bone = m->mBones[b];
+    for (unsigned k = 0; k < bone->mNumWeights; ++k) {
+      const aiVertexWeight& vw = bone->mWeights[k];
+      if (vw.mVertexId >= nverts || vw.mWeight <= 0.0f) continue;
+      const size_t base = (size_t) vw.mVertexId * kMaxInfluences;
+      int slotIdx = -1;
+      for (int s = 0; s < kMaxInfluences; ++s)
+        if (sm.infBone[base + s] < 0) { slotIdx = s; break; }
+      if (slotIdx < 0) {                    // full: evict the smallest weight
+        int worst = 0;
+        for (int s = 1; s < kMaxInfluences; ++s)
+          if (sm.infWeight[base + s] < sm.infWeight[base + worst]) worst = s;
+        if (sm.infWeight[base + worst] >= vw.mWeight) continue;
+        slotIdx = worst;
+      }
+      sm.infBone[base + slotIdx]   = (int) b;
+      sm.infWeight[base + slotIdx] = vw.mWeight;
+    }
+  }
+
   sm.pfunc  = flux_pfunc_make("skinning");
   if (sm.pfunc >= 0) {
     flux_pfunc_set_int(sm.pfunc, "skeleton-root", mo.skelRoot);
@@ -353,6 +406,199 @@ void setupSkin(Model& mo, const aiMesh* m, int primId) {
     flux_pfunc_set_int(sm.pfunc, "skin-normals", p->GetDataVec<dVector>("n") ? 1 : 0);
   }
   mo.skinned.push_back(sm);
+}
+
+// ---- dual-quaternion skinning ----------------------------------------------
+// A rigid bone matrix is (rotation q, translation t); its dual quaternion is
+// (q, 0.5*t*q). Blending those with the vertex weights and renormalising gives a
+// screw motion between the bones instead of an averaged matrix, so a bent joint
+// keeps its volume. Scale cannot ride in a dual quaternion, so it is blended
+// separately and applied before the rigid part — that covers the uniform-scale
+// rigs in practice; a bone with real shear falls back to matrix blending.
+struct DualQuat {
+  float r[4] = {0, 0, 0, 1};   // real part (x,y,z,w) — the rotation
+  float d[4] = {0, 0, 0, 0};   // dual part — encodes the translation
+};
+
+// uniform scale factor of a bone matrix, and whether it is close enough to
+// uniform for the rigid decomposition to be meaningful
+float matrixScale(const aiMatrix4x4& m, bool* uniform) {
+  const float lx = std::sqrt(m.a1 * m.a1 + m.b1 * m.b1 + m.c1 * m.c1);
+  const float ly = std::sqrt(m.a2 * m.a2 + m.b2 * m.b2 + m.c2 * m.c2);
+  const float lz = std::sqrt(m.a3 * m.a3 + m.b3 * m.b3 + m.c3 * m.c3);
+  const float mx = std::max(lx, std::max(ly, lz));
+  const float mn = std::min(lx, std::min(ly, lz));
+  if (uniform) *uniform = (mx > 1e-6f) && ((mx - mn) / mx < 1e-3f);
+  return (lx + ly + lz) / 3.0f;
+}
+
+DualQuat toDualQuat(const aiMatrix4x4& m, float scale) {
+  aiMatrix3x3 rot(m.a1, m.a2, m.a3,
+                  m.b1, m.b2, m.b3,
+                  m.c1, m.c2, m.c3);
+  if (scale > 1e-8f) {                       // strip the scale before reading the rotation
+    const float inv = 1.0f / scale;
+    rot.a1 *= inv; rot.a2 *= inv; rot.a3 *= inv;
+    rot.b1 *= inv; rot.b2 *= inv; rot.b3 *= inv;
+    rot.c1 *= inv; rot.c2 *= inv; rot.c3 *= inv;
+  }
+  const aiQuaternion q(rot);                 // assimp's own from-matrix (the engine's dQuat is broken)
+  DualQuat dq;
+  dq.r[0] = q.x; dq.r[1] = q.y; dq.r[2] = q.z; dq.r[3] = q.w;
+  const float tx = m.a4, ty = m.b4, tz = m.c4;
+  // dual = 0.5 * (0,t) * r
+  dq.d[0] =  0.5f * ( tx * q.w + ty * q.z - tz * q.y);
+  dq.d[1] =  0.5f * (-tx * q.z + ty * q.w + tz * q.x);
+  dq.d[2] =  0.5f * ( tx * q.y - ty * q.x + tz * q.w);
+  dq.d[3] = -0.5f * ( tx * q.x + ty * q.y + tz * q.z);
+  return dq;
+}
+
+// v' = rigid motion of the blended (already normalised) dual quaternion
+void dqTransform(const DualQuat& dq, const dVector& in, dVector& outPos, bool rotateOnly) {
+  const float x = dq.r[0], y = dq.r[1], z = dq.r[2], w = dq.r[3];
+  // rotate: v + 2w(qxv) + 2 qx(qxv)
+  const float cx = y * in.z - z * in.y;
+  const float cy = z * in.x - x * in.z;
+  const float cz = x * in.y - y * in.x;
+  const float c2x = y * cz - z * cy;
+  const float c2y = z * cx - x * cz;
+  const float c2z = x * cy - y * cx;
+  float px = in.x + 2.0f * (w * cx + c2x);
+  float py = in.y + 2.0f * (w * cy + c2y);
+  float pz = in.z + 2.0f * (w * cz + c2z);
+  if (!rotateOnly) {
+    // translation = 2 * (w*d.xyz - d.w*q.xyz + q.xyz X d.xyz)
+    const float dx = dq.d[0], dy = dq.d[1], dz = dq.d[2], dw = dq.d[3];
+    px += 2.0f * (w * dx - dw * x + (y * dz - z * dy));
+    py += 2.0f * (w * dy - dw * y + (z * dx - x * dz));
+    pz += 2.0f * (w * dz - dw * z + (x * dy - y * dx));
+  }
+  outPos = dVector(px, py, pz);
+}
+
+// 0 = the engine's SkinningPrimFunc (linear blend), 1 = dual quaternion (default)
+int g_skinMode = 1;
+
+// Skin every mesh of `mo` with dual quaternions, reading the pose out of the LIVE
+// skeleton locators — so a script that grabs a bone and overrides its transform
+// still drives the mesh, exactly as it does on the pfunc path.
+//
+// Everything is composed here in assimp's column-vector space and applied to the
+// bind-pose copies (pref/nref). The model root's transform never enters, so a
+// (scale …) on the model cannot distort the pose.
+void skinDual(Model& mo, const std::vector<const aiNodeAnim*>&, double) {
+  const size_t n = mo.nodes.size();
+  if (mo.skelIds.size() != n) return;
+
+  // node locals from the locators (a bone override lands here), then globals
+  std::vector<aiMatrix4x4> global(n);
+  for (size_t i = 0; i < n; ++i) {
+    aiMatrix4x4 local;
+    if (Primitive* p = g_ctx.r->GetPrimitive(mo.skelIds[i])) {
+      const dMatrix& d = p->GetState()->Transform;          // row-vector: transpose back
+      local = aiMatrix4x4(d.m[0][0], d.m[1][0], d.m[2][0], d.m[3][0],
+                          d.m[0][1], d.m[1][1], d.m[2][1], d.m[3][1],
+                          d.m[0][2], d.m[1][2], d.m[2][2], d.m[3][2],
+                          d.m[0][3], d.m[1][3], d.m[2][3], d.m[3][3]);
+    } else {
+      local = mo.nodes[i]->mTransformation;
+    }
+    global[i] = mo.parentIdx[i] < 0 ? local : global[(size_t) mo.parentIdx[i]] * local;
+  }
+
+  std::vector<DualQuat> dq;
+  std::vector<float>    scale;
+  std::vector<aiMatrix4x4> mat;
+  std::vector<char>     rigid;
+
+  for (const SkinnedMesh& sm : mo.skinned) {
+    Primitive* prim = g_ctx.r->GetPrimitive(sm.primId);
+    if (!prim || !sm.mesh) continue;
+    auto* pos  = prim->GetDataVec<dVector>("p");
+    auto* pref = prim->GetDataVec<dVector>("pref");
+    if (!pos || !pref) continue;
+    auto* nrm  = prim->GetDataVec<dVector>("n");
+    auto* nref = prim->GetDataVec<dVector>("nref");
+    const bool doNormals = nrm && nref && nrm->size() == nref->size();
+
+    // one rigid motion per bone: animated global * offset, with the bake undone
+    const unsigned nb = sm.mesh->mNumBones;
+    dq.assign(nb, DualQuat());
+    scale.assign(nb, 1.0f);
+    mat.assign(nb, aiMatrix4x4());
+    rigid.assign(nb, 1);
+    for (unsigned b = 0; b < nb; ++b) {
+      const int node = sm.boneNode[b];
+      if (node < 0) continue;
+      mat[b] = global[(size_t) node] * sm.mesh->mBones[b]->mOffsetMatrix * sm.meshWorldInv;
+      bool uniform = true;
+      scale[b] = matrixScale(mat[b], &uniform);
+      rigid[b] = uniform ? 1 : 0;                 // sheared/non-uniform: blend matrices instead
+      if (uniform) dq[b] = toDualQuat(mat[b], scale[b]);
+    }
+
+    const size_t nv = std::min(pos->size(), pref->size());
+    for (size_t v = 0; v < nv; ++v) {
+      const size_t base = v * kMaxInfluences;
+      // pick a reference quaternion and flip antipodal ones into its hemisphere,
+      // or the blend takes the long way round and the vertex flies off
+      int first = -1;
+      bool allRigid = true;
+      for (int k = 0; k < kMaxInfluences; ++k) {
+        const int b = sm.infBone[base + k];
+        if (b < 0) continue;
+        if (first < 0) first = b;
+        if (!rigid[(size_t) b]) allRigid = false;
+      }
+      if (first < 0) continue;                    // unweighted vertex: leave it in bind pose
+
+      if (allRigid) {
+        DualQuat acc;
+        acc.r[3] = 0.0f;                          // start from zero, not identity
+        float s = 0.0f, wsum = 0.0f;
+        const float* ref = dq[(size_t) first].r;
+        for (int k = 0; k < kMaxInfluences; ++k) {
+          const int b = sm.infBone[base + k];
+          if (b < 0) continue;
+          float w = sm.infWeight[base + k];
+          const DualQuat& q = dq[(size_t) b];
+          const float dot = q.r[0]*ref[0] + q.r[1]*ref[1] + q.r[2]*ref[2] + q.r[3]*ref[3];
+          if (dot < 0) w = -w;                    // antipodal: negate the whole dual quat
+          for (int c = 0; c < 4; ++c) { acc.r[c] += w * q.r[c]; acc.d[c] += w * q.d[c]; }
+          s += std::fabs(w) * scale[(size_t) b];
+          wsum += std::fabs(w);
+        }
+        const float len = std::sqrt(acc.r[0]*acc.r[0] + acc.r[1]*acc.r[1] +
+                                    acc.r[2]*acc.r[2] + acc.r[3]*acc.r[3]);
+        if (len < 1e-8f) continue;
+        const float inv = 1.0f / len;
+        for (int c = 0; c < 4; ++c) { acc.r[c] *= inv; acc.d[c] *= inv; }
+        if (wsum > 1e-8f) s /= wsum; else s = 1.0f;
+
+        const dVector& src = (*pref)[v];
+        dVector out;
+        dqTransform(acc, dVector(src.x * s, src.y * s, src.z * s), out, false);
+        (*pos)[v] = out;
+        if (doNormals) { dVector nout; dqTransform(acc, (*nref)[v], nout, true); (*nrm)[v] = nout; }
+      } else {
+        // fallback: plain matrix blend for this vertex (non-uniform/sheared bone)
+        const dVector& src = (*pref)[v];
+        float px = 0, py = 0, pz = 0;
+        for (int k = 0; k < kMaxInfluences; ++k) {
+          const int b = sm.infBone[base + k];
+          if (b < 0) continue;
+          const float w = sm.infWeight[base + k];
+          const aiMatrix4x4& mm = mat[(size_t) b];
+          px += w * (mm.a1 * src.x + mm.a2 * src.y + mm.a3 * src.z + mm.a4);
+          py += w * (mm.b1 * src.x + mm.b2 * src.y + mm.b3 * src.z + mm.b4);
+          pz += w * (mm.c1 * src.x + mm.c2 * src.y + mm.c3 * src.z + mm.c4);
+        }
+        (*pos)[v] = dVector(px, py, pz);
+      }
+    }
+    prim->BumpPDataVersion();       // else the VBO cache keeps drawing the bind pose
+  }
 }
 
 // ---- animation --------------------------------------------------------------
@@ -427,7 +673,7 @@ void walk(Model& mo, const aiNode* node, const dMatrix& parentXf, const aiMatrix
     applyMaterial(*mo.src, m, g_ctx.r->GetPrimitive(id));
     mo.prims.push_back(id);
     mo.names.push_back(m->mName.length ? m->mName.C_Str() : node->mName.C_Str());
-    if (m->mNumBones > 0) mo.pendingSkin.push_back({m, id, worldAi});
+    if (m->mNumBones > 0) mo.pendingSkin.push_back({m, id, worldAi, aiMatrix4x4()});
   }
   for (unsigned i = 0; i < node->mNumChildren; ++i) walk(mo, node->mChildren[i], world, worldAi);
 }
@@ -484,12 +730,17 @@ int flux_load_model(const char* path, int flags) {
     std::vector<std::pair<const aiMesh*, aiMatrix4x4>> skinMeshes;
     for (const auto& ps : mo->pendingSkin) skinMeshes.emplace_back(ps.mesh, ps.meshWorld);
     mo->bindLocal = bindLocals(mo->nodes, mo->parentIdx, skinMeshes);
+    for (auto& ps : mo->pendingSkin) {       // undo the bake for the dual-quat path
+      aiMatrix4x4 inv = ps.meshWorld;
+      inv.Inverse();
+      ps.meshWorldInv = inv;
+    }
     buildLocators(mo->nodes, mo->parentIdx, mo->bindLocal, mo->rootId, mo->skelIds);
     buildLocators(mo->nodes, mo->parentIdx, mo->bindLocal, mo->rootId, mo->bindIds);
     mo->skelRoot = mo->skelIds.empty() ? -1 : mo->skelIds[0];
     mo->bindRoot = mo->bindIds.empty() ? -1 : mo->bindIds[0];
     if (mo->skelRoot >= 0 && mo->bindRoot >= 0)
-      for (const auto& ps : mo->pendingSkin) setupSkin(*mo, ps.mesh, ps.primId);
+      for (const auto& ps : mo->pendingSkin) setupSkin(*mo, ps.mesh, ps.primId, ps.meshWorldInv);
   }
   static_cast<BuildState&>(g_ctx) = saved;
 
@@ -565,7 +816,9 @@ void flux_model_set_anim_time(int h, int a, double t) {
         aiToD(na ? sampleChannel(na, ticks, m->nodes[i]) : m->nodes[i]->mTransformation);
   }
 
-  // then run the engine's skinning pfunc over each skinned mesh
+  if (g_skinMode == 1) { skinDual(*m, ch->second, ticks); return; }
+
+  // 'linear: run the engine's skinning pfunc over each skinned mesh
   const int prevGrab = g_ctx.grabbedId;
   for (const SkinnedMesh& sm : m->skinned) {
     if (sm.pfunc < 0) continue;
@@ -584,6 +837,13 @@ int flux_model_bone(int h, int i) {
   Model* m = model(h);
   return (m && i >= 0 && i < (int) m->skelIds.size()) ? m->skelIds[(size_t) i] : -1;
 }
+
+// 0 = 'linear (the engine's SkinningPrimFunc), 1 = 'dual (dual quaternion).
+// Dual is the default: linear blending averages matrices, so a joint folded by a
+// large rotation loses volume ("candy wrapper"). Switch to linear when you want
+// the exact assimp/glTF-defined result — that is what model_test checks against.
+void flux_model_skinning(int mode) { g_skinMode = (mode == 0) ? 0 : 1; }
+int  flux_model_skinning_mode(void) { return g_skinMode; }
 
 const char* flux_model_bone_name(int h, int i) {
   Model* m = model(h);

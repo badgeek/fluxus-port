@@ -248,6 +248,11 @@ int main(int argc, char** argv) {
         }
       }
       flux_grab(-1);
+      // The reference formula IS linear blend, so check against it in 'linear
+      // mode; the dual-quaternion path is checked separately below (it differs
+      // from LBS by design — that is the whole point of it).
+      flux_model_skinning(0);
+
       // sweep the clip (and every clip): a single sample time hides trouble at the
       // ends, where key lookup clamps and clips whose first key is not at t=0 used
       // to EXTRAPOLATE backwards
@@ -266,6 +271,55 @@ int main(int argc, char** argv) {
       CHECK(moved > total / 10, "posing the skeleton did not deform the mesh");
       CHECK(maxd < 1e6, "skinned vertices flew off to infinity");
       CHECK(err < 1e-3, "skinned pose disagrees with assimp's own globalAnim*offset*v");
+
+      // --- dual quaternion vs linear blend ---------------------------------
+      // DQS is meant to DIFFER from LBS (that is how it saves a folded joint),
+      // but only locally: same pose, no vertex thrown across the model. Check it
+      // stays within a fraction of the model's own size, and that the model does
+      // not change scale — a botched dual-quat normalisation shows up as both.
+      const double tp = dur * 0.37;
+      flux_model_skinning(0);
+      flux_model_set_anim_time(h, 0, tp);
+      std::vector<double> lbs;
+      double lo[3] = {1e30, 1e30, 1e30}, hi[3] = {-1e30, -1e30, -1e30};
+      for (int i = 0; i < flux_model_mesh_count(h); ++i) {
+        flux_grab(flux_model_prim(h, i));
+        const int n = flux_pdata_size();
+        for (int v = 0; v < n; ++v)
+          for (int c = 0; c < 3; ++c) {
+            const double x = flux_pdata_get("p", v, c);
+            lbs.push_back(x);
+            if (x < lo[c]) lo[c] = x;
+            if (x > hi[c]) hi[c] = x;
+          }
+      }
+      const double extent = std::max(hi[0] - lo[0], std::max(hi[1] - lo[1], hi[2] - lo[2]));
+
+      flux_model_skinning(1);
+      flux_model_set_anim_time(h, 0, tp);
+      double worst = 0;
+      bool finite = true;
+      size_t q = 0;
+      for (int i = 0; i < flux_model_mesh_count(h); ++i) {
+        flux_grab(flux_model_prim(h, i));
+        const int n = flux_pdata_size();
+        for (int v = 0; v < n; ++v) {
+          double d = 0;
+          for (int c = 0; c < 3; ++c) {
+            const double x = flux_pdata_get("p", v, c);
+            if (!std::isfinite(x)) finite = false;
+            const double e = x - lbs[q++];
+            d += e * e;
+          }
+          d = std::sqrt(d);
+          if (d > worst) worst = d;
+        }
+      }
+      flux_grab(-1);
+      std::printf("    dual-quat vs linear: worst %.4f over a model %.2f across (%.1f%%)\n",
+                  worst, extent, extent > 0 ? 100.0 * worst / extent : 0.0);
+      CHECK(finite, "dual-quat skinning produced non-finite vertices");
+      CHECK(worst < 0.5 * extent, "dual-quat pose is nowhere near the linear one");
     } else if (anims > 0 || bones > 0) {
       std::printf("    anims=%d bones=%d (no skinning to check)\n", anims, bones);
     }

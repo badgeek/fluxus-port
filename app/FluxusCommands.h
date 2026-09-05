@@ -430,6 +430,11 @@ extern "C" {
   int    flux_model_anim_count(int h);
   double flux_model_anim_duration(int h, int anim);        // seconds
   void   flux_model_set_anim_time(int h, int anim, double t);
+  // skinning algorithm: 0 = linear blend (the engine's 'skinning pfunc, exactly
+  // what assimp/glTF define), 1 = dual quaternion (default — keeps a folded
+  // joint's volume, and is sparse so it costs ~9x less on a big rig).
+  void   flux_model_skinning(int mode);
+  int    flux_model_skinning_mode(void);
   int    flux_model_bone_count(int h);
   int    flux_model_bone(int h, int i);     // the live skeleton locator (grabbable)
   const char* flux_model_bone_name(int h, int i);
