@@ -51,8 +51,16 @@ bool dirExists(const std::string& p) {
 // absolute RACKET_DIR / RACKET_LIB_DIR baked in at configure time.
 //
 // Returns "" when there is no bundled runtime.
+// fluxus->JUCE port: on Android the host app knows its own files directory and
+// tells us; nothing about the path is derivable from the executable, and baking
+// it at compile time (as the first spike did) breaks the moment the package name
+// or the user profile changes. Set BEFORE init().
+std::string g_runtimeRoot;
+
 const std::string& bundleRoot() {
   static std::string root = [] () -> std::string {
+    // An explicit root always wins: it is the only thing the caller can know.
+    if (!g_runtimeRoot.empty() && dirExists(g_runtimeRoot)) return g_runtimeRoot;
 #ifdef __APPLE__
     char buf[4096];
     uint32_t sz = sizeof(buf);
@@ -208,6 +216,8 @@ struct BootTimer {
 
 RacketScriptHost::RacketScriptHost()  = default;
 RacketScriptHost::~RacketScriptHost() = default;
+
+void RacketScriptHost::setRuntimeRoot(const std::string& path) { g_runtimeRoot = path; }
 
 void RacketScriptHost::init() {
   BootTimer timer;

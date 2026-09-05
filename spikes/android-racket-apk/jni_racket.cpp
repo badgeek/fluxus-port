@@ -104,11 +104,12 @@ Java_cc_fluxus_racket_MainActivity_nativeInit(JNIEnv* env, jclass, jstring root)
   if (g_ready) return;
 
   const char* r = env->GetStringUTFChars(root, nullptr);
-  // RacketScriptHost bakes its prefix at compile time (RACKET_DIR), and its
-  // bundle lookup is macOS-only, so the build script bakes the app's files
-  // directory instead. That path is deterministic from the package name — but a
-  // real port should teach bundleRoot() about Android rather than rely on it.
-  LOG("files dir: %s (compiled-in RACKET_DIR must match)", r);
+  // The runtime lives in the app's files directory — a path only the Java side
+  // knows, and nothing about it is derivable from the executable the way a .app
+  // bundle is. Telling the host beats baking it in: a compile-time path breaks
+  // the moment the package name or the user profile changes.
+  RacketScriptHost::setRuntimeRoot(std::string(r));
+  LOG("runtime root: %s", r);
   env->ReleaseStringUTFChars(root, r);
 
   if (!g_backend.init()) { LOG("backend init FAILED"); return; }
@@ -133,12 +134,7 @@ Java_cc_fluxus_racket_MainActivity_nativeResize(JNIEnv*, jclass, jint w, jint h)
   // Renderer sets the viewport from its OWN resolution in PreRender, so telling
   // it the size is what actually matters — a bare glViewport here is overridden.
   g_renderer.SetResolution(g_w, g_h);
-  // ...and the camera's frustum has to match, or everything comes out squashed.
-  // Camera::DoProjection runs inside PreRender and OVERWRITES whatever
-  // projection the harness set on the backend, so setting it there is pointless
-  // — the aspect correction belongs to the engine's own camera. The default
-  // frustum is square; widen it by the screen aspect.
-  glViewport(0, 0, g_w, g_h);
+  glViewport(0, 0, g_w, g_h);   // the aspect correction lives in nativeDraw
 }
 
 JNIEXPORT void JNICALL

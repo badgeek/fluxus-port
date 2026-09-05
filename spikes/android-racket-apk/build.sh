@@ -32,8 +32,6 @@ GLUE="$ROOT/spikes/racket-gles"
 RACKET=${RACKET_ANDROID:-/tmp/racket-android/install-android}
 OUT=${OUT:-/tmp/fluxus-racket-apk}
 PKG=cc.fluxus.racket
-# getFilesDir() for this package. Deterministic, which is why it can be baked in.
-FILES=/data/user/0/$PKG/files
 
 [ -f "$RACKET/lib/libracketcs.a" ] || {
   echo "no $RACKET/lib/libracketcs.a — see spikes/racket-android/README.md"; exit 1; }
@@ -42,8 +40,11 @@ rm -rf "$OUT"; mkdir -p "$OUT/obj/engine" "$OUT/obj/vterm" "$OUT/obj/app" \
                         "$OUT/lib/arm64-v8a" "$OUT/classes" "$OUT/dex"
 
 INC="-I$SRC -I$ROOT/app -I$CUBE -I$ROOT/vendor/libvterm/include -I$RACKET/include/racket"
-DEFS="-DGLSL -DFLUXUS_MINIMAL_NO_PNG -DFLUXUS_MAJOR_VERSION=0 -DFLUXUS_MINOR_VERSION=18 \
-      -DRACKET_DIR=\"$FILES/racket\" -DRACKET_LIB_DIR=\"$FILES/fluxus-lib\""
+# No RACKET_DIR baked in: the app calls RacketScriptHost::setRuntimeRoot with
+# its files directory at startup. The runtime is laid out under it exactly like
+# a macOS .app bundle — lib/racket, share/racket, etc/racket, fluxus-lib — so
+# the same bundleRoot() lookup serves both platforms.
+DEFS="-DGLSL -DFLUXUS_MINIMAL_NO_PNG -DFLUXUS_MAJOR_VERSION=0 -DFLUXUS_MINOR_VERSION=18"
 COMMON="-O2 -std=c++17 -w -fPIC $INC $DEFS"
 
 OBJS=""
@@ -112,19 +113,36 @@ if [ "$1" != "nopush" ]; then
   # private directory directly; run-as then copies it in as the app's uid.
   # gracket and the starter are skipped — 53 MB of executables nothing here uses.
   STAGE=/data/local/tmp/racketstage
-  adb shell rm -rf $STAGE && adb shell mkdir -p $STAGE/racket/lib/racket $STAGE/racket/share $STAGE/racket/etc $STAGE/fluxus-lib
+  adb shell rm -rf $STAGE && adb shell mkdir -p $STAGE/lib/racket $STAGE/share $STAGE/etc $STAGE/fluxus-lib
   for f in "$RACKET"/lib/racket/*.boot "$RACKET"/lib/racket/system.rktd; do
-    [ -f "$f" ] && adb push "$f" $STAGE/racket/lib/racket/ > /dev/null
+    [ -f "$f" ] && adb push "$f" $STAGE/lib/racket/ > /dev/null
   done
-  adb push "$RACKET/lib/racket/compiled" $STAGE/racket/lib/racket/ > /dev/null
-  adb push "$RACKET/share/racket"        $STAGE/racket/share/     > /dev/null
-  [ -d "$RACKET/etc/racket" ] && adb push "$RACKET/etc/racket" $STAGE/racket/etc/ > /dev/null
+  # Merge the out-of-tree compiled mirror INTO the collects tree before pushing.
+  # The install keeps its .zo under lib/racket/compiled/<ABSOLUTE PATH OF THE
+  # INSTALL>/share/racket/collects/..., which is keyed to where it was BUILT and
+  # does not survive being moved to a device. Pushing it as-is left the app
+  # verifying collects from source on every launch — 22 s in the compile pass,
+  # against 0.7 s once merged. cmake/bundle_racket.cmake:75 does exactly this for
+  # the macOS .app bundle; same problem, same fix.
+  MERGED=/tmp/fluxus-android-collects
+  rm -rf $MERGED && mkdir -p $MERGED
+  cp -R "$RACKET/share/racket/collects" $MERGED/
+  MIRROR=$(find "$RACKET/lib/racket/compiled" -type d -path "*/share/racket/collects" | head -1)
+  if [ -n "$MIRROR" ]; then
+    (cd "$MIRROR" && tar cf - .) | (cd $MERGED/collects && tar xf -)
+    echo "merged compiled mirror from $MIRROR"
+  else
+    echo "WARNING: no compiled mirror found — collects will compile on device"
+  fi
+  adb shell mkdir -p $STAGE/share/racket
+  adb push "$MERGED/collects" $STAGE/share/racket/ > /dev/null
+  [ -d "$RACKET/etc/racket" ] && adb push "$RACKET/etc/racket" $STAGE/etc/ > /dev/null
   # Sources only — the .zo in racket-lib/compiled are macOS-built (tarm64osx) and
   # Chez refuses them here with "incompatible fasl-object machine-type".
   for f in "$ROOT"/racket-lib/*.ss; do adb push "$f" $STAGE/fluxus-lib/ > /dev/null; done
 
   # mkdir first: getFilesDir() creates it lazily, and the app has not run yet.
-  adb shell "run-as $PKG sh -c 'mkdir -p files; rm -rf files/racket files/fluxus-lib; cp -r $STAGE/racket files/racket; cp -r $STAGE/fluxus-lib files/fluxus-lib; ls files'"
+  adb shell "run-as $PKG sh -c 'mkdir -p files; rm -rf files/lib files/share files/etc files/fluxus-lib; cp -r $STAGE/lib files/lib; cp -r $STAGE/share files/share; cp -r $STAGE/etc files/etc; cp -r $STAGE/fluxus-lib files/fluxus-lib; ls files'"
   adb shell rm -rf $STAGE
 fi
 
