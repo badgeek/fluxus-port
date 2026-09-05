@@ -424,7 +424,16 @@
 (define (msub2 . _) (void))
 (define (mdiv2 . _) (void))
 (define (pdata-names . _) (void)) ;; auto-stub
-(define (maim . _) (mident)) ;; simple stub (rare)
+;; (maim dir [up]) -> length-16 matrix aiming +x down dir, with up as the roll
+;; reference (engine dMatrix::aim). poly-tools' extrude-segment orients every
+;; cross-section with this — the old identity stub collapsed extrusions flat.
+(define _maim (cfun "flux_maim" (_fun _f64vector _f64vector _f64vector -> _void)
+                    (lambda (d u o) (void))))
+(define (maim dir (up (vector 0 1 0)))
+  (let ((o (make-f64vector 16 0.0)))
+    (_maim (vec->f64 dir) (vec->f64 up) o)
+    (let ((m (f64->vec o)))
+      (if (zero? (vector-ref m 15)) (mident) m)))) ;; standalone (no engine) -> identity
 
 ;; ---- quaternions (x y z w), consistent with the row-vector matrices above ---
 (define (qaxisangle axis angle)
