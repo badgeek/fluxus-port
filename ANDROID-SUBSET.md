@@ -73,6 +73,99 @@ Real bugs found and deliberately parked, not deferred features.
 - **The light path has no test.** No golden case uses `(make-light …)`, so the
   seam mapping in `Light.cpp` is verified by construction and compilation only.
 
+## The app around the engine (`spikes/android-racket-apk`)
+
+**Where the sketch comes from.** Not a string in the binary any more. On first
+launch the app seeds `<filesDir>/sketch.scm` and from then on that file is the
+sketch: `android_control.cpp` watches its mtime and serves a control port on
+127.0.0.1:8020 speaking the SAME line-JSON protocol as the desktop
+`app/ControlServer.cpp`, so the repo's own CLI drives the device.
+
+```sh
+adb forward tcp:8020 tcp:8020
+cli/fluxus load  examples/foo.scm
+cli/fluxus watch examples/foo.scm     # reload on every save
+```
+
+`load`, `eval`, `get` and `error` are served. `save` and `screenshot` are not:
+screenshot needs the PNG writer this build compiles out
+(`FLUXUS_MINIMAL_NO_PNG`). The seed file is never rewritten on upgrade — after
+the first launch the file is the user's.
+
+The server thread never calls the script engine. It writes a mutex-protected
+buffer that the GL thread drains in `nativeDraw`, the same rule the desktop
+audio and video hosts follow. `android.permission.INTERNET` is in the manifest
+because Android puts an app in the `inet` group only when it holds that
+permission — without it `socket()` fails with `EACCES` even for a loopback
+listener.
+
+**Touch.** Drag orbits, pinch dollies, double tap resets. The gesture feeds
+`flux_camera_drag` / `flux_camera_zoom` / `flux_camera_reset` — the same orbit
+state the desktop mouse drives — and `flux_camera_finalize()` runs after the
+eval, where `FluxusScene::renderFrame` runs it, because the sketch's own
+`(clear)` replaces the camera.
+
+This spike previously built its own view matrix and pushed it with
+`backend.loadMatrix`. That never had any effect: `Renderer::PreRender` applies
+`Camera`'s matrix afterwards, so the hand-rolled orbit was silently overwritten
+and the view sat at the engine default the whole time. It is the same mistake as
+`setResolution` / `SetClearFrame` / `SetSceneInfo` — **drive `Renderer`, do not
+stand in for it** — and it stayed invisible because a fixed camera looks like a
+working one.
+
+Verified by measurement on the emulator: drag changes the view, and two resets
+land on the same pixels. **Pinch is reasoning, not measurement** — `adb shell
+input` has no multitouch, and raw `sendevent` did not reach the app even as
+root, so the two-finger branch has never actually run.
+
+**Runtime size — the trim is small, and that is the finding.** 88 MB extracted /
+29,217,455 B APK, now **85 MB / 27,390,639 B**: 3 MB off the device, 1.8 MB off
+the APK, 6%. `build.sh` removes whole collections nothing loads; `TRIM=0` ships
+the tree whole, which is the first thing to try when a module goes missing at
+runtime, and the build's smoke test waits for `Racket ready` in logcat because a
+trim can only fail there.
+
+Both cuts that would have mattered were tried and rejected on measurement:
+
+- **The `.rkt` sources (8.6 MB)**, with `compiled/<name>_rkt.zo` sitting right
+  beside them — the shape `raco pkg install --binary` ships. The embedded boot
+  opens the source itself, `.zo` or not: `open-input-file: cannot open module
+  file; module path: racket/base`. Dead before the first frame.
+- **The `.dep` files (2.6 MB)**, the compilation manager's dependency records.
+  Nothing recompiles collects on the device, so they look like pure waste — but
+  without them the manager cannot prove the tree is up to date, and the
+  fluxus-lib compile pass on first launch goes **1.1 s → 17.6 s**.
+
+Which collections are safe is derived, not guessed:
+`racket spikes/android-racket-apk/collections-used.rkt` wraps the load handler
+and requires what the host requires. Guessing failed twice — `pkg` and `planet`
+look removable but `compiler/cm` reaches `pkg/path`, and `xml` is reached only by
+`collada-import.ss`, a file nothing requires but the compile pass still compiles,
+so it is invisible both to a grep and to requiring the library entry point.
+
+What remains is not app data: **50 MB is Chez's three `.boot` files** and ~35 MB
+is collects Racket genuinely opens. Shrinking either needs a different Racket
+build, not a different packaging step. The `.so` is 2.0 MB and strips to 1.7 MB —
+not taken, because every `flux_*` command is resolved by `dlsym` at runtime and
+300 kB is not worth reasoning about the dynamic symbol table (see the
+whole-archive note in `CLAUDE.md`).
+
+**Two traps this uncovered, both now fixed in the spike:**
+
+- **Extraction used to merge.** Unzipping the runtime over the old tree only
+  adds and overwrites, so a file the new runtime no longer ships stayed behind.
+  A trimmed runtime therefore tested **green on an upgrade and died on a clean
+  install** — the upgrade was still running the deleted files. `MainActivity`
+  now wipes `lib/ share/ etc/ fluxus-lib/` before extracting (never
+  `sketch.scm`, which is the user's). Any measurement of a runtime change made
+  with `adb install -r` and no wipe is worthless.
+- **Racket's output had nowhere to go.** Android gives an app no console, so a
+  Racket error — the one line that says what is actually wrong — went to
+  `/dev/null` and a failed boot looked like a hang. `pumpStdioToLog()` pipes
+  stdout and stderr into logcat under the tag `fluxus-racket`, line-buffered
+  (Racket's stdout is block-buffered and the embedded process exits without
+  unwinding). Every diagnosis above came from that one change.
+
 ## Deferred — not supported on Android, with the reason
 
 Not "hard", but genuinely absent from GLES or requiring a rewrite. A sketch using

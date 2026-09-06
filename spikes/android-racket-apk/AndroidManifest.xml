@@ -1,14 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later
-     No debuggable flag and no permissions: the Racket runtime rides inside the
-     APK as a compressed asset and is extracted to the app's files directory on
-     first launch, so this installs and runs on any arm64 device without adb. -->
+     No debuggable flag: the Racket runtime rides inside the APK as a compressed
+     asset and is extracted to the app's files directory on first launch, so this
+     installs and runs on any arm64 device without adb.
+
+     INTERNET is here for one reason: Android puts an app in the `inet` group
+     only when it holds this permission, and without it socket() fails with
+     EACCES — even for a listener bound to 127.0.0.1. The live-coding control
+     port is loopback-only and reached through `adb forward`; nothing here
+     dials out. It is a normal permission, granted at install with no prompt. -->
+
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="cc.fluxus.racket"
     android:versionCode="1"
     android:versionName="0.1">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35" />
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-feature android:glEsVersion="0x00030000" android:required="true" />
 
     <application android:label="Fluxus Racket" android:hasCode="true">

@@ -5,6 +5,8 @@ import android.app.Activity;
 import android.opengl.GLSurfaceView;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.MotionEvent;
+import android.view.View;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -25,6 +27,8 @@ public class MainActivity extends Activity {
     private static native void nativeInit(String racketRoot);
     private static native void nativeResize(int w, int h);
     private static native void nativeDraw();
+    private static native void nativeTouch(int action, int pointers,
+                                           float x0, float y0, float x1, float y1);
 
     private GLSurfaceView view;
 
@@ -39,12 +43,28 @@ public class MainActivity extends Activity {
     private static final String RUNTIME_ASSET = "runtime.zip";
     private static final String MARKER = ".runtime-" + BuildId.ID;
 
+    private static void deleteTree(File f) {
+        File[] kids = f.listFiles();
+        if (kids != null) for (File k : kids) deleteTree(k);
+        f.delete();
+    }
+
     private void extractRuntimeIfNeeded(File filesDir) {
         File marker = new File(filesDir, MARKER);
         if (marker.exists()) return;
 
         long t0 = System.currentTimeMillis();
         Log.i("fluxus", "extracting the Racket runtime (first launch)...");
+        // Wipe the old tree first. Unzipping over it only ADDS and OVERWRITES,
+        // so a file the new runtime no longer ships stays behind — which made a
+        // trimmed runtime test green on an upgrade and crash on a clean
+        // install, because the upgrade was still running the old files.
+        // sketch.scm is deliberately not in this list: it is the user's.
+        for (String dir : new String[] { "lib", "share", "etc", "fluxus-lib" })
+            deleteTree(new File(filesDir, dir));
+        File[] old = filesDir.listFiles();
+        if (old != null) for (File f : old)
+            if (f.getName().startsWith(".runtime-")) f.delete();
         try (InputStream raw = getAssets().open(RUNTIME_ASSET);
              ZipInputStream zin = new ZipInputStream(raw)) {
             byte[] buf = new byte[64 * 1024];
@@ -80,6 +100,42 @@ public class MainActivity extends Activity {
             public void onSurfaceCreated(GL10 gl, EGLConfig cfg) { nativeInit(root); }
             public void onSurfaceChanged(GL10 gl, int w, int h)  { nativeResize(w, h); }
             public void onDrawFrame(GL10 gl)                      { nativeDraw(); }
+        });
+        // Drag to orbit, pinch to zoom. The gesture arithmetic is on the native
+        // side; this only classifies the event and forwards the coordinates, so
+        // there is one place to change how the camera responds.
+        view.setOnTouchListener(new View.OnTouchListener() {
+            private long lastDown = 0;
+
+            public boolean onTouch(View v, MotionEvent e) {
+                int action;
+                switch (e.getActionMasked()) {
+                    case MotionEvent.ACTION_MOVE:
+                        action = 1; break;
+                    case MotionEvent.ACTION_DOWN: {
+                        // Double tap resets the camera. There is no other way
+                        // back once you have orbited off into nothing, and no
+                        // UI to put a button on.
+                        long now = e.getEventTime();
+                        boolean twice = now - lastDown < 300;
+                        lastDown = now;
+                        if (twice) { nativeTouch(3, 0, 0f, 0f, 0f, 0f); return true; }
+                        action = 0; break;
+                    }
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        action = 2; break;
+                    default:
+                        // DOWN, POINTER_DOWN, POINTER_UP: the finger count is
+                        // about to change, so the native side rebases instead
+                        // of reading the jump as a drag.
+                        action = 0; break;
+                }
+                int n = e.getPointerCount();
+                float x1 = n > 1 ? e.getX(1) : 0f, y1 = n > 1 ? e.getY(1) : 0f;
+                nativeTouch(action, n, e.getX(0), e.getY(0), x1, y1);
+                return true;
+            }
         });
         setContentView(view);
     }

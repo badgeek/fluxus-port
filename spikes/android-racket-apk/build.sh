@@ -71,9 +71,10 @@ for f in FluxusCommandsCore FluxusCommandsPdata FluxusCommandsMaths \
          FluxusCommandsGpu RacketScriptHost; do
   compile "$ROOT/app/$f.cpp" app
 done
-compile "$GLUE/android_stubs.cpp" app
-compile "$CUBE/GLESBackend.cpp"   app
-compile "$HERE/jni_racket.cpp"    app
+compile "$GLUE/android_stubs.cpp"   app
+compile "$CUBE/GLESBackend.cpp"     app
+compile "$HERE/android_control.cpp" app
+compile "$HERE/jni_racket.cpp"      app
 
 "$CXX" -shared -o "$OUT/lib/arm64-v8a/libfluxusracket.so" $OBJS \
     "$RACKET/lib/libracketcs.a" -lEGL -lGLESv3 -lm -lz -ldl -llog \
@@ -112,6 +113,53 @@ if [ -n "$MIRROR" ]; then
 else
   echo "WARNING: no compiled mirror — collects would compile on device"
 fi
+
+# Trim the collects tree. TRIM=0 ships it whole — the first thing to try when a
+# module goes missing at runtime, since that tells you in one build whether the
+# trim is to blame.
+#
+# The trim is SMALL, and that is the finding, not a shortcut. Two cuts that
+# looked far bigger were both measured and both rejected:
+#
+#   the .rkt sources (8.6 MB), where compiled/<name>_rkt.zo sits right beside
+#   them — the shape `raco pkg install --binary` ships. Not here: the embedded
+#   boot opens the source itself, .zo present or not, and the device dies with
+#     open-input-file: cannot open module file
+#       module path: racket/base
+#       path: .../share/racket/collects/racket/base.rkt
+#
+#   the .dep files (2.6 MB), the compilation manager's dependency records.
+#   Nothing recompiles collects on the device, so they look like dead weight —
+#   but without them the manager cannot prove the tree is up to date, and the
+#   fluxus-lib compile pass on first launch goes from 1.1 s to 17.6 s. Saving
+#   2.6 MB by adding 16 seconds is not a trade worth making.
+#
+# What is left is whole collections nothing loads. They are only ever loaded on
+# demand, so removing one is invisible until something requires it — which is
+# what the smoke test at the end of this script is for.
+if [ "${TRIM:-1}" = "1" ]; then
+  C="$STAGE/share/racket/collects"
+  before=$(du -sk "$C" | cut -f1)
+
+  # Disjoint from what `racket spikes/android-racket-apk/collections-used.rkt`
+  # reports: network, database, serialisation, and the machinery for BUILDING
+  # Racket programs. A sketch that (require)s one of these will not find it.
+  #
+  # Guessing does not work here, twice over. `pkg` and `planet` look every bit
+  # as removable and are not — compiler/cm reaches pkg/path. And `xml` is
+  # reached only by collada-import.ss, a file nothing requires but the compile
+  # pass still compiles, so it is invisible to both a grep and a require of the
+  # library entry point. Re-run collections-used.rkt after changing what the
+  # host or racket-lib requires.
+  for c in db openssl net json data launcher dynext raco acks \
+           readline scribble tests; do
+    rm -rf "$C/$c"
+  done
+
+  after=$(du -sk "$C" | cut -f1)
+  echo "collects trimmed: ${before} KB -> ${after} KB"
+fi
+
 [ -d "$RACKET/etc/racket" ] && cp -R "$RACKET/etc/racket" "$STAGE/etc/"
 # Sources only: the .zo in racket-lib/compiled are macOS-built (tarm64osx) and
 # Chez refuses them here with "incompatible fasl-object machine-type".
@@ -143,4 +191,33 @@ echo "built: $OUT/fluxus-racket.apk"
 adb install -r "$OUT/fluxus-racket.apk" 2>/dev/null || {
   adb uninstall $PKG >/dev/null 2>&1; adb install "$OUT/fluxus-racket.apk"; }
 
+# Clear the log BEFORE launching, or the smoke test below happily matches the
+# "Racket ready" from the previous run and reports a broken build as good.
+adb logcat -c
 adb shell am start -n $PKG/.MainActivity
+
+# Live coding from the host. The app's control port is loopback-only on the
+# device; this is what reaches it. Same protocol as the desktop app, so the
+# repo's own CLI drives the phone:
+#
+#   cli/fluxus load  examples/foo.scm
+#   cli/fluxus watch examples/foo.scm     # reload on every save
+#   cli/fluxus get                        # what is running now
+CTLPORT=${FLUXUS_CONTROL_PORT:-8020}
+adb forward tcp:$CTLPORT tcp:$CTLPORT >/dev/null && \
+  echo "control port forwarded: 127.0.0.1:$CTLPORT — try 'cli/fluxus get'"
+
+# Smoke test. Worth the wait because the collects trim above can only fail at
+# RUNTIME, when something requires a collection that is no longer there — and it
+# fails as a Racket error in logcat, not as a build error.
+echo "--- waiting for the runtime ---"
+i=0
+while [ $i -lt 40 ]; do
+  if adb logcat -d -s fluxus 2>/dev/null | grep -q "Racket ready"; then
+    adb logcat -d -s fluxus | grep -E "boot |Racket ready" | tail -6
+    exit 0
+  fi
+  i=$((i + 1)); sleep 1
+done
+echo "TIMEOUT: no 'Racket ready' in 40 s — check 'adb logcat -s fluxus', and try TRIM=0"
+exit 1
