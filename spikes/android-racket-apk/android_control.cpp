@@ -29,7 +29,9 @@ std::string g_source;       // what is running (or about to)
 std::string g_error;        // last eval error, "" = ok
 bool        g_dirty = false;
 std::string g_path;
-time_t      g_mtime = 0;    // last mtime we have already taken
+time_t      g_mtime = 0;    // last mtime we have already taken — guarded by g_m,
+                            // because the on-device editor writes it from the UI
+                            // thread and the watcher reads it from its own
 
 void setSource(const std::string& s) {
   std::lock_guard<std::mutex> lk(g_m);
@@ -145,6 +147,19 @@ time_t mtimeOf(const std::string& path) {
   return ::stat(path.c_str(), &st) == 0 ? st.st_mtime : 0;
 }
 
+// New source, wherever it came from: the control port, the on-device editor, or
+// the file watcher's own read-back. Persisting here is what makes a sketch sent
+// over the wire survive a restart; refreshing the remembered mtime is what stops
+// the watcher reading our own write back as an external change.
+void applyAndPersist(const std::string& code) {
+  setSource(code);
+  if (g_path.empty()) return;
+  if (writeFile(g_path, code)) {
+    std::lock_guard<std::mutex> lk(g_m);
+    g_mtime = mtimeOf(g_path);
+  }
+}
+
 // --- serving ----------------------------------------------------------------
 
 bool readLine(int fd, std::string& out) {
@@ -170,11 +185,7 @@ void handle(int fd) {
   if (cmd == "load" || cmd == "eval") {
     std::string code;
     if (!jsonString(line, "code", code)) jsonString(line, "source", code);
-    setSource(code);
-    // Persist, so a sketch sent over the wire is still there after a restart —
-    // and remember the mtime we just made, or the watcher would read its own
-    // write back as a change.
-    if (!g_path.empty() && writeFile(g_path, code)) g_mtime = mtimeOf(g_path);
+    applyAndPersist(code);
     // Give the GL thread a few frames to evaluate, then report what happened.
     // The desktop server does the same for the same reason.
     std::this_thread::sleep_for(std::chrono::milliseconds(250));
@@ -228,13 +239,15 @@ void run(int port) {
     }
     if (!g_path.empty()) {
       const time_t m = mtimeOf(g_path);
-      if (m != 0 && m != g_mtime) {
-        g_mtime = m;
-        std::string src;
-        if (readFile(g_path, src)) {
-          LOG("control: %s changed — reloading", g_path.c_str());
-          setSource(src);
-        }
+      bool changed = false;
+      {
+        std::lock_guard<std::mutex> lk(g_m);
+        if (m != 0 && m != g_mtime) { g_mtime = m; changed = true; }
+      }
+      std::string src;
+      if (changed && readFile(g_path, src)) {
+        LOG("control: %s changed — reloading", g_path.c_str());
+        setSource(src);
       }
     }
   }
@@ -260,6 +273,18 @@ bool poll(std::string& out) {
 void setError(const std::string& err) {
   std::lock_guard<std::mutex> lk(g_m);
   g_error = err;
+}
+
+void submit(const std::string& s) { applyAndPersist(s); }
+
+std::string source() {
+  std::lock_guard<std::mutex> lk(g_m);
+  return g_source;
+}
+
+std::string error() {
+  std::lock_guard<std::mutex> lk(g_m);
+  return g_error;
 }
 
 }  // namespace fluxctl

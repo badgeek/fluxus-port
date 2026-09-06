@@ -250,6 +250,26 @@ Java_cc_fluxus_racket_MainActivity_nativeTouch(JNIEnv*, jclass, jint action, jin
   g_g = Gesture { true, n, x0, y0, x1, y1 };
 }
 
+// The on-device editor, all three on the UI thread. They go through fluxctl
+// rather than touching g_sketch, so text typed on the phone takes exactly the
+// path a `cli/fluxus load` takes — one buffer, one write-through to sketch.scm,
+// one place where the GL thread picks it up.
+JNIEXPORT jstring JNICALL
+Java_cc_fluxus_racket_MainActivity_nativeGetSketch(JNIEnv* env, jclass) {
+  return env->NewStringUTF(fluxctl::source().c_str());
+}
+
+JNIEXPORT jstring JNICALL
+Java_cc_fluxus_racket_MainActivity_nativeGetError(JNIEnv* env, jclass) {
+  return env->NewStringUTF(fluxctl::error().c_str());
+}
+
+JNIEXPORT void JNICALL
+Java_cc_fluxus_racket_MainActivity_nativeSetSketch(JNIEnv* env, jclass, jstring src) {
+  const char* s = env->GetStringUTFChars(src, nullptr);
+  if (s) { fluxctl::submit(std::string(s)); env->ReleaseStringUTFChars(src, s); }
+}
+
 JNIEXPORT void JNICALL
 Java_cc_fluxus_racket_MainActivity_nativeDraw(JNIEnv*, jclass) {
   if (!g_ready) return;

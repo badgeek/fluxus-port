@@ -99,6 +99,35 @@ because Android puts an app in the `inet` group only when it holds that
 permission — without it `socket()` fails with `EACCES` even for a loopback
 listener.
 
+**The on-device editor is an Android `EditText`, not a port of either editor.**
+`</>` opens a panel over the left half — monospace, autocorrect off, `run` and
+`hide` — and `run` sends the text through `nativeSetSketch`, which is the *same*
+`fluxctl` buffer `cli/fluxus load` writes. Typing on the phone and loading from a
+laptop are one operation downstream, and the panel refills from that buffer every
+time it opens, so a sketch that arrived over the wire is what you edit.
+
+The choice is about the IME, not about text rendering. The hard part of editing
+on a phone is the soft keyboard, selection handles, clipboard; the platform has
+all of it. fluxus's own `GLEditor` would have meant porting `glGenLists` /
+`glCallList` and ~100 immediate-mode calls to GLES **and still having no
+keyboard** — it waits on physical key events. JUCE's `TextEditor` would have
+meant bringing JUCE into this APK.
+
+Two Android specifics, both of which looked like bugs first:
+
+- **In landscape the IME takes over the whole screen** with its own extracted
+  text box — sketch, scene and run button all replaced by a grey page with a
+  DONE button, the exact opposite of live coding. `IME_FLAG_NO_EXTRACT_UI |
+  IME_FLAG_NO_FULLSCREEN` on the editor keeps the keyboard docked.
+- **Tapping `run` moves focus to the button**, so the next keystroke goes
+  nowhere. `runSketch` calls `editor.requestFocus()`, because run-then-keep-
+  typing is the whole loop.
+
+Verified on the device: text typed with `adb shell input text` reaches the
+editor, `run` puts it in the buffer (`cli/fluxus get` reads it back), a bad form
+shows the full Racket error in red in the panel, focus survives the run, and
+orbit still works on the scene half and with the panel hidden.
+
 **Touch.** Drag orbits, pinch dollies, double tap resets. The gesture feeds
 `flux_camera_drag` / `flux_camera_zoom` / `flux_camera_reset` — the same orbit
 state the desktop mouse drives — and `flux_camera_finalize()` runs after the

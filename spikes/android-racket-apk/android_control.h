@@ -36,4 +36,11 @@ bool poll(std::string& out);
 // reply carries back.
 void setError(const std::string& err);
 
+// The on-device editor (UI thread). `submit` is exactly what a `load` over the
+// wire does — same buffer, same write-through to sketchPath — so a sketch typed
+// on the phone and one sent from a laptop are indistinguishable downstream.
+void        submit(const std::string& source);
+std::string source();
+std::string error();
+
 }  // namespace fluxctl
