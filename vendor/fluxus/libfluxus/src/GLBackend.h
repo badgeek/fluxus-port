@@ -36,6 +36,10 @@ struct GLBackend : public IRenderBackend {
   void setLightFloat(int index, Fluxus::RLightFloat which, float v) override;
   void setLightPosition(int index, const float* xyzw) override;
   void setLightSpotDirection(int index, const float* xyzw) override;
+
+  // Desktop textures through TexturePainter, independently of the seam — see
+  // the reasoning on IRenderBackend::setTexture. No-op here on purpose.
+  void setTexture(unsigned int) override {}
   void setProgramPointSize(bool on) override;
   void setFrontFaceCW(bool cw) override;
 

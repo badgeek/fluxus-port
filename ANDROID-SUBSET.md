@@ -195,6 +195,88 @@ whole-archive note in `CLAUDE.md`).
   (Racket's stdout is block-buffered and the embedded process exits without
   unwinding). Every diagnosis above came from that one change.
 
+## Model import (assimp) on Android — proven working, textured, animated
+
+`(load-model ...)` runs on Android now, not just macOS. astroBoy
+(`assets/models/astroboy/astroBoy_walk.dae` + `boy_10.tga`) loads, skins, and
+plays its walk cycle on-device, WITH its diffuse texture — verified visually on
+`emulator -avd fluxspike` (non-headless: helmet, goggles, and the
+orange/blue/yellow suit are all visibly textured, and two screenshots ~1.5 s
+apart show a different pose — the walk is actually animating, not frozen).
+
+**This required a real engine change, not just wiring.** `IRenderBackend` had no
+texture concept at all — confirmed by reading its full virtual list before
+touching anything: matrix/colour/material/lighting/fill-mode, no `setTexture`.
+`GLESBackend.h`'s own comment said so outright ("It has no textures"). Desktop
+textures bypass the seam entirely through `TexturePainter::Get()->SetCurrent()`
+(100% fixed-function GL — `glTexEnvi`, `glMatrixMode(GL_TEXTURE)` — which only
+"compiles" for Android because `GLCompatES.h` turns every call into a
+warn-once no-op). So this is the pattern from the top of this document showing
+up again: assimp itself needed zero Android-specific changes (its C++ has no
+JUCE dependency), but the RENDERER needed to grow a capability it never had,
+on either platform's seam.
+
+**What was added:**
+- `IRenderBackend::setTexture(unsigned id)` — new virtual, called from
+  `State::Apply()` right after `TexturePainter::SetCurrent`. `GLBackend`
+  implements it as a no-op (desktop already textures independently); it's pure
+  new work only on `GLESBackend`, which now carries a real sampler: an `aTex`
+  vertex attribute, a `uSampler`/`uUseTex` fragment pair, modulated with the
+  material/vertex colour (matching desktop's default `GL_MODULATE`). The wire
+  and legacy-capture draw paths still get `tex=nullptr` — they never carried UV
+  data on desktop either.
+- `flux_load_texture` / `flux_load_texture_mem` — these had **no Android
+  definition at all** before this (only the font/glyph atlas symbols were
+  stubbed). Desktop implements them with `juce::ImageFileFormat`, which cannot
+  read TGA (astroBoy's `boy_10.tga`) and isn't available in this JUCE-free APK
+  regardless. `spikes/racket-gles/android_texture.cpp` implements both with
+  `stb_image` (`vendor/stb/stb_image.h`, vendored fresh — TGA/PNG/JPEG), mirroring
+  `TextureLoader.cpp`'s upload convention exactly (RGBA8, vertical flip,
+  `GL_TEXTURE_BASE_LEVEL/MAX_LEVEL=0` so a non-mipmapped texture stays
+  sampler-complete — the same GPU gotcha as the particle FBOs).
+- `app/FluxusCommandsModel.cpp` compiled into the Android `.so` for the first
+  time (it was never in `spikes/android-racket-apk/build.sh`'s list). Needed
+  zero changes itself — every other symbol it calls was already there.
+- assimp itself: cross-built as a static lib for arm64-v8a with the NDK's own
+  CMake toolchain file (`android.toolchain.cmake`), `ANDROID_STL=c++_shared` to
+  match what this `.so` already links against, zlib resolved from the NDK
+  sysroot's own `libz.so`/`zlib.h`. `v6.0.5` to match the brew-installed
+  desktop version. Built with the full default importer set (not trimmed to
+  Collada-only) — proving the cross-compile end-to-end mattered more than a few
+  extra MB against an already-large runtime. Disposable in `/tmp`, same as the
+  `spikes/racket-android` Racket cross-build — not committed, referenced via
+  `ASSIMP_ANDROID` (defaults to `/tmp/assimp-android/install-android`, same
+  pattern as `RACKET_ANDROID`).
+- `racket-lib/*.ss` — **zero changes**. `fluxus-engine.ss` already had
+  failure-thunked bindings for every `flux_model_*` symbol, `model.ss` already
+  had `model-play`/`with-model`/`model-ok?`, and Android already ships
+  `racket-lib/*.ss` wholesale. Once the native symbols existed and linked, the
+  script layer just worked.
+
+**Gotcha discovered building this**: astroBoy's own units are tiny — `./build/
+model_test assets/models/astroboy/astroBoy_walk.dae` prints "a model 0.16
+across". The existing desktop examples' `(scale (vector 0.6 0.6 0.6))`
+convention (from `model-load.scm`, written for druid.gltf) is a per-model guess,
+not a rule — applied to astroBoy it rendered as an unrecognizable speck. Scale
+12 was what actually filled the frame. Compounding it, this Android spike's
+camera frustum is a narrow, close-in one (fixed half-extents, not a wide FOV),
+so small vertical `translate` adjustments swing the model off-frame far more
+easily than the desktop examples' cameras — don't assume a translate that looks
+small in world units is small on screen here.
+
+Cost: `libassimp.a` is 214 MB on disk before linking (every importer's object
+file, since `ImporterRegistry.cpp` references all of them from one TU — the
+same reason the desktop dylib is 9.4 MB with every importer statically
+resolved). The resulting `.so` is ~101 MB — big, but this is a spike proving
+the capability exists, not a size-optimized build; trimming to
+`ASSIMP_BUILD_COLLADA_IMPORTER`-only is a follow-up, not done here.
+
+**Known limitation, not fixed**: model import brought texturing to the solid
+draw path only. `(build-text)`'s font atlas and `(build-terminal)`'s glyph
+atlas are unchanged — those still return texture id 0 from `android_stubs.cpp`
+because they're baked with `juce::Graphics`, not decoded from a file, so
+`stb_image` doesn't help there.
+
 ## Deferred — not supported on Android, with the reason
 
 Not "hard", but genuinely absent from GLES or requiring a rewrite. A sketch using

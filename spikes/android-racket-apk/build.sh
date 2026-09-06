@@ -29,16 +29,23 @@ SRC="$ROOT/vendor/fluxus/libfluxus/src"
 CUBE="$ROOT/spikes/gles-cube"
 GLUE="$ROOT/spikes/racket-gles"
 RACKET=${RACKET_ANDROID:-/tmp/racket-android/install-android}
+ASSIMP=${ASSIMP_ANDROID:-/tmp/assimp-android/install-android}
 OUT=${OUT:-/tmp/fluxus-racket-apk}
 PKG=cc.fluxus.racket
 
 [ -f "$RACKET/lib/libracketcs.a" ] || {
   echo "no $RACKET/lib/libracketcs.a — see spikes/racket-android/README.md"; exit 1; }
+[ -f "$ASSIMP/lib/libassimp.a" ] || {
+  echo "no $ASSIMP/lib/libassimp.a — cross-build assimp for arm64-v8a with the NDK's"
+  echo "CMake toolchain file (android.toolchain.cmake), ANDROID_STL=c++_shared to"
+  echo "match the runtime this .so already links against, install to \$ASSIMP_ANDROID."
+  exit 1; }
 
 rm -rf "$OUT"; mkdir -p "$OUT/obj/engine" "$OUT/obj/vterm" "$OUT/obj/app" \
                         "$OUT/lib/arm64-v8a" "$OUT/classes" "$OUT/dex"
 
 INC="-I$SRC -I$ROOT/app -I$CUBE -I$ROOT/vendor/libvterm/include -I$RACKET/include/racket"
+INC="$INC -I$ASSIMP/include -I$ROOT/vendor/stb"
 # No RACKET_DIR baked in: the app calls RacketScriptHost::setRuntimeRoot with
 # its files directory at startup. The runtime is laid out under it exactly like
 # a macOS .app bundle — lib/racket, share/racket, etc/racket, fluxus-lib — so
@@ -68,15 +75,17 @@ done
 echo "--- flux_* + Racket host ---"
 for f in FluxusCommandsCore FluxusCommandsPdata FluxusCommandsMaths \
          FluxusCommandsTerminal FluxusCommandsInput FluxusCommandsFx \
-         FluxusCommandsGpu RacketScriptHost; do
+         FluxusCommandsGpu FluxusCommandsModel RacketScriptHost; do
   compile "$ROOT/app/$f.cpp" app
 done
 compile "$GLUE/android_stubs.cpp"   app
+compile "$GLUE/android_texture.cpp" app
 compile "$CUBE/GLESBackend.cpp"     app
 compile "$HERE/android_control.cpp" app
 compile "$HERE/jni_racket.cpp"      app
 
 "$CXX" -shared -o "$OUT/lib/arm64-v8a/libfluxusracket.so" $OBJS \
+    "$ASSIMP/lib/libassimp.a" \
     "$RACKET/lib/libracketcs.a" -lEGL -lGLESv3 -lm -lz -ldl -llog \
     -Wl,--export-dynamic
 cp "$NDK/toolchains/llvm/prebuilt/$HOSTTAG/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" \
@@ -164,6 +173,12 @@ fi
 # Sources only: the .zo in racket-lib/compiled are macOS-built (tarm64osx) and
 # Chez refuses them here with "incompatible fasl-object machine-type".
 cp "$ROOT"/racket-lib/*.ss "$STAGE/fluxus-lib/"
+
+# astroBoy test asset (assimp/model-load spike), same extract-once mechanism as
+# everything else above.
+mkdir -p "$STAGE/models/astroboy"
+cp "$ROOT/assets/models/astroboy/astroBoy_walk.dae" \
+   "$ROOT/assets/models/astroboy/boy_10.tga" "$STAGE/models/astroboy/"
 
 mkdir -p "$OUT/assets"
 (cd "$STAGE" && zip -q -r -9 "$OUT/assets/runtime.zip" .)

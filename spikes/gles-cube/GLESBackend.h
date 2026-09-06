@@ -6,7 +6,9 @@
 // explicit here: the matrix stack, lighting, quad splitting, and wireframe.
 //
 // This is spike code: enough to render and judge a picture, not a finished
-// backend. It has no textures, one hard-coded light, and no state sorting.
+// backend. It has one hard-coded light and no state sorting. It now has a
+// texture: one diffuse sampler, modulated with the material/vertex colour —
+// the wire and legacy-capture paths never had UV data and stay untextured.
 
 #include "RenderBackend.h"
 
@@ -66,12 +68,15 @@ class GLESBackend : public Fluxus::IRenderBackend {
   void setLightFloat(int, Fluxus::RLightFloat, float) override {}
   void setLightPosition(int, const float*) override {}
   void setLightSpotDirection(int, const float*) override {}
+  void setTexture(unsigned int id) override { curTex = id; }
   void drawArrays(Fluxus::RPrim prim, const Fluxus::RVertexArrays& v, int count,
                   const unsigned int* index, int indexCount) override;
 
   // Used by the legacy-capture path for the engine's raw wire/points passes.
+  // tex is nullptr there — LegacyGL never carries UV data, and the wire/points
+  // passes ignore texture on desktop too (see CLAUDE.md's model-import notes).
   void drawRaw(unsigned legacyMode, const void* pos, int posStride,
-               const void* nrm, const void* col, int count,
+               const void* nrm, const void* tex, const void* col, int count,
                const unsigned int* index, int indexCount, bool asLines);
 
  private:
@@ -80,8 +85,10 @@ class GLESBackend : public Fluxus::IRenderBackend {
   // the shim's view of GL rather than the real one.
   unsigned program = 0;
   unsigned vbo = 0, ibo = 0;
-  int    aPos = -1, aNrm = -1, aCol = -1;
+  int    aPos = -1, aNrm = -1, aCol = -1, aTex = -1;
   int    uMVP = -1, uMV = -1, uColour = -1, uUseVertCol = -1, uUnlit = -1;
+  int    uSampler = -1, uUseTex = -1;
+  unsigned curTex = 0;   // 0 == untextured, set via setTexture from State::Apply
 
   std::vector<float> stack;          // 16 floats per level, top() is current
   float proj[16];

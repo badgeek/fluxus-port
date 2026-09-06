@@ -119,6 +119,7 @@ void State::Apply()
 		glDepthMask(false);
 
 	TexturePainter::Get()->SetCurrent(Textures,TextureStates);
+	Backend()->setTexture(Textures[0]);
 
 	if (Shader != NULL)
 	{

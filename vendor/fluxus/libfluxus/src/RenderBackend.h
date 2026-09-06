@@ -113,6 +113,14 @@ struct IRenderBackend {
   virtual void setLightPosition(int index, const float* xyzw) = 0;
   virtual void setLightSpotDirection(int index, const float* xyzw) = 0;
 
+  // fluxus->JUCE port: the diffuse texture for the NEXT draws, id 0 = none.
+  // Desktop textures independently of the seam (TexturePainter is 100%
+  // fixed-function GL — glTexEnvi, glMatrixMode(GL_TEXTURE) — and only compiles
+  // for Android because GLCompatES turns those calls into no-ops). A shader
+  // backend has no such fallback: it has to bind the id itself and sample it in
+  // the fragment shader, so the seam has to say which id is current.
+  virtual void setTexture(unsigned int id) = 0;
+
   // geometry (index/indexCount optional: index==nullptr => glDrawArrays-style)
   virtual void drawArrays(RPrim prim, const RVertexArrays& v, int count,
                           const unsigned int* index, int indexCount) = 0;

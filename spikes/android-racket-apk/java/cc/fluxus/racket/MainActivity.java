@@ -79,7 +79,7 @@ public class MainActivity extends Activity {
         // trimmed runtime test green on an upgrade and crash on a clean
         // install, because the upgrade was still running the old files.
         // sketch.scm is deliberately not in this list: it is the user's.
-        for (String dir : new String[] { "lib", "share", "etc", "fluxus-lib" })
+        for (String dir : new String[] { "lib", "share", "etc", "fluxus-lib", "models" })
             deleteTree(new File(filesDir, dir));
         File[] old = filesDir.listFiles();
         if (old != null) for (File f : old)

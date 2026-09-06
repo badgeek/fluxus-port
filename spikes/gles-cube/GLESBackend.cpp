@@ -21,13 +21,16 @@ const char* kVert =
     "attribute vec3 aPos;\n"
     "attribute vec3 aNrm;\n"
     "attribute vec4 aCol;\n"
+    "attribute vec3 aTex;\n"
     "uniform mat4 uMVP;\n"
     "uniform mat4 uMV;\n"
     "varying vec3 vNrm;\n"
     "varying vec4 vCol;\n"
+    "varying vec2 vTex;\n"
     "void main() {\n"
     "  vNrm = mat3(uMV[0].xyz, uMV[1].xyz, uMV[2].xyz) * aNrm;\n"
     "  vCol = aCol;\n"
+    "  vTex = aTex.xy;\n"
     "  gl_Position = uMVP * vec4(aPos, 1.0);\n"
     "  gl_PointSize = 4.0;\n"
     "}\n";
@@ -41,10 +44,17 @@ const char* kFrag =
     "uniform vec4  uColour;\n"
     "uniform float uUseVertCol;\n"
     "uniform float uUnlit;\n"
+    "uniform sampler2D uSampler;\n"
+    "uniform float uUseTex;\n"
     "varying vec3  vNrm;\n"
     "varying vec4  vCol;\n"
+    "varying vec2  vTex;\n"
     "void main() {\n"
     "  vec4 base = mix(uColour, vCol, uUseVertCol);\n"
+    // Modulate, matching desktop's default texture-env (GL_MODULATE): the
+    // diffuse image tints the material/vertex colour rather than replacing it.
+    "  vec3 texRgb = texture2D(uSampler, vTex).rgb;\n"
+    "  base.rgb = mix(base.rgb, base.rgb * texRgb, uUseTex);\n"
     "  vec3 n = normalize(vNrm);\n"
     "  float d = max(dot(n, normalize(vec3(0.3, 0.5, 1.0))), 0.0);\n"
     "  vec3 lit = base.rgb * (0.25 + 0.75 * d);\n"
@@ -100,11 +110,14 @@ bool GLESBackend::init() {
   aPos = glGetAttribLocation(program, "aPos");
   aNrm = glGetAttribLocation(program, "aNrm");
   aCol = glGetAttribLocation(program, "aCol");
+  aTex = glGetAttribLocation(program, "aTex");
   uMVP = glGetUniformLocation(program, "uMVP");
   uMV  = glGetUniformLocation(program, "uMV");
   uColour     = glGetUniformLocation(program, "uColour");
   uUseVertCol = glGetUniformLocation(program, "uUseVertCol");
   uUnlit      = glGetUniformLocation(program, "uUnlit");
+  uSampler    = glGetUniformLocation(program, "uSampler");
+  uUseTex     = glGetUniformLocation(program, "uUseTex");
 
   glGenBuffers(1, &vbo);
   glGenBuffers(1, &ibo);
@@ -178,6 +191,12 @@ void GLESBackend::applyUniforms() {
   glUniformMatrix4fv(uMV,  1, GL_FALSE, mv);
   glUniform4fv(uColour, 1, colour);
   glUniform1f(uUnlit, unlit ? 1.0f : 0.0f);
+  glUniform1f(uUseTex, curTex ? 1.0f : 0.0f);
+  if (curTex) {
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, curTex);
+    glUniform1i(uSampler, 0);
+  }
 }
 
 // --- geometry ---------------------------------------------------------------
@@ -199,13 +218,13 @@ void GLESBackend::drawArrays(RPrim prim, const RVertexArrays& v, int count,
   // No uniform writes here: nothing has bound the program yet, and a uniform
   // set with no current program is GL_INVALID_OPERATION. drawRaw sets it right
   // after applyUniforms().
-  drawRaw(legacy, v.pos, v.stride, v.nrm, v.col, count, index, indexCount, asLines);
+  drawRaw(legacy, v.pos, v.stride, v.nrm, v.tex, v.col, count, index, indexCount, asLines);
 }
 
 // The one routine that matters. GLES has neither GL_QUADS/GL_POLYGON nor
 // glPolygonMode, so both are resolved here into index buffers.
 void GLESBackend::drawRaw(unsigned legacyMode, const void* pos, int posStride,
-                          const void* nrm, const void* col, int count,
+                          const void* nrm, const void* tex, const void* col, int count,
                           const unsigned int* index, int indexCount,
                           bool asLines) {
   if (!pos) return;
@@ -229,10 +248,10 @@ void GLESBackend::drawRaw(unsigned legacyMode, const void* pos, int posStride,
   glEnableVertexAttribArray(aPos);
   glVertexAttribPointer(aPos, 3, GL_FLOAT, GL_FALSE, stride, (void*) 0);
 
-  // Normals and colours live in their own arrays; upload each into its own
-  // region rather than juggling several buffers.
-  static unsigned nrmVbo = 0, colVbo = 0;
-  if (!nrmVbo) { glGenBuffers(1, &nrmVbo); glGenBuffers(1, &colVbo); }
+  // Normals, texcoords and colours live in their own arrays; upload each into
+  // its own region rather than juggling several buffers.
+  static unsigned nrmVbo = 0, colVbo = 0, texVbo = 0;
+  if (!nrmVbo) { glGenBuffers(1, &nrmVbo); glGenBuffers(1, &colVbo); glGenBuffers(1, &texVbo); }
   if (nrm) {
     glBindBuffer(GL_ARRAY_BUFFER, nrmVbo);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) verts * stride, nrm, GL_STREAM_DRAW);
@@ -241,6 +260,15 @@ void GLESBackend::drawRaw(unsigned legacyMode, const void* pos, int posStride,
   } else {
     glDisableVertexAttribArray(aNrm);
     glVertexAttrib3f(aNrm, 0, 0, 1);
+  }
+  if (tex && aTex >= 0) {
+    glBindBuffer(GL_ARRAY_BUFFER, texVbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) verts * stride, tex, GL_STREAM_DRAW);
+    glEnableVertexAttribArray(aTex);
+    glVertexAttribPointer(aTex, 3, GL_FLOAT, GL_FALSE, stride, (void*) 0);
+  } else if (aTex >= 0) {
+    glDisableVertexAttribArray(aTex);
+    glVertexAttrib3f(aTex, 0, 0, 0);
   }
   if (col) {
     glBindBuffer(GL_ARRAY_BUFFER, colVbo);
@@ -352,7 +380,7 @@ void legacyDraw(unsigned mode, int first, int count) {
   if (!g_backend || first != 0) return;
   const LegacyGL& g = legacy();
   g_backend->setColour(g.colour[0], g.colour[1], g.colour[2], g.colour[3]);
-  g_backend->drawRaw(mode, g.pos, g.posStride, g.nrm, g.col, count, nullptr, 0,
+  g_backend->drawRaw(mode, g.pos, g.posStride, g.nrm, nullptr, g.col, count, nullptr, 0,
                      g.polygonMode == kLineMode);
 }
 
@@ -360,7 +388,7 @@ void legacyDrawElements(unsigned mode, int count, unsigned, const void* idx) {
   if (!g_backend) return;
   const LegacyGL& g = legacy();
   g_backend->setColour(g.colour[0], g.colour[1], g.colour[2], g.colour[3]);
-  g_backend->drawRaw(mode, g.pos, g.posStride, g.nrm, g.col, 0,
+  g_backend->drawRaw(mode, g.pos, g.posStride, g.nrm, nullptr, g.col, 0,
                      (const unsigned int*) idx, count,
                      g.polygonMode == kLineMode);
 }
